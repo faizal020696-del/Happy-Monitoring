@@ -68,7 +68,7 @@ st.markdown("""
 st.markdown("""
     <div class="main-header">
         <h1>🤖 Chatbot Universe SPV Happy</h1>
-        <p>Tanyakan apa saja terkait data universe, performa sales, hingga status transaksi.</p>
+        <p>Tanyakan apa saja terkait data universe kalian.</p>
     </div>
 """, unsafe_allow_html=True)
 
