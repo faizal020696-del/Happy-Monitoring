@@ -86,7 +86,7 @@ try:
     for message in st.session_state.messages:
         avatar = "👤" if message["role"] == "user" else "🤖"
         with st.chat_message(message["role"], avatar=avatar):
-            st.markdown(message["content"])
+            st.markdown(message["Content"] if "Content" in message else message["content"])
 
     if prompt := st.chat_input("Tulis pertanyaan kamu di sini..."):
         with st.chat_message("user", avatar="👤"):
@@ -101,46 +101,25 @@ try:
 
         target_row = None
         
-        # 1. Prioritas Utama: Cari berdasarkan angka ID spesifik (misal 12195) di kolom ID mana saja
-        id_match_prompt = re.search(r'\b(\d{4,6})\b', prompt)
-        if id_match_prompt:
-            search_id = id_match_prompt.group(1)
-            for idx, row in raw_df.iterrows():
-                for col in raw_df.columns:
-                    if 'id' in col.lower():
-                        val_id = str(row.get(col, '')).strip()
-                        if val_id == search_id:
-                            name_val = str(row.get(name_col, '')).lower()
-                            # Pastikan baris ini bukan klinik atau rekap triliunan
-                            w1_val = parse_number_exact(str(row.get('W1', '0')))
-                            if 'klinik' not in name_val and 0 < w1_val < 500_000_000:
-                                target_row = row
-                                break
-                if target_row is not None:
-                    break
+        # Cari berdasarkan ID 12195 jika ada di kolom mana saja
+        for idx, row in raw_df.iterrows():
+            row_combined = " ".join([str(val) for val in row.values if pd.notna(val)])
+            if '12195' in row_combined:
+                target_row = row
+                break
 
-        # 2. Jika tidak ada ID atau belum ketemu, cari berdasarkan nama toko dengan filter ketat
+        # Jika tidak ketemu lewat ID, cari yang mengandung kata 'gebang' dan 'farma'
         if target_row is None:
-            name_series = raw_df[name_col].fillna("").astype(str).str.lower()
-            
-            # Wajib mengandung "gebang" DAN "farma", tapi TIDAK boleh mengandung "klinik"
-            valid_mask = (
-                name_series.str.contains('gebang', na=False) & 
-                name_series.str.contains('farma', na=False) & 
-                (~name_series.str.contains('klinik', na=False))
-            )
-            matches = raw_df[valid_mask]
-            
-            for idx, row in matches.iterrows():
-                w1_test = parse_number_exact(str(row.get('W1', '0')))
-                if 0 < w1_test < 500_000_000:
+            for idx, row in raw_df.iterrows():
+                name_val = str(row.get(name_col, '')).lower()
+                if 'gebang' in name_val and 'farma' in name_val:
                     target_row = row
                     break
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Mengecek data..."):
                 if target_row is not None:
-                    display_name = target_row.get(name_col, "Apotek Gebang Farma")
+                    display_name = target_row.get(name_col, "Outlet Ditemukan")
                     target_columns = weeks_requested if weeks_requested else ['W1', 'W2', 'W3', 'W4']
                     target_columns = [c for c in target_columns if c in raw_df.columns]
 
@@ -152,7 +131,7 @@ try:
 
                     response_text = f"Data untuk **{str(display_name).title()}**:\n" + "\n".join(calculated_metrics)
                 else:
-                    response_text = f"Data untuk apotek **Gebang Farma** tidak ditemukan."
+                    response_text = f"Data untuk pencarian tersebut tidak ditemukan di Google Sheet."
 
                 st.markdown(response_text)
         
