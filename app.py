@@ -3,6 +3,7 @@ import pandas as pd
 import re
 import io
 import requests
+from rapidfuzz import process, fuzz
 
 SHEET_URL = st.secrets.get("SHEET_URL", "")
 
@@ -197,19 +198,26 @@ try:
                         break
 
             if target_row is None:
-                outlet_query_words = [w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in command_words]
-                if outlet_query_words:
-                    name_series = raw_df[name_col].fillna("").astype(str).str.lower()
-                    scores = []
-                    for idx, name_val in name_series.items():
-                        score = sum(1 for qw in outlet_query_words if qw in name_val)
-                        if all(qw in name_val for qw in outlet_query_words):
-                            score += 10
-                        scores.append((score, idx))
-                    scores.sort(key=lambda x: x[0], reverse=True)
-                    best_score, best_idx = scores[0]
-                    if best_score > 0:
-                        target_row = raw_df.loc[best_idx]
+                # Membersihkan prompt dari command words untuk mendapatkan query nama apotek yang bersih
+                query_words = [w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in command_words]
+                cleaned_outlet_query = " ".join(query_words).strip()
+                
+                if cleaned_outlet_query:
+                    # Mengambil seluruh list nama outlet dari dataframe
+                    outlet_names = raw_df[name_col].fillna("").astype(str).tolist()
+                    
+                    # Menggunakan RapidFuzz untuk mencari kecocokan terbaik (score tertinggi)
+                    best_match = process.extractOne(
+                        cleaned_outlet_query, 
+                        outlet_names, 
+                        scorer=fuzz.WRatio
+                    )
+                    
+                    # Jika tingkat kemiripan di atas batas aman (misal > 55%), ambil baris tersebut
+                    if best_match and best_match[1] >= 55:
+                        matched_name_in_df = best_match[0]
+                        matched_idx = raw_df[raw_df[name_col].astype(str) == matched_name_in_df].index[0]
+                        target_row = raw_df.loc[matched_idx]
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Mengecek data..."):
@@ -295,7 +303,6 @@ try:
                                 else:
                                     val_formatted = val_metric
 
-                                # Bersihkan nama kolom agar bersih dari embel-embel berulang
                                 clean_label = col
                                 for remove_word in ['misi reguler', 'gold misi']:
                                     clean_label = re.sub(re.escape(remove_word), '', clean_label, flags=re.IGNORECASE).strip()
@@ -314,7 +321,7 @@ try:
                             
                             if gold_metrics:
                                 if reguler_metrics:
-                                    calculated_metrics.append("") # Spasi pemisah rapi
+                                    calculated_metrics.append("") 
                                 calculated_metrics.append("🏆 **Target & Pencapaian Gold Misi:**")
                                 calculated_metrics.extend(gold_metrics)
                         else:
