@@ -56,10 +56,14 @@ try:
     csv_url = convert_to_csv_url(SHEET_URL)
     df = pd.read_csv(csv_url)
 
-    # Membersihkan nama kolom dari spasi berlebih atau karakter aneh biar gampang dideteksi
+    # Membersihkan nama kolom dari spasi berlebih
     df.columns = df.columns.str.strip()
 
-    # --- PEMBERSIHAN KOLOM ANGKA (GMV / TARGET / SALES) ---
+    # --- PEMBERSIHAN DATA AGAR AMAN DARI FLOAT/NULL ---
+    # Konversi seluruh isi dataframe ke string yang aman tanpa error float
+    df_clean_text = df.fillna("").astype(str)
+
+    # Membersihkan kolom angka (GMV / Target / Sales)
     for col in df.columns:
         if any(keyword in col.lower() for keyword in ['gmv', 'target', 'sales', 'value', 'amount', 'cm', 'l3m']):
             df[col] = pd.to_numeric(
@@ -69,7 +73,7 @@ try:
 
     client = genai.Client(api_key=API_KEY)
 
-    # Sidebar Debugging Info (Biar kelihatan kolom apa aja yg kedetect)
+    # Sidebar Debugging Info
     with st.sidebar:
         st.write("### 📊 Status Data")
         st.write(f"Total Baris: {len(df)}")
@@ -94,23 +98,15 @@ try:
         prompt_lower = prompt.lower()
         python_calculated_context = ""
         
-        # Cari kolom teks apa saja yang berpotensi berisi nama orang/sales/spv
-        text_columns = df.select_dtypes(include=['object', 'string']).columns
         gmv_columns = [col for col in df.columns if any(k in col.lower() for k in ['gmv', 'cm', 'sales', 'value'])]
-
-        # Cek apakah ada nama sales (seperti mulyanto, gde, rizki, dll) yang disebut di chat
-        all_text_data = " ".join(df.astype(str).values.flatten()).lower()
         
-        found_names = []
         target_names = ["mulyanto", "sulistiana", "gde", "rizki", "afrianto"]
         for name in target_names:
-            if name in prompt_lower or name in all_text_data:
-                # Cek baris mana yang mengandung nama tersebut di seluruh dataframe
-                mask = df.apply(lambda row: row.astype(str).str.lower().str.contains(name).any(), axis=1)
+            if name in prompt_lower:
+                # Cari baris yang mengandung nama sales di seluruh kolom teks yang sudah dibersihkan
+                mask = df_clean_text.apply(lambda row: row.str.lower().str.contains(name).any(), axis=1)
                 sub_df = df[mask]
                 if len(sub_df) > 0:
-                    found_names.append(name)
-                    # Cari kolom GMV yang cocok untuk dijumlahkan
                     summary_calc = f"\n[HASIL KALKULASI PYTHON UNTUK '{name.upper()}']:\n- Ditemukan {len(sub_df)} baris data terkait.\n"
                     for gmv_col in gmv_columns:
                         total_val = sub_df[gmv_col].sum()
