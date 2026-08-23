@@ -173,7 +173,7 @@ try:
         clean_prompt = re.sub(r'[^\w\s]', ' ', clean_prompt)
         extracted_entity = " ".join(clean_prompt.split()).strip()
 
-        # --- 3. MATCHING NAMA KE GOOGLE SHEET ---
+        # --- 3. MATCHING NAMA AMAN TANPA .str ERROR ---
         entity_tokens = extracted_entity.split()
         sub_df = pd.DataFrame()
 
@@ -181,11 +181,14 @@ try:
             ignored_cols = [c for c in df.columns if any(k in c.lower() for k in ['alamat', 'address', 'jalan', 'kota'])]
             searchable_cols = [c for c in df.columns if c not in ignored_cols]
 
-            pattern = r'(?=.*\b' + r'\b)(?=.*\b'.join([re.escape(t) for t in entity_tokens]) + r'\b)'
+            # Filter menggunakan list index baris yang mengandung semua token (aman dari error dataframe attribute)
+            matched_indices = []
+            for idx, row in df[searchable_cols].fillna("").astype(str).iterrows():
+                row_text = " ".join(row.values).lower()
+                if all(token in row_text for token in entity_tokens):
+                    matched_indices.append(idx)
             
-            # Aman dari error: Menggunakan Series string yang digabungkan per baris
-            search_series = df[searchable_cols].fillna("").astype(str).apply(lambda row: " ".join(row.values).lower(), axis=1)
-            sub_df = df[search_series.str.contains(pattern, regex=True, na=False)]
+            sub_df = df.loc[matched_indices]
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Mengecek data..."):
