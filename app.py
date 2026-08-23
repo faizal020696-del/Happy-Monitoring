@@ -105,16 +105,18 @@ try:
         target_row = None
 
         if words:
-            # Konversi kolom nama ke string dengan aman untuk mencegah error float
             name_series = raw_df[name_col].fillna("").astype(str).str.lower()
             
-            # Cari baris yang mengandung SEMUA kata kunci
-            matches = raw_df[name_series.apply(lambda x: all(w in x for w in words))]
+            # Filter buang baris yang mengandung kata wilayah rekap (sangiang, periuk, total, dll)
+            not_summary_filter = ~name_series.str.contains('sangiang|periuk|total|region|all area', regex=True)
+            
+            # Cari baris yang mengandung SEMUA kata kunci dan bukan baris rekap
+            matches = raw_df[name_series.apply(lambda x: all(w in x for w in words)) & not_summary_filter]
             if not matches.empty:
                 target_row = matches.iloc[0]
             else:
-                # Cari baris yang mengandung SETIDAKNYA satu kata kunci
-                matches = raw_df[name_series.apply(lambda x: any(w in x for w in words))]
+                # Cari baris yang mengandung SETIDAKNYA satu kata kunci dan bukan baris rekap
+                matches = raw_df[name_series.apply(lambda x: any(w in x for w in words)) & not_summary_filter]
                 if not matches.empty:
                     target_row = matches.iloc[0]
 
