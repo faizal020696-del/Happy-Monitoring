@@ -148,21 +148,20 @@ try:
             'transaksi', 'tolong', 'visit', 'kunjungan', 'misi', 'gold', 'mission',
             'campaign', 'type', 'start', 'date', 'duration', 'target', 'level', 'gmv', 
             'ppn', 'gap', 'hna', 'pencapaian', 'kekurangan', 'info', 'apotek', 'toko', 'wtu',
-            'sisa', 'limit', 'avg', 'l3m', 'reps', 'sales', 'pic', 'bulan', 'ini', 'dpd'
+            'sisa', 'limit', 'avg', 'l3m', 'reps', 'sales', 'pic', 'bulan', 'ini', 'dpd', 'plafond'
         }
 
         target_row = None
         matched_reps_df = None
         matched_reps_name = None
 
-        # CEK APAKAH INI PERINTAH REKAP SALES REP (Mengandung kata "reps", "sales", atau nama sales yang jelas)
+        # CEK APAKAH INI PERINTAH REKAP SALES REP
         is_sales_query = 'reps' in prompt_lower or 'sales' in prompt_lower or 'pic' in prompt_lower
         
         if not is_sales_query and reps_col:
             unique_reps = raw_df[reps_col].dropna().astype(str).unique()
             for r in unique_reps:
                 r_clean = r.strip().lower()
-                # Jika nama sales diketik lengkap di prompt (misal: "rizki" atau "afrianto")
                 if r_clean and len(r_clean) > 2 and r_clean in prompt_lower and not any(kw in prompt_lower for kw in ['apotek', 'toko']):
                     is_sales_query = True
                     break
@@ -176,7 +175,6 @@ try:
                     matched_reps_df = raw_df[raw_df[reps_col].astype(str).str.strip().str.lower() == r_clean]
                     break
             
-            # Jika nama sales ada di prompt tapi tidak match sempurna, cari substring-nya
             if matched_reps_df is None or matched_reps_df.empty:
                 for r in unique_reps:
                     r_clean = r.strip().lower()
@@ -185,7 +183,7 @@ try:
                         matched_reps_df = raw_df[raw_df[reps_col].astype(str).str.strip().str.lower() == r_clean]
                         break
 
-        # JIKA BUKAN SALES QUERY, BERARTI PENCARIAN OUTLET (APOTEK/TOKO)
+        # JIKA BUKAN SALES QUERY, CARI OUTLET SPESIFIK
         if matched_reps_df is None or matched_reps_df.empty:
             id_match_prompt = re.search(r'\b(\d{4,6})\b', prompt)
             if id_match_prompt and id_cols:
@@ -214,24 +212,21 @@ try:
                     if best_score > 0:
                         target_row = raw_df.loc[best_idx]
 
-        # Deteksi kolom spesifik untuk outlet (misal: DPD, Limit, Visit, dll)
+        # DETEKSI KOLOM SPESIFIK (DPD, Limit, Visit) UNTUK OUTLET
         metric_requested = None
-        if target_row is not None and not weeks_requested and not is_limit_query and not is_general_gmv_query and not is_visit_query:
-            # Cek apakah user nulis keyword kolom secara spesifik
-            for c in raw_df.columns:
-                c_low = c.strip().lower()
-                if c_low in prompt_lower:
-                    metric_requested = c
-                    break
-            
-            # Mapping manual kata umum ke nama kolom di sheet jika tidak ketemu exact match
-            if not metric_requested:
-                if 'dpd' in prompt_lower:
-                    metric_requested = next((c for c in raw_df.columns if 'dpd' in c.lower()), None)
-                elif 'limit' in prompt_lower or 'plafond' in prompt_lower:
-                    metric_requested = next((c for c in raw_df.columns if 'limit' in c.lower() or 'plafond' in c.lower()), None)
-                elif 'visit' in prompt_lower or 'kunjungan' in prompt_lower:
-                    metric_requested = next((c for c in raw_df.columns if 'visit' in c.lower() or 'kunjungan' in c.lower()), None)
+        if target_row is not None and not weeks_requested and not is_general_gmv_query:
+            if 'dpd' in prompt_lower:
+                metric_requested = next((c for c in raw_df.columns if 'dpd' in c.lower()), None)
+            elif any(k in prompt_lower for k in ['limit', 'plafond', 'sisa', 'avail']):
+                metric_requested = next((c for c in raw_df.columns if 'limit' in c.lower() or 'plafond' in c.lower() or 'sisa' in c.lower() or 'avail' in c.lower()), None)
+            elif any(k in prompt_lower for k in ['visit', 'kunjungan']):
+                metric_requested = next((c for c in raw_df.columns if 'visit' in c.lower() or 'kunjungan' in c.lower()), None)
+            else:
+                for c in raw_df.columns:
+                    c_low = c.strip().lower()
+                    if c_low in prompt_lower:
+                        metric_requested = c
+                        break
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Mengecek data..."):
@@ -288,7 +283,13 @@ try:
                     # Jika user meminta kolom spesifik (seperti DPD, Limit, Visit)
                     if metric_requested:
                         val_metric = target_row.get(metric_requested, "-")
-                        calculated_metrics.append(f"• **{metric_requested}**: {val_metric}")
+                        # Format angka jika nilainya berupa nominal uang/angka
+                        val_parsed = parse_number_general(val_metric)
+                        if val_parsed > 0 and any(k in metric_requested.lower() for k in ['limit', 'plafond', 'sisa', 'avail', 'amount', 'rp']):
+                            val_formatted = f"Rp {val_parsed:,.0f}".replace(",", ".")
+                        else:
+                            val_formatted = val_metric
+                        calculated_metrics.append(f"• **{metric_requested}**: {val_formatted}")
                     else:
                         # Tampilkan performa bulanan & mingguan standar outlet
                         cm_col = next((c for c in raw_df.columns if c.strip().lower() == 'cm'), None)
