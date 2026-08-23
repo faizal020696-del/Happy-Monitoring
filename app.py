@@ -117,52 +117,66 @@ try:
             st.markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
 
-        # --- FIX 1: SANITASI PROMPT DARI TANDA BACA ---
-        clean_prompt = re.sub(r'[^\w\s]', ' ', prompt.lower())
-        
-        # Stopwords diperluas untuk membuang kata umum & keterangan waktu
-        stop_words = set([
-            'berapa', 'total', 'gmv', 'pencapaian', 'capaian', 'misi', 'reguler', 'gold', 
-            'target', 'data', 'untuk', 'bulan', 'ini', 'kemarin', 'di', 'dan', 'yang', 
-            'dari', 'tentang', 'tim', 'gw', 'saya', 'tolong', 'coba', 'reps', 'sales', 
-            'apotek', 'apotik', 'toko', 'outlet', 'seberapa', 'banyak'
-        ])
-        
-        entity_tokens = [w for w in clean_prompt.split() if w not in stop_words and len(w) > 1]
-        phrase_search = " ".join(entity_tokens)
+        # --- FIX UTAMA: GUNAKAN AI UNTUK EKSTRAKSI ENTITAS NAMA / APOTEK ---
+        extraction_prompt = f"""
+Ekstrak HANYA nama subjek/entitas (nama Reps/Sales/Apotek/Toko) dari kalimat input berikut.
+Abaikan kata tanya, kata kerja, istilah metrik (seperti gmv, pencapaian, total, target, dll), dan keterangan waktu (seperti bulan ini, kemarin, dll).
 
+Contoh:
+Input: "berapa total pencapaian GMV reps rizki bulan ini?" -> Output: rizki
+Input: "berapa total GMV apotek gabang farma bulan ini?" -> Output: gabang farma
+Input: "pencapaian sales afrianto" -> Output: afrianto
+
+Kalimat Input: "{prompt}"
+Output (HANYA NAMA ENTITAS):"""
+
+        extracted_entity = ""
+        try:
+            ext_res = client.chat.completions.create(
+                model="google/gemini-2.0-flash-lite-001:free",
+                messages=[{"role": "user", "content": extraction_prompt}],
+                temperature=0.0
+            )
+            extracted_entity = ext_res.choices[0].message.content.strip().lower()
+            # Bersihkan karakter aneh/tanda baca jika tersisa
+            extracted_entity = re.sub(r'[^\w\s]', '', extracted_entity)
+        except Exception:
+            extracted_entity = ""
+
+        # Fallback manual jika LLM ekstraksi gagal
+        if not extracted_entity:
+            clean_prompt = re.sub(r'[^\w\s]', ' ', prompt.lower())
+            stop_words = set([
+                'berapa', 'total', 'gmv', 'pencapaian', 'capaian', 'misi', 'reguler', 'gold', 
+                'target', 'data', 'untuk', 'bulan', 'ini', 'kemarin', 'di', 'dan', 'yang', 
+                'dari', 'tentang', 'tim', 'gw', 'saya', 'tolong', 'coba', 'reps', 'sales', 
+                'apotek', 'apotik', 'toko', 'outlet', 'seberapa', 'banyak', 'pt', 'cv'
+            ])
+            entity_tokens = [w for w in clean_prompt.split() if w not in stop_words and len(w) > 1]
+            extracted_entity = " ".join(entity_tokens)
+
+        entity_tokens = extracted_entity.split()
         sub_df = pd.DataFrame()
+
         if entity_tokens:
-            is_reps_query = any(k in clean_prompt for k in ['reps', 'sales', 'salesman', 'mr'])
-            is_apotek_query = any(k in clean_prompt for k in ['apotek', 'apotik', 'toko', 'outlet', 'customer'])
+            row_combined = df_clean_text.apply(lambda row: " ".join(row.values).lower(), axis=1)
 
-            reps_cols = [c for c in df.columns if any(k in c.lower() for k in ['reps', 'sales', 'rep_name', 'nama rep', 'mr'])]
-            apotek_cols = [c for c in df.columns if any(k in c.lower() for k in ['apotek', 'apotik', 'toko', 'outlet', 'customer', 'nama_toko'])]
+            # 1. Matching Semua Token Kata
+            mask_all = row_combined.apply(lambda x: all(t in x for t in entity_tokens))
+            sub_df = df[mask_all]
 
-            search_df = df_clean_text.copy()
-
-            if is_reps_query and reps_cols:
-                row_series = search_df[reps_cols].apply(lambda row: " ".join(row.values).lower(), axis=1)
-            elif is_apotek_query and apotek_cols:
-                row_series = search_df[apotek_cols].apply(lambda row: " ".join(row.values).lower(), axis=1)
-            else:
-                row_series = search_df.apply(lambda row: " ".join(row.values).lower(), axis=1)
-            
-            # TINGKAT 1: PHRASE MATCHING EXACT ("gabang farma")
-            mask_phrase = row_series.str.contains(re.escape(phrase_search), regex=True, na=False)
-            sub_df = df[mask_phrase]
-
-            # TINGKAT 2: TOKEN MATCHING (Semua kata pencarian harus ada di baris tersebut)
-            if len(sub_df) == 0:
-                mask_all = row_series.apply(lambda x: all(t in x for t in entity_tokens))
-                sub_df = df[mask_all]
+            # 2. Fallback jika kata majemuk: Cari Token Terpanjang/Paling Spesifik
+            if len(sub_df) == 0 and len(entity_tokens) > 1:
+                specific_token = max(entity_tokens, key=len)
+                mask_spec = row_combined.str.contains(re.escape(specific_token), regex=True, na=False)
+                sub_df = df[mask_spec]
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Menghitung data dengan presisi 100%..."):
                 if len(sub_df) > 0:
                     calculated_metrics = []
                     
-                    # Filter Kolom Penjumlahan
+                    # Filter Kolom Penjumlahan yang Valid
                     valid_cols = []
                     for col in sub_df.columns:
                         col_lower = col.lower()
@@ -170,7 +184,7 @@ try:
                             if not any(ignore in col_lower for ignore in ['target', '%', 'pct', 'date', 'tanggal', 'id', 'code', 'durasi', 'duration']):
                                 valid_cols.append(col)
 
-                    # Prioritaskan kolom CM / Bulan Ini jika ada
+                    # Prioritaskan kolom CM / Current Month jika ada
                     cm_cols = [c for c in valid_cols if any(k in c.lower() for k in ['cm', 'current', 'bulan ini', 'total'])]
                     target_calculation_cols = cm_cols if cm_cols else valid_cols
 
@@ -188,7 +202,7 @@ try:
                     system_prompt = f"""
 Kamu adalah Senior Data Analyst SPV yang sangat teliti.
 
-DITEMUKAN **{len(sub_df)} BARIS DATA** UNTUK ENTITAS YANG DICARI.
+DITEMUKAN **{len(sub_df)} BARIS DATA** UNTUK ENTITAS YANG DICARI ('{extracted_entity}').
 
 HASIL KALKULASI PRESISI PYTHON UNTUK **SELURUH {len(sub_df)} BARIS DATA** (GUNAKAN ANGKA INI):
 {calc_summary_str}
@@ -227,10 +241,10 @@ Instruksi Sangat Penting:
                             continue
 
                     if not response_text or len(response_text.strip()) < 5:
-                        response_text = f"Ditemukan **{len(sub_df)} baris data** untuk pencarian tersebut. Berikut rincian total angkanya:\n\n{calc_summary_str}"
+                        response_text = f"Ditemukan **{len(sub_df)} baris data** untuk pencarian '{extracted_entity}'. Berikut rincian total angkanya:\n\n{calc_summary_str}"
 
                 else:
-                    response_text = f"Maaf bro, data untuk **'{phrase_search}'** tidak ditemukan di Google Sheet."
+                    response_text = f"Maaf bro, data untuk **'{extracted_entity}'** tidak ditemukan di Google Sheet."
 
                 st.markdown(response_text)
         
