@@ -13,36 +13,20 @@ st.set_page_config(
     layout="centered"
 )
 
-# CSS Sapu Bersih untuk Menghilangkan Badge Streamlit Cloud
+# Kustomisasi Tampilan Visual (CSS Aman)
 st.markdown("""
     <style>
-    /* 1. Sembunyikan Header & Footer Bawaan */
+    /* Sembunyikan elemen internal Streamlit yang bisa disembunyikan */
     #MainMenu {visibility: hidden !important;}
     header {visibility: hidden !important;}
     footer {visibility: hidden !important;}
-    .stAppHeader {display: none !important;}
-    [data-testid="stToolbar"] {display: none !important;}
-    [data-testid="stDecoration"] {display: none !important;}
-    [data-testid="stStatusWidget"] {display: none !important;}
-    button[title="View source"] {display: none !important;}
     
-    /* 2. Sembunyikan Badge 'Hosted with Streamlit' & 'Created by' */
-    .viewerBadge_container__1A5DN {display: none !important;}
-    .viewerBadge_link__1A5DN {display: none !important;}
-    [class*="viewerBadge"] {display: none !important;}
-    [class*="styles_viewerBadge"] {display: none !important;}
-    [data-testid="stAppViewBlockContainer"] + div {display: none !important;}
-    
-    /* Sasar elemen footer paling bawah */
-    div[data-testid="stApp"] > div:nth-child(2) {display: none !important;}
-    #root > div:nth-child(2) {display: none !important;}
-    
-    /* 3. Background Utama */
+    /* Background Utama */
     .stApp {
         background-color: #f8fafc;
     }
     
-    /* 4. Header Container dengan Gradient */
+    /* Header Container dengan Gradient */
     .main-header {
         background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
         padding: 2.5rem 2rem;
@@ -64,7 +48,7 @@ st.markdown("""
         margin: 0;
     }
 
-    /* 5. Kustomisasi Gelembung Chat */
+    /* Kustomisasi Gelembung Chat */
     .stChatMessage {
         border-radius: 16px !important;
         padding: 1rem 1.2rem !important;
@@ -72,9 +56,10 @@ st.markdown("""
         box-shadow: 0 2px 5px rgba(0,0,0,0.03) !important;
     }
     
-    /* 6. Input Chat di Bawah */
+    /* Input Chat di Bawah Diberi Space Agar Tidak Tertutup Badge */
     .stChatInputContainer {
         border-radius: 15px !important;
+        bottom: 20px !important; /* Terangkat aman di atas badge */
     }
     </style>
 """, unsafe_allow_html=True)
