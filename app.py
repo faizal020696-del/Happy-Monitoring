@@ -146,10 +146,9 @@ try:
         is_gold_mission_query = 'gold' in prompt_lower and ('misi' in prompt_lower or 'mission' in prompt_lower)
         is_regular_mission_query = ('misi' in prompt_lower or 'mission' in prompt_lower) and not is_gold_mission_query
 
-        # Deteksi pencarian metrik spesifik via teks prompt (misal: "avg l3m", "total limit", dll)
+        # Deteksi pencarian metrik spesifik via teks prompt
         metric_requested = None
         if not weeks_requested and not is_limit_query and not is_general_gmv_query and not is_visit_query and not is_gold_mission_query and not is_regular_mission_query:
-            # Cek kecocokan nama kolom di dataframe dengan teks yang diketik user
             for c in raw_df.columns:
                 c_low = c.strip().lower()
                 if c_low in prompt_lower:
@@ -157,11 +156,9 @@ try:
                     break
 
             if not metric_requested:
-                # Cek potongan kata penting di kolom
                 for col in raw_df.columns:
                     col_lower = col.lower()
                     if col != name_col and col not in id_cols:
-                        # Jika user ngetik "avg l3m" atau "l3m" atau "limit"
                         keywords_col = [kw for kw in col_lower.split() if len(kw) > 2]
                         if keywords_col and all(kw in prompt_lower for kw in keywords_col):
                             metric_requested = col
@@ -169,11 +166,12 @@ try:
 
         target_row = None
         
+        # Command words murni untuk membuang kata bantu tanya, TANPA membuang kata kunci metrik
         command_words = {
             'cek', 'data', 'id', 'berapa', 'total', 'jumlah', 'w1', 'w2', 'w3', 'w4', 
             'transaksi', 'tolong', 'visit', 'kunjungan', 'misi', 'gold', 'mission',
             'campaign', 'type', 'start', 'date', 'duration', 'target', 'level', 'gmv', 
-            'ppn', 'gap', 'hna', 'pencapaian', 'kekurangan', 'info', 'sisa', 'limit', 'avg', 'l3m'
+            'ppn', 'gap', 'hna', 'pencapaian', 'kekurangan', 'info'
         }
 
         # 1. Cek berdasarkan ID jika ada angka 4-6 digit di prompt
@@ -189,7 +187,7 @@ try:
                 if target_row is not None:
                     break
 
-        # 2. Cek Berdasarkan Nama Outlet Lengkap / Toleransi Typo (difflib / substring)
+        # 2. Cek Berdasarkan Nama Outlet Lengkap / Toleransi Typo (difflib)
         if target_row is None:
             outlet_query_words = [w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in command_words]
             if outlet_query_words:
@@ -200,23 +198,18 @@ try:
                 if not matches.empty:
                     target_row = matches.iloc[0]
                 else:
-                    # Coba cari pakai substring kata per kata (misal: "gebang" atau "farma")
                     for qw in outlet_query_words:
                         if len(qw) > 3:
                             sub_matches = raw_df[name_series.str.contains(qw)]
-                            if len(sub_matches) == 1:
-                                target_row = sub_matches.iloc[0]
-                                break
-                            elif len(sub_matches) > 1:
+                            if not sub_matches.empty:
                                 target_row = sub_matches.iloc[0]
                                 break
                     
-                    # Kalau masih kosong, pakai difflib untuk mendeteksi typo tipis (misal gabang -> gebang)
                     if target_row is None:
                         clean_prompt_name = " ".join(outlet_query_words)
                         if clean_prompt_name:
                             all_names = name_series.tolist()
-                            closest = difflib.get_close_matches(clean_prompt_name, all_names, n=1, cutoff=0.4)
+                            closest = difflib.get_close_matches(clean_prompt_name, all_names, n=1, cutoff=0.35)
                             if closest:
                                 matched_rows = raw_df[name_series == closest[0]]
                                 if not matched_rows.empty:
