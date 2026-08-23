@@ -92,6 +92,10 @@ try:
 
         # --- 1. DETEKSI METRIK / INTENT ---
         detected_intents = []
+        if 'l3m' in prompt_lower:
+            detected_intents.append('l3m')
+        if 'l2m' in prompt_lower:
+            detected_intents.append('l2m')
         if any(k in prompt_lower for k in ['average', 'avg', 'rata-rata', '3 bulan', '3 bln']):
             detected_intents.append('average')
         if any(k in prompt_lower for k in ['bulan ini', 'cm', 'current month', 'bln ini']):
@@ -124,7 +128,8 @@ try:
             r'\bni\b', r'\binih\b', r'\bkah\b', r'\bdong\b', r'\bcek\b', r'\binfo\b', r'\bpencapaian\b', 
             r'\bcapaian\b', r'\bperforma\b', r'\bhasil\b', r'\barea\b', r'\bmana\b', r'\byg\b', 
             r'\bsudah\b', r'\btransaksi\b', r'\bw1\b', r'\bw2\b', r'\bw3\b', r'\bw4\b',
-            r'\baverage\b', r'\bavg\b', r'\brata-rata\b', r'\bratarata\b', r'\b3\b', r'\bbln\b'
+            r'\baverage\b', r'\bavg\b', r'\brata-rata\b', r'\bratarata\b', r'\b3\b', r'\bbln\b',
+            r'\bl3m\b', r'\bl2m\b', r'\blm\b', r'\bcm\b', r'\bdan\b', r'\bdan2\b'
         ]
 
         for junk in junk_words:
@@ -151,14 +156,20 @@ try:
                     target_columns = []
 
                     # --- FILTER KOLOM KETAT SESUAI INTENT ---
-                    if 'average' in detected_intents:
+                    if 'l3m' in detected_intents or 'l2m' in detected_intents:
+                        if 'l3m' in detected_intents:
+                            target_columns.extend([c for c in sub_df.columns if c.lower() == 'l3m'])
+                        if 'l2m' in detected_intents:
+                            target_columns.extend([c for c in sub_df.columns if c.lower() == 'l2m'])
+
+                    elif 'average' in detected_intents:
                         target_columns = [c for c in sub_df.columns if 'average' in c.lower() or 'avg' in c.lower()]
 
                     elif 'lm' in detected_intents:
-                        target_columns = [c for c in sub_df.columns if c.lower() in ['lm', 'l3m', 'l2m'] or 'last month' in c.lower()]
+                        target_columns = [c for c in sub_df.columns if c.lower() in ['lm', 'last month']]
 
                     elif 'cm' in detected_intents:
-                        target_columns = [c for c in sub_df.columns if c.lower() == 'cm' or 'current month' in c.lower()]
+                        target_columns = [c for c in sub_df.columns if c.lower() in ['cm', 'current month']]
 
                     elif 'target_visit' in detected_intents:
                         target_columns = [c for c in sub_df.columns if 'target' in c.lower() and 'visit' in c.lower()]
@@ -179,7 +190,7 @@ try:
                         target_columns = [c for c in sub_df.columns if 'gmv' in c.lower()]
 
                     if not target_columns:
-                        important_keys = ['gmv', 'cm', 'lm', 'sales', 'limit', 'dpd', 'misi', 'visit', 'avg', 'average']
+                        important_keys = ['gmv', 'cm', 'lm', 'l2m', 'l3m', 'sales', 'limit', 'dpd', 'misi', 'visit', 'avg', 'average']
                         target_columns = [c for c in sub_df.columns if any(k in c.lower() for k in important_keys)]
 
                     calculated_metrics = []
