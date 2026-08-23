@@ -36,7 +36,7 @@ def parse_number_transaction(val):
     except Exception:
         return 0.0
 
-# Parser untuk kolom umum (DPD, Limit, GMV, Total, dll)
+# Parser untuk kolom umum (DPD, Limit, GMV, CM, LM, L3M, dll)
 def parse_number_general(val):
     if pd.isna(val) or val is None:
         return 0.0
@@ -81,14 +81,14 @@ try:
     header_idx = 0
     for idx, line in enumerate(lines[:15]):
         line_lower = line.lower()
-        if ('w1' in line_lower or 'week 1' in line_lower or 'dpd' in line_lower or 'limit' in line_lower or 'gmv' in line_lower) and ('name' in line_lower or 'nama' in line_lower or 'apotek' in line_lower or 'toko' in line_lower):
+        if ('w1' in line_lower or 'week 1' in line_lower or 'dpd' in line_lower or 'limit' in line_lower or 'gmv' in line_lower or 'cm' in line_lower) and ('name' in line_lower or 'nama' in line_lower or 'apotek' in line_lower or 'toko' in line_lower):
             header_idx = idx
             break
             
     raw_df = pd.read_csv(io.StringIO(csv_text), skiprows=header_idx, dtype=str)
     raw_df.columns = [str(c).strip() for c in raw_df.columns]
 
-    # Petakan kolom W1-W4 secara fleksibel
+    # Petakan kolom W1-W4 secara fleksibel (Aman dari case sebelumnya)
     week_cols_map = {}
     for col in raw_df.columns:
         col_lower = col.lower()
@@ -134,32 +134,53 @@ try:
             weeks_requested.append('W4')
 
         if ('wtu' in prompt_lower or 'transaksi' in prompt_lower) and not weeks_requested:
-            if not any(k in prompt_lower for k in ['w1', 'w2', 'w3', 'w4', 'week', 'minggu', 'gmv', 'total']):
+            if not any(k in prompt_lower for k in ['w1', 'w2', 'w3', 'w4', 'week', 'minggu', 'gmv', 'total', 'cm', 'lm', 'l2m', 'l3m']):
                 weeks_requested = ['W1', 'W2', 'W3', 'W4']
 
-        # Deteksi pencarian metrik khusus (GMV, Total, DPD, Limit, dll) dengan toleransi tinggi terhadap 'cm', 'bulan ini', dll
+        # Deteksi pencarian metrik khusus (Mendukung CM, LM, L2M, L3M, Average L3M, DPD, Limit, dll)
         metric_requested = None
         if not weeks_requested:
-            for c in raw_df.columns:
-                c_lower = c.lower()
-                # Jika user mencari GMV (mendukung kata gmv, total gmv, atau ada kata gmv di kolom)
-                if 'gmv' in prompt_lower and 'gmv' in c_lower:
-                    metric_requested = c
-                    break
-                elif 'total' in prompt_lower and 'total' in c_lower:
-                    metric_requested = c
-                    break
-                elif 'dpd' in prompt_lower and 'dpd' in c_lower:
-                    metric_requested = c
-                    break
-                elif 'limit' in prompt_lower and 'limit' in c_lower:
-                    metric_requested = c
-                    break
-
-            # Jika user ngetik "GMV" tapi di kolom sheet namanya cuma "GMV" atau ada variasi lain
-            if not metric_requested and 'gmv' in prompt_lower:
+            # 1. Cek pencocokan spesifik istilah bulanan dari screenshot (CM, LM, L2M, L3M)
+            if re.search(r'\bl3m\b', prompt_lower) and not 'average' in prompt_lower:
                 for c in raw_df.columns:
-                    if 'gmv' in c.lower():
+                    if c.strip().lower() == 'l3m':
+                        metric_requested = c
+                        break
+            elif re.search(r'\bl2m\b', prompt_lower):
+                for c in raw_df.columns:
+                    if c.strip().lower() == 'l2m':
+                        metric_requested = c
+                        break
+            elif re.search(r'\blm\b', prompt_lower):
+                for c in raw_df.columns:
+                    if c.strip().lower() == 'lm':
+                        metric_requested = c
+                        break
+            elif re.search(r'\bcm\b', prompt_lower) or 'bulan ini' in prompt_lower:
+                for c in raw_df.columns:
+                    if c.strip().lower() == 'cm':
+                        metric_requested = c
+                        break
+            elif 'average' in prompt_lower or 'avg' in prompt_lower:
+                for c in raw_df.columns:
+                    if 'average' in c.lower() or 'avg' in c.lower():
+                        metric_requested = c
+                        break
+
+            # 2. Jika belum ketemu, cek keyword umum
+            if not metric_requested:
+                for c in raw_df.columns:
+                    c_lower = c.lower()
+                    if 'gmv' in prompt_lower and 'gmv' in c_lower and 'daily' not in c_lower:
+                        metric_requested = c
+                        break
+                    elif 'total' in prompt_lower and 'total' in c_lower:
+                        metric_requested = c
+                        break
+                    elif 'dpd' in prompt_lower and 'dpd' in c_lower:
+                        metric_requested = c
+                        break
+                    elif 'limit' in prompt_lower and 'limit' in c_lower:
                         metric_requested = c
                         break
 
@@ -185,13 +206,13 @@ try:
                 if target_row is not None:
                     break
 
-        # 2. Cari berdasarkan nama outlet (mengabaikan kata perintah, waktu, dan istilah gaul seperti 'cm')
+        # 2. Cari berdasarkan nama outlet (Mengabaikan kata perintah & istilah periode baru seperti cm, lm, l2m, l3m)
         if target_row is None:
             ignore_words = {
                 'transaksi', 'wtu', 'w1', 'w2', 'w3', 'w4', 'week', 'week1', 'week2', 'week3', 'week4', 
                 'minggu', 'minggu1', 'minggu2', 'minggu3', 'minggu4', '1', '2', '3', '4', 
                 'berapa', 'total', 'jumlah', 'apotek', 'apotik', 'toko', 'cek', 'data', 'id', 'dpd', 'limit',
-                'bulan', 'ini', 'kemarin', 'lalu', 'gmv', 'penjualan', 'omset', 'cm'
+                'bulan', 'ini', 'kemarin', 'lalu', 'gmv', 'penjualan', 'omset', 'cm', 'lm', 'l2m', 'l3m', 'average', 'avg'
             }
             query_words = [w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in ignore_words]
             
