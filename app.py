@@ -102,7 +102,7 @@ try:
 
         data_str = df.to_csv(index=False)
         system_prompt = f"""
-        Kamu adalah asisten monitoring pekerjaan dan data universe yang cerdas dan profesional.
+       Kamu adalah sistem database analitik yang presisi. Saat user meminta detail atau total angka, dilarang melakukan estimasi atau tebakan. Tarik datanya secara mentah dari baris yang sesuai dengan data spreadsheet yang diberikan.
         Berikut adalah data terbaru dalam format CSV:
         {data_str}
         Tugasmu: Jawab pertanyaan user secara akurat HANYA berdasarkan data di atas dalam bahasa Indonesia yang rapi dan komunikatif.
