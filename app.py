@@ -248,12 +248,13 @@ try:
                                 sum_val = sum(parse_number_general(r.get(col, 0)) for _, r in matched_reps_df.iterrows())
                                 calculated_metrics.append(f"• **Total {label}**: Rp {sum_val:,.0f}".replace(",", "."))
 
-                        calculated_metrics.append("\n**📅 Total Performa Per Week (Mingguan):**")
+                        calculated_metrics.append("\n**📅 Total Performa Per Week (Mingguan & Jumlah Outlet Transaksi):**")
                         for w in ['W1', 'W2', 'W3', 'W4']:
                             if w in week_cols_map:
                                 col_name = week_cols_map[w]
                                 sum_w = sum(parse_number_transaction(r.get(col_name, 0)) for _, r in matched_reps_df.iterrows())
-                                calculated_metrics.append(f"• **Total {w}**: Rp {sum_w:,.0f}".replace(",", "."))
+                                active_outlets = sum(1 for _, r in matched_reps_df.iterrows() if parse_number_transaction(r.get(col_name, 0)) > 0)
+                                calculated_metrics.append(f"• **Total {w}**: Rp {sum_w:,.0f} (*{active_outlets} outlet transaksi*)".replace(",", "."))
 
                     response_text = f"Rekap Total untuk Sales Rep **{str(matched_reps_name).title()}**:\n" + "\n".join(calculated_metrics)
 
@@ -274,25 +275,19 @@ try:
                     elif is_mission_query:
                         mission_cols = [c for c in raw_df.columns if any(term in c.lower() for term in ['misi', 'gold', 'mission', 'campaign'])]
                         if mission_cols:
-                            # Mengelompokkan tampilan misi agar lebih rapi berbentuk sub-kategori
                             calculated_metrics.append("**🎯 Informasi Campaign Misi:**")
                             for col in mission_cols:
                                 c_lower = col.lower()
                                 val_metric = str(target_row.get(col, "-")).strip()
-                                
-                                # Format angka jika berupa nominal uang
                                 val_parsed = parse_number_general(val_metric)
                                 if val_parsed > 0 and any(kw in c_lower for kw in ['target', 'gmv', 'gap', 'hna']):
                                     val_formatted = f"Rp {val_parsed:,.0f}".replace(",", ".")
                                 else:
                                     val_formatted = val_metric
 
-                                # Buat sub-section agar rapi berjarak
                                 if 'gold' in c_lower and len(calculated_metrics) > 0 and "**🏆 Target & Pencapaian Gold Misi:**" not in calculated_metrics:
                                     calculated_metrics.append("\n**🏆 Target & Pencapaian Gold Misi:**")
-                                elif not any('gold' in x.lower() for x in mission_cols[:mission_cols.index(col)]) and 'gold' not in c_lower and len(calculated_metrics) == 1:
-                                    pass # Header pertama sudah di atas
-
+                                
                                 calculated_metrics.append(f"• **{col}**: {val_formatted}")
                         else:
                             calculated_metrics.append("• Kolom misi/gold tidak ditemukan pada sheet.")
@@ -322,7 +317,7 @@ try:
                                 ("CM (Bulan Ini)", cm_col),
                                 ("LM (Bulan Lalu)", lm_col),
                                 ("L2M", l2m_col),
-                            ("L3M", l3m_col),
+                                ("L3M", l3m_col),
                                 ("Average / AVG L3M", avg_col)
                             ]
                             for label, col in target_cols_gmv:
