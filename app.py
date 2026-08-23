@@ -21,7 +21,7 @@ def convert_to_csv_url(url):
     gid = gid_match.group(1) if gid_match else "0"
     return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
 
-# Parser khusus transaksi/angka agar selalu presisi murni angka
+# Parser khusus transaksi mingguan (W1-W4) agar murni angka
 def parse_number_transaction(val):
     if pd.isna(val) or val is None:
         return 0.0
@@ -36,7 +36,7 @@ def parse_number_transaction(val):
     except Exception:
         return 0.0
 
-# Parser untuk kolom umum (DPD, Limit, GMV, CM, LM, L3M, dll)
+# Parser presisi tinggi untuk kolom umum (CM, LM, L2M, L3M, DPD, Limit, dll)
 def parse_number_general(val):
     if pd.isna(val) or val is None:
         return 0.0
@@ -44,33 +44,48 @@ def parse_number_general(val):
     if not val_str or val_str.lower() in ['nan', 'null', 'none', '', '-', ' - ']:
         return 0.0
     
+    # Jika format di sheet mengandung format mata uang atau desimal desimal (misal 39,841.00 atau 39.841)
+    # Kita bersihkan karakter selain angka, titik, dan koma
     cleaned = re.sub(r'[^0-9\,\.]', '', val_str)
     if not cleaned:
-        return val_str
+        return 0.0
+    
     try:
+        # Jika ada titik dan koma (format luar/lokal campuran)
         if '.' in cleaned and ',' in cleaned:
             if cleaned.rfind('.') < cleaned.rfind(','):
+                # Format koma sebagai desimal (contoh: 39.841,50)
                 cleaned = cleaned.replace('.', '').replace(',', '.')
             else:
+                # Format titik sebagai desimal (contoh: 39,841.50)
                 cleaned = cleaned.replace(',', '')
         elif '.' in cleaned:
             parts = cleaned.split('.')
+            # Jika titik lebih dari satu, asumsikan itu pemisah ribuan (contoh: 39.841.200)
             if len(parts) > 2:
-                cleaned = "".join(parts[:-1]) + "." + parts[-1]
+                cleaned = "".join(parts)
+            elif len(parts) == 2 and len(parts[1]) == 3:
+                # Titik di belakang 3 digit seringkali adalah pemisah ribuan di format Indonesia (misal: 39.841)
+                cleaned = "".join(parts)
         elif ',' in cleaned:
             parts = cleaned.split(',')
-            if len(parts) == 2 and len(parts[1]) <= 2:
+            if len(parts) > 2:
+                cleaned = "".join(parts)
+            elif len(parts) == 2 and len(parts[1]) <= 2:
+                # Koma sebagai desimal (contoh: 39841,5)
                 cleaned = cleaned.replace(',', '.')
             else:
+                # Koma sebagai pemisah ribuan
                 cleaned = cleaned.replace(',', '')
         
         val_float = float(cleaned)
         return val_float
     except Exception:
+        # Fallback terakhir: ambil semua digit murninya saja jika gagal parsing
         digits_only = re.sub(r'[^0-9]', '', val_str)
         if digits_only:
             return float(digits_only)
-        return val_str
+        return 0.0
 
 try:
     csv_url = convert_to_csv_url(SHEET_URL)
@@ -88,7 +103,7 @@ try:
     raw_df = pd.read_csv(io.StringIO(csv_text), skiprows=header_idx, dtype=str)
     raw_df.columns = [str(c).strip() for c in raw_df.columns]
 
-    # Petakan kolom W1-W4 secara fleksibel (Aman dari case sebelumnya)
+    # Petakan kolom W1-W4 secara fleksibel
     week_cols_map = {}
     for col in raw_df.columns:
         col_lower = col.lower()
@@ -137,10 +152,9 @@ try:
             if not any(k in prompt_lower for k in ['w1', 'w2', 'w3', 'w4', 'week', 'minggu', 'gmv', 'total', 'cm', 'lm', 'l2m', 'l3m']):
                 weeks_requested = ['W1', 'W2', 'W3', 'W4']
 
-        # Deteksi pencarian metrik khusus (Mendukung CM, LM, L2M, L3M, Average L3M, DPD, Limit, dll)
+        # Deteksi pencarian metrik khusus (CM, LM, L2M, L3M, Average, DPD, dll)
         metric_requested = None
         if not weeks_requested:
-            # 1. Cek pencocokan spesifik istilah bulanan dari screenshot (CM, LM, L2M, L3M)
             if re.search(r'\bl3m\b', prompt_lower) and not 'average' in prompt_lower:
                 for c in raw_df.columns:
                     if c.strip().lower() == 'l3m':
@@ -167,7 +181,6 @@ try:
                         metric_requested = c
                         break
 
-            # 2. Jika belum ketemu, cek keyword umum
             if not metric_requested:
                 for c in raw_df.columns:
                     c_lower = c.lower()
@@ -206,7 +219,7 @@ try:
                 if target_row is not None:
                     break
 
-        # 2. Cari berdasarkan nama outlet (Mengabaikan kata perintah & istilah periode baru seperti cm, lm, l2m, l3m)
+        # 2. Cari berdasarkan nama outlet
         if target_row is None:
             ignore_words = {
                 'transaksi', 'wtu', 'w1', 'w2', 'w3', 'w4', 'week', 'week1', 'week2', 'week3', 'week4', 
