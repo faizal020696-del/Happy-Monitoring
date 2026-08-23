@@ -102,10 +102,18 @@ try:
         target_row = None
         name_series = raw_df[name_col].fillna("").astype(str).str.lower()
 
-        # KUNCI UTAMA: Wajib mengandung kata "gebang" DAN "farma" secara bersamaan agar tidak nyasar ke klinik lain
+        # Cari semua baris yang mengandung 'gebang' DAN 'farma'
         matches = raw_df[name_series.str.contains('gebang', na=False) & name_series.str.contains('farma', na=False)]
 
-        if not matches.empty:
+        # Saring baris yang nilai W1-nya masuk akal (< 500 juta rupiah) untuk membuang baris rekap triliunan
+        for idx, row in matches.iterrows():
+            w1_test = parse_number_exact(str(row.get('W1', '0')))
+            if 0 < w1_test < 500_000_000:
+                target_row = row
+                break
+
+        # Jika tetap tidak ketemu dengan filter < 500 juta, ambil baris pertama yang cocok
+        if target_row is None and not matches.empty:
             target_row = matches.iloc[0]
 
         with st.chat_message("assistant", avatar="🤖"):
