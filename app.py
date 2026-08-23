@@ -59,13 +59,12 @@ try:
     # Membersihkan nama kolom dari spasi berlebih
     df.columns = df.columns.str.strip()
 
-    # --- PEMBERSIHAN DATA AGAR AMAN DARI FLOAT/NULL ---
-    # Konversi seluruh isi dataframe ke string yang aman tanpa error float
+    # Dataframe string untuk pencarian aman
     df_clean_text = df.fillna("").astype(str)
 
-    # Membersihkan kolom angka (GMV / Target / Sales)
+    # Membersihkan kolom angka (GMV / Target / Sales / CM / L3M, dll)
     for col in df.columns:
-        if any(keyword in col.lower() for keyword in ['gmv', 'target', 'sales', 'value', 'amount', 'cm', 'l3m']):
+        if any(keyword in col.lower() for keyword in ['gmv', 'target', 'sales', 'value', 'amount', 'cm', 'l3m', 'lm']):
             df[col] = pd.to_numeric(
                 df[col].astype(str).str.replace(r'[^0-9\.-]', '', regex=True), 
                 errors='coerce'
@@ -94,45 +93,57 @@ try:
             st.markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
 
-        # --- SISTEM PENCARIAN & KALKULASI OTOMATIS PYTHON ---
+        # --- SISTEM KALKULASI PYTHON MUTLAK ---
         prompt_lower = prompt.lower()
         python_calculated_context = ""
         
-        gmv_columns = [col for col in df.columns if any(k in col.lower() for k in ['gmv', 'cm', 'sales', 'value'])]
+        # Ambil semua kolom yang ada unsur GMV atau angka performa
+        metric_columns = [col for col in df.columns if any(k in col.lower() for k in ['gmv', 'cm', 'sales', 'value', 'target', 'lm'])]
         
         target_names = ["mulyanto", "sulistiana", "gde", "rizki", "afrianto"]
+        is_name_queried = False
+        
         for name in target_names:
             if name in prompt_lower:
-                # Cari baris yang mengandung nama sales di seluruh kolom teks yang sudah dibersihkan
+                is_name_queried = True
                 mask = df_clean_text.apply(lambda row: row.str.lower().str.contains(name).any(), axis=1)
                 sub_df = df[mask]
+                
                 if len(sub_df) > 0:
-                    summary_calc = f"\n[HASIL KALKULASI PYTHON UNTUK '{name.upper()}']:\n- Ditemukan {len(sub_df)} baris data terkait.\n"
-                    for gmv_col in gmv_columns:
-                        total_val = sub_df[gmv_col].sum()
-                        summary_calc += f"- Total {gmv_col}: {total_val:,.0f}\n"
-                    python_calculated_context += summary_calc
+                    python_calculated_context += f"\n=== HASIL PERHITUNGAN MUTLAK PYTHON UNTUK '{name.upper()}' ===\n"
+                    python_calculated_context += f"Jumlah baris data ditemukan: {len(sub_df)} baris\n"
+                    for col in metric_columns:
+                        total_val = sub_df[col].sum()
+                        python_calculated_context += f"- {col}: {total_val:,.0f}\n"
 
-        data_str = df.to_csv(index=False)
-        system_prompt = f"""
-Kamu adalah sistem database analitik yang sangat presisi. 
-ATURAN UTAMA: Jika ada bagian [HASIL KALKULASI PYTHON] di atas, KAMU WAJIB MEMAKAI ANGKA TERSEBUT SECARA MUTLAK. Jangan menghitung ulang atau mengubah angka tersebut!
-
-Berikut adalah daftar seluruh kolom spreadsheet: {list(df.columns)}
+        # Jika user tanya spesifik soal sales, kita JANGAN kasih lihat CSV mentah ke Gemini. 
+        # Biar Gemini murni hanya membaca hasil hitungan Python di atas!
+        if is_name_queried and python_calculated_context:
+            system_prompt = f"""
+Kamu adalah asisten analisis data profesional. 
+Berikut adalah hasil kalkulasi data mutlak yang dihitung langsung oleh sistem database Python:
 
 {python_calculated_context}
 
-Berikut adalah data keseluruhan dalam format CSV:
-{data_str}
-
-Tugasmu: Jawab pertanyaan user secara akurat, lugas, dan profesional berdasarkan data CSV dan hasil kalkulasi Python di atas.
+Tugasmu: Jawab pertanyaan user berdasarkan hasil kalkulasi Python di atas dengan format yang rapi, jelas, dan ramah dalam bahasa Indonesia. Jangan mengubah atau menebak angka di luar data tersebut.
 """
+            content_to_send = f"{system_prompt}\nPertanyaan User: {prompt}"
+        else:
+            # Kalau pertanyaannya umum (bukan nyari sales tertentu), baru kirim CSV secara utuh
+            data_str = df.to_head(50).to_csv(index=False) # Dibatasi 50 baris teratas biar aman
+            system_prompt = f"""
+Kamu adalah sistem database analitik. 
+Berikut adalah sampel data spreadsheet:
+{data_str}
+Tugasmu: Jawab pertanyaan user secara akurat berdasarkan data di atas.
+"""
+            content_to_send = f"{system_prompt}\n\nPertanyaan User: {prompt}"
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Menganalisis data..."):
                 response = client.models.generate_content(
                     model='gemini-3.6-flash',
-                    contents=f"{system_prompt}\n\nPertanyaan User: {prompt}"
+                    contents=content_to_send
                 )
                 st.markdown(response.text)
         
