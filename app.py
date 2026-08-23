@@ -55,7 +55,17 @@ try:
     csv_url = convert_to_csv_url(SHEET_URL)
     df = pd.read_csv(csv_url)
     df.columns = df.columns.str.strip()
+    
+    # Pembersihan angka otomatis di Python
     df_clean_text = df.fillna("").astype(str)
+    for col in df.columns:
+        if any(keyword in col.lower() for keyword in ['gmv', 'target', 'sales', 'value', 'amount', 'cm', 'lm', 'misi', 'gold']):
+            df[col] = pd.to_numeric(
+                df[col].astype(str).str.replace('.', '', regex=False)
+                                   .str.replace(',', '.', regex=False)
+                                   .str.replace(r'[^0-9\.-]', '', regex=True), 
+                errors='coerce'
+            ).fillna(0)
 
     client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
@@ -86,7 +96,7 @@ try:
         ignore_words = ['berapa', 'data', 'untuk', 'bulan', 'ini', 'kemarin', 'di', 'dan', 'yang', 'dari', 'tentang', 'pencapaian', 'capaian', 'misi', 'gold', 'gmv', 'total', 'totalin', 'tim', 'gw', 'saya', 'tolong', 'coba']
         search_tokens = [word for word in prompt_lower.split() if word not in ignore_words and len(word) > 2]
         
-        # Filtering Baris Data
+        # 1. PYTHON FILTER & HITUNG KETAT
         sub_df = pd.DataFrame()
         if search_tokens:
             row_combined = df_clean_text.apply(lambda row: " ".join(row.values).lower(), axis=1)
@@ -94,45 +104,49 @@ try:
             sub_df = df[mask]
 
         with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("Gemini sedang menganalisis data..."):
+            with st.spinner("Menyusun ringkasan cepat..."):
                 if len(sub_df) > 0:
-                    # Buang kolom yang seratus persen kosong agar data ringkas & kirim cepat
-                    sub_df_clean = sub_df.dropna(how='all', axis=1)
+                    # Ambil kolom metrik utama
+                    metric_cols = [col for col in df.columns if any(k in col.lower() for k in ['gmv', 'target', 'cm', 'lm']) and not any(x in col.lower() for x in ['code', 'assignment'])]
                     
-                    # Konversi mentah CSV tanpa diubah-ubah Python
-                    data_csv = sub_df_clean.to_csv(index=False)
+                    # Rangkum totalnya langsung pakai Python (Super Cepat!)
+                    totals_summary = []
+                    for c in metric_cols:
+                        val = sub_df[c].sum()
+                        if val != 0:
+                            totals_summary.append(f"{c}: Rp {val:,.0f}")
                     
+                    data_ringkas = "\n".join(totals_summary)
+
+                    # Prompt sangat pendek agar respons AI secepat kilat
                     system_prompt = f"""
-Kamu adalah asisten analitik SPV yang cerdas, teliti, dan cepat.
-Berikut adalah data mentah dari Google Sheet (Format CSV):
+Kamu adalah asisten SPV yang ramah dan cepat.
+Berikut adalah HASIL KALKULASI PASTI dari sistem (Ditemukan {len(sub_df)} baris data):
+{data_ringkas}
 
-{data_csv}
+Pertanyaan user: "{prompt}"
 
-Pertanyaan User: "{prompt}"
-
-Instruksi Paling Penting:
-1. Pahami nama-nama kolom pada data CSV di atas.
-2. Jika user minta total, jumlahkan angka di kolom yang dimaksud (misal GMV CM / Bulan Ini) dari SEMUA baris data milik orang/kategori tersebut di atas.
-3. Jawab pertanyaan user secara langsung di kalimat pertama dengan angka total Rupiah yang benar.
-4. Berikan penjelasan/analisis singkat yang akurat dan tepat sasaran.
+Tugas:
+Jawab langsung pertanyaan user menggunakan data nominal angka pasti di atas.
+Berikan penjelasan/analisis singkat (1-2 kalimat) yang logis berdasarkan angka tersebut.
+JANGAN mengubah angka nominal sedikit pun!
 """
                     try:
-                        # Panggil Gemini Flash Lite (Super Cepat + Otak Gemini Akurat)
+                        # Menggunakan model tercepat & ter-ringan
                         completion = client.chat.completions.create(
-                            model="google/gemini-2.0-flash-lite-001:free",
-                            messages=[{"role": "user", "content": system_prompt}],
-                            temperature=0.1 # Biar matematika & analisisnya makin konsisten akurat
+                            model="meta-llama/llama-3.2-1b-instruct:free",
+                            messages=[{"role": "user", "content": system_prompt}]
                         )
                         response_text = completion.choices[0].message.content
-                    except Exception as e:
+                    except Exception:
                         try:
                             completion = client.chat.completions.create(
-                                model="google/gemini-flash-1.5:free",
+                                model="openrouter/free",
                                 messages=[{"role": "user", "content": system_prompt}]
                             )
                             response_text = completion.choices[0].message.content
                         except Exception as err:
-                            response_text = f"Error dari API: {err}"
+                            response_text = f"**Hasil Total Data:**\n\n" + "\n".join([f"- {item}" for item in totals_summary])
                 else:
                     response_text = f"Maaf bro, data untuk **'{' '.join(search_tokens)}'** tidak ditemukan di Google Sheet."
 
