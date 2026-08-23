@@ -159,10 +159,10 @@ try:
                             target_columns = [c for c in sub_df.columns if 'reguler' in c.lower()]
                         if not target_columns:
                             target_columns = [c for c in sub_df.columns if 'misi' in c.lower()]
-                    elif 'dpd' in prompt_lower:
+                    elif 'dpd' in detected_intents:
                         target_columns = [c for c in sub_df.columns if 'dpd' in c.lower()]
                     elif 'limit' in detected_intents:
-                        target_columns = [c for c in sub_df.columns if 'limit' in c.lower()]
+                        target_columns = [c for c in sub_df.columns if 'limit' in c.lower() or 'plafon' in c.lower()]
                     elif 'cm' in detected_intents and 'gmv' in detected_intents:
                         target_columns = [c for c in sub_df.columns if c.lower() == 'cm' or 'cm' in c.lower()]
                     elif 'gmv' in detected_intents:
@@ -178,25 +178,32 @@ try:
                         if any(ignore in col_lower for ignore in ['id', 'code', 'telepon', '%', 'nama', 'toko', 'apotek', 'address']):
                             continue
 
-                        # A. KOLOM STATUS (DPD & MISI) -> Ambil Baris Terakhir
-                        if 'dpd' in col_lower:
+                        is_dpd_col = 'dpd' in col_lower
+                        is_limit_col = any(k in col_lower for k in ['limit', 'plafon', 'avaibility', 'availability'])
+                        is_status_col = any(k in col_lower for k in ['misi', 'gold', 'reguler', 'status', 'tier'])
+
+                        # A. KOLOM ATRIBUT / STATUS / LIMIT -> Ambil Baris Terakhir (Latest)
+                        if is_dpd_col or is_limit_col or is_status_col:
                             valid_rows = sub_df[sub_df[col].notna() & (sub_df[col].astype(str).str.strip() != '')]
                             if not valid_rows.empty:
-                                latest_val_raw = valid_rows[col].iloc[-1]
-                                latest_dpd = parse_number_exact(latest_val_raw, is_dpd=True)
-                                calculated_metrics.append(f"• **{col}**: {latest_dpd:.0f} hari")
+                                val_raw = valid_rows[col].iloc[-1]
+                                if is_dpd_col:
+                                    val_parsed = parse_number_exact(val_raw, is_dpd=True)
+                                    calculated_metrics.append(f"• **{col}**: {val_parsed:.0f} hari")
+                                elif is_limit_col:
+                                    val_parsed = parse_number_exact(val_raw, is_dpd=False)
+                                    calculated_metrics.append(f"• **{col}**: Rp {val_parsed:,.0f}".replace(",", "."))
+                                else:
+                                    calculated_metrics.append(f"• **{col}**: {str(val_raw).strip()}")
                             else:
-                                calculated_metrics.append(f"• **{col}**: 0 hari")
+                                if is_dpd_col:
+                                    calculated_metrics.append(f"• **{col}**: 0 hari")
+                                elif is_limit_col:
+                                    calculated_metrics.append(f"• **{col}**: Rp 0")
+                                else:
+                                    calculated_metrics.append(f"• **{col}**: -")
 
-                        elif 'misi' in col_lower or 'gold' in col_lower or 'reguler' in col_lower:
-                            valid_rows = sub_df[sub_df[col].notna() & (sub_df[col].astype(str).str.strip() != '')]
-                            if not valid_rows.empty:
-                                val_status = str(valid_rows[col].iloc[-1]).strip()
-                                calculated_metrics.append(f"• **{col}**: {val_status}")
-                            else:
-                                calculated_metrics.append(f"• **{col}**: -")
-
-                        # B. KOLOM ANGKA (LIMIT, GMV, VISIT) -> Pakai SUM dari seluruh baris
+                        # B. KOLOM TRANSAKSIONAL / AKUMULATIF (GMV, VISIT) -> Pakai SUM
                         elif any(k in col_lower for k in ['visit', 'kunjungan', 'count', 'target']):
                             num_series = sub_df[col].apply(lambda x: parse_number_exact(x, is_dpd=False))
                             total_val = num_series.sum()
