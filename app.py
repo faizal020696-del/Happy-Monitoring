@@ -67,7 +67,6 @@ def parse_number_exact(val, is_dpd=False):
 try:
     csv_url = convert_to_csv_url(SHEET_URL)
     
-    # Deteksi Otomatis Baris Header yang Valid
     res = requests.get(csv_url)
     csv_text = res.text
     lines = csv_text.splitlines()
@@ -78,18 +77,18 @@ try:
             header_idx = idx
             break
             
-    df = pd.read_csv(io.StringIO(csv_text), skiprows=header_idx, dtype=str)
+    raw_df = pd.read_csv(io.StringIO(csv_text), skiprows=header_idx, dtype=str)
     
     # Clean nama kolom
     new_cols = []
-    for c in df.columns:
+    for c in raw_df.columns:
         c_clean = str(c).strip()
         w_match = re.search(r'\b(w[1-4])\b', c_clean, re.IGNORECASE)
         if w_match:
             new_cols.append(w_match.group(1).upper())
         else:
             new_cols.append(c_clean)
-    df.columns = new_cols
+    raw_df.columns = new_cols
 
     client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
@@ -173,29 +172,26 @@ try:
         clean_prompt = re.sub(r'[^\w\s]', ' ', clean_prompt)
         extracted_entity = " ".join(clean_prompt.split()).strip()
 
-        # --- 3. MATCHING NAMA AMAN TANPA .str ERROR ---
+        # --- 3. MATCHING NAMA PURE LOOP (BEBAS ERROR .str) ---
         entity_tokens = extracted_entity.split()
-        sub_df = pd.DataFrame()
+        matched_rows = []
 
         if entity_tokens:
-            ignored_cols = [c for c in df.columns if any(k in c.lower() for k in ['alamat', 'address', 'jalan', 'kota'])]
-            searchable_cols = [c for c in df.columns if c not in ignored_cols]
+            ignored_cols = [c for c in raw_df.columns if any(k in c.lower() for k in ['alamat', 'address', 'jalan', 'kota'])]
+            searchable_cols = [c for c in raw_df.columns if c not in ignored_cols]
 
-            # Filter menggunakan list index baris yang mengandung semua token (aman dari error dataframe attribute)
-            matched_indices = []
-            for idx, row in df[searchable_cols].fillna("").astype(str).iterrows():
-                row_text = " ".join(row.values).lower()
-                if all(token in row_text for token in entity_tokens):
-                    matched_indices.append(idx)
+            for _, r_item in raw_df[searchable_cols].fillna("").astype(str).iterrows():
+                row_str = " ".join(r_item.values).lower()
+                if all(t in row_str for t in entity_tokens):
+                    matched_rows.append(r_item.name)
             
-            sub_df = df.loc[matched_indices]
+        sub_df = raw_df.loc[matched_rows] if matched_rows else pd.DataFrame(columns=raw_df.columns)
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Mengecek data..."):
                 if len(sub_df) > 0:
                     target_columns = []
 
-                    # --- FILTER KOLOM KETAT SESUAI INTENT ---
                     if 'weekly' in detected_intents:
                         for w in weeks_requested:
                             target_columns.extend([c for c in sub_df.columns if re.search(r'\b' + w + r'\b', c.lower())])
@@ -243,17 +239,14 @@ try:
                         important_keys = ['gmv', 'cm', 'lm', 'l2m', 'l3m', 'sales', 'limit', 'dpd', 'misi', 'visit', 'avg', 'average', 'trx', 'date', 'w1', 'w2', 'w3', 'w4']
                         target_columns = [c for c in sub_df.columns if any(k in c.lower() for k in important_keys)]
 
-                    # Hilangkan duplikasi kolom
                     target_columns = list(dict.fromkeys(target_columns))
 
                     calculated_metrics = []
                     for col in target_columns:
                         col_lower = col.lower()
-                        # Ignore kolom metadata / sales rep
                         if any(ignore in col_lower for ignore in ['id', 'code', 'telepon', '%', 'nama', 'toko', 'apotek', 'address', 'sales rep', 'reps', 'salesman', 'unnamed']):
                             continue
 
-                        # Kolom Teks / Tanggal
                         if any(k in col_lower for k in ['date', 'trx', 'tanggal', 'misi', 'gold', 'reguler', 'status', 'tier']):
                             valid_rows = sub_df[sub_df[col].notna() & (sub_df[col].astype(str).str.strip() != '')]
                             if not valid_rows.empty:
@@ -262,7 +255,6 @@ try:
                             else:
                                 calculated_metrics.append(f"• **{col}**: -")
 
-                        # Kolom DPD
                         elif 'dpd' in col_lower:
                             valid_rows = sub_df[sub_df[col].notna() & (sub_df[col].astype(str).str.strip() != '')]
                             if not valid_rows.empty:
@@ -272,7 +264,6 @@ try:
                             else:
                                 calculated_metrics.append(f"• **{col}**: 0 hari")
 
-                        # Kolom Angka/Uang Snapshot (Termasuk W1, W2, W3, W4)
                         elif any(k in col_lower for k in ['limit', 'plafon', 'avaibility', 'availability', 'avg', 'average', 'l3m', 'l2m', 'lm', 'cm', 'w1', 'w2', 'w3', 'w4']):
                             valid_rows = sub_df[sub_df[col].notna() & (sub_df[col].astype(str).str.strip() != '')]
                             if not valid_rows.empty:
@@ -282,13 +273,11 @@ try:
                             else:
                                 calculated_metrics.append(f"• **{col}**: Rp 0")
 
-                        # Kolom Akumulasi (Visit / Count)
                         elif any(k in col_lower for k in ['visit', 'kunjungan', 'count', 'target']):
                             num_series = sub_df[col].apply(lambda x: parse_number_exact(x, is_dpd=False))
                             total_val = num_series.sum()
                             calculated_metrics.append(f"• **{col}**: {total_val:,.0f} kali".replace(",", "."))
 
-                        # Kolom Angka Umum / Sum
                         else:
                             num_series = sub_df[col].apply(lambda x: parse_number_exact(x, is_dpd=False))
                             total_val = num_series.sum()
