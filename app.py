@@ -51,30 +51,6 @@ def convert_to_csv_url(url):
     gid = gid_match.group(1) if gid_match else "0"
     return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
 
-def parse_number(val):
-    """Konversi string rupiah/angka ke float presisi"""
-    if pd.isna(val):
-        return 0.0
-    val_str = str(val).strip()
-    cleaned = re.sub(r'[^0-9\,\.-]', '', val_str)
-    if not cleaned:
-        return 0.0
-    if ',' in cleaned and '.' in cleaned:
-        if cleaned.find('.') < cleaned.find(','):
-            cleaned = cleaned.replace('.', '').replace(',', '.')
-        else:
-            cleaned = cleaned.replace(',', '')
-    elif ',' in cleaned and '.' not in cleaned:
-        cleaned = cleaned.replace(',', '.')
-    elif '.' in cleaned and ',' not in cleaned:
-        parts = cleaned.split('.')
-        if len(parts) > 2 or (len(parts) == 2 and len(parts[1]) != 2):
-            cleaned = cleaned.replace('.', '')
-    try:
-        return float(cleaned)
-    except:
-        return 0.0
-
 try:
     csv_url = convert_to_csv_url(SHEET_URL)
     df = pd.read_csv(csv_url)
@@ -108,62 +84,53 @@ try:
 
         prompt_lower = prompt.lower()
         
-        # Kata dasar pertanyaan yang benar-benar tidak membantu pencarian
-        pure_stop_words = ['berapa', 'tolong', 'coba', 'data', 'untuk', 'yang', 'dari', 'tentang', 'gw', 'saya', 'dong', 'cek']
-        tokens = [w for w in prompt_lower.split() if w not in pure_stop_words and len(w) > 1]
+        # Kata-kata metrik/pertanyaan yang dibuang dari pencarian nama sel toko
+        keywords_to_remove = [
+            'berapa', 'pencapaian', 'capaian', 'misi', 'reguler', 'gold', 'gmv', 'total', 
+            'totalin', 'target', 'data', 'untuk', 'bulan', 'ini', 'kemarin', 'di', 'dan', 
+            'yang', 'dari', 'tentang', 'tim', 'gw', 'saya', 'tolong', 'coba', 'apotek', 'k24'
+        ]
         
+        # Ambil kata entitas spesifik saja (contoh: ['mutiara', 'palem'])
+        search_tokens = [w for w in prompt_lower.split() if w not in keywords_to_remove and len(w) > 1]
+        
+        # Jika semua kata terhapus, gunakan kata awal dari prompt
+        if not search_tokens:
+            search_tokens = [w for w in prompt_lower.split() if len(w) > 2]
+
         sub_df = pd.DataFrame()
-        if tokens:
+        if search_tokens:
             row_combined = df_clean_text.apply(lambda row: " ".join(row.values).lower(), axis=1)
-            # 1. Coba pencarian ketat (semua kata kunci cocok)
-            mask_all = row_combined.apply(lambda x: all(t in x for t in tokens))
-            sub_df = df[mask_all]
             
-            # 2. Jika tidak ada hasil, cari berdasarkan token entitas utama (abaikan kata metrik jika perlu)
+            # Langkah 1: Cari baris yang mengandung SEMUA kata kunci toko
+            mask = row_combined.apply(lambda x: all(token in x for token in search_tokens))
+            sub_df = df[mask]
+            
+            # Langkah 2: Jika 0 hasil, coba cari baris yang mengandung SALAH SATU kata kunci toko
             if len(sub_df) == 0:
-                entity_tokens = [t for t in tokens if t not in ['pencapaian', 'capaian', 'misi', 'reguler', 'gold', 'gmv', 'total', 'target']]
-                if entity_tokens:
-                    mask_entity = row_combined.apply(lambda x: all(t in x for t in entity_tokens))
-                    sub_df = df[mask_entity]
+                mask_any = row_combined.apply(lambda x: any(token in x for token in search_tokens))
+                sub_df = df[mask_any]
 
         with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("Gemini sedang menganalisis data secara akurat..."):
+            with st.spinner("Gemini sedang mengekstrak data..."):
                 if len(sub_df) > 0:
-                    # Ambil baris terfilter
+                    # Ambil maksimal 10 baris terfilter & buang kolom yang seratus persen kosong
                     sub_df_clean = sub_df.dropna(how='all', axis=1).head(10)
-                    
-                    # Cari kolom-kolom yang mengandung nilai metrik/angka untuk dihitung langsung oleh Python
-                    python_calc_summary = []
-                    for col in sub_df_clean.columns:
-                        col_lower = col.lower()
-                        # Jika nama kolom relevan dengan kata kunci di prompt
-                        if any(t in col_lower for t in tokens if len(t) > 2) or any(m in col_lower for m in ['gmv', 'target', 'pencapaian', 'misi', 'cm', 'lm']):
-                            # Abaikan kolom berisi tanggal/ID/durasi
-                            if not any(ignore in col_lower for ignore in ['date', 'tanggal', 'id', 'code', 'durasi', 'duration']):
-                                num_series = sub_df_clean[col].apply(parse_number)
-                                total_val = num_series.sum()
-                                if total_val > 0:
-                                    python_calc_summary.append(f"- **{col}**: Rp {total_val:,.0f}".replace(",", "."))
-                    
-                    calc_text = "\n".join(python_calc_summary) if python_calc_summary else "Tidak ada penjumlahan angka otomatis yang terdeteksi."
                     data_table_md = sub_df_clean.to_markdown(index=False)
 
                     system_prompt = f"""
-Kamu adalah Senior Data Analyst SPV yang sangat cermat.
+Kamu adalah Senior Data Analyst SPV yang sangat teliti.
 
-DATA TERFILTER DARI GOOGLE SHEET ({len(sub_df_clean)} Baris Ditemukan):
+BERIKUT ADALAH TABEL DATA UNTUK TOKO/SALES YANG DICARI (Format Markdown Table):
 {data_table_md}
-
-HASIL HUKUM HITUNGAN DARI PYTHON (Gunakan nilai ini jika relevan):
-{calc_text}
 
 Pertanyaan User: "{prompt}"
 
-Instruksi Penting:
-1. Analisis pertanyaan user dengan teliti. Tentukan kolom mana pada tabel yang SESUAI DENGAN PERTANYAAN (misal: "Pencapaian Misi Reguler", "Target Misi", "GMV", dll).
-2. Sebutkan nama toko/sales dan angka nominal spesifik yang dicari user pada kalimat pertama secara langsung.
-3. JANGAN campur adukkan kolom "Misi Reguler" dengan "Misi Gold" atau "GMV Harian" jika user hanya bertanya salah satunya.
-4. Tampilkan rincian singkat dalam bentuk poin yang rapi dan mudah dibaca oleh SPV.
+Instruksi Menjawab:
+1. Periksa tabel di atas dengan cermat. Cari kolom yang secara khusus membahas pertanyaan user (misal: "GMV Misi Reguler", "Pencapaian Misi Reguler", "Target Misi Reguler", dll).
+2. Sebutkan nama toko secara lengkap dan sampaikan angka pencapaian/GMV yang relevan secara langsung di kalimat pertama.
+3. JANGAN mencampuradukkan angka Misi Reguler dengan Misi Gold, GMV Harian, atau Target Visit kecuali jika diminta.
+4. Tampilkan rincian singkat poin per poin agar mudah dibaca oleh SPV.
 """
                     response_text = ""
                     models_to_try = [
@@ -188,11 +155,10 @@ Instruksi Penting:
                             continue
 
                     if not response_text or len(response_text.strip()) < 5:
-                        response_text = f"Ditemukan data untuk pencarian tersebut. Berikut rincian dari tabel:\n\n{calc_text}\n\n```markdown\n{data_table_md}\n```"
+                        response_text = f"Ditemukan {len(sub_df)} baris data toko. Berikut rincian tabelnya:\n\n```markdown\n{data_table_md}\n```"
 
                 else:
-                    search_keyword = ' '.join(tokens) if tokens else prompt
-                    response_text = f"Maaf bro, data untuk **'{search_keyword}'** tidak ditemukan di Google Sheet."
+                    response_text = f"Maaf bro, data untuk **'{' '.join(search_tokens)}'** tidak ditemukan di Google Sheet."
 
                 st.markdown(response_text)
         
