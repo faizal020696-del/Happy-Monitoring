@@ -51,21 +51,34 @@ def convert_to_csv_url(url):
     gid = gid_match.group(1) if gid_match else "0"
     return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
 
+def parse_currency(value):
+    if pd.isna(value):
+        return 0.0
+    val_str = str(value).strip()
+    cleaned = re.sub(r'[^0-9\,\.-]', '', val_str)
+    if not cleaned:
+        return 0.0
+    if ',' in cleaned and '.' in cleaned:
+        if cleaned.find('.') < cleaned.find(','):
+            cleaned = cleaned.replace('.', '').replace(',', '.')
+        else:
+            cleaned = cleaned.replace(',', '')
+    elif ',' in cleaned and '.' not in cleaned:
+        cleaned = cleaned.replace(',', '.')
+    elif '.' in cleaned and ',' not in cleaned:
+        parts = cleaned.split('.')
+        if len(parts) > 2 or (len(parts) == 2 and len(parts[1]) != 2):
+            cleaned = cleaned.replace('.', '')
+    try:
+        return float(cleaned)
+    except:
+        return 0.0
+
 try:
     csv_url = convert_to_csv_url(SHEET_URL)
     df = pd.read_csv(csv_url)
     df.columns = df.columns.str.strip()
-    
-    # Pembersihan angka otomatis di Python
     df_clean_text = df.fillna("").astype(str)
-    for col in df.columns:
-        if any(keyword in col.lower() for keyword in ['gmv', 'target', 'sales', 'value', 'amount', 'cm', 'lm', 'misi', 'gold']):
-            df[col] = pd.to_numeric(
-                df[col].astype(str).str.replace('.', '', regex=False)
-                                   .str.replace(',', '.', regex=False)
-                                   .str.replace(r'[^0-9\.-]', '', regex=True), 
-                errors='coerce'
-            ).fillna(0)
 
     client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
@@ -96,7 +109,6 @@ try:
         ignore_words = ['berapa', 'data', 'untuk', 'bulan', 'ini', 'kemarin', 'di', 'dan', 'yang', 'dari', 'tentang', 'pencapaian', 'capaian', 'misi', 'gold', 'gmv', 'total', 'totalin', 'tim', 'gw', 'saya', 'tolong', 'coba']
         search_tokens = [word for word in prompt_lower.split() if word not in ignore_words and len(word) > 2]
         
-        # 1. PYTHON FILTER & HITUNG KETAT
         sub_df = pd.DataFrame()
         if search_tokens:
             row_combined = df_clean_text.apply(lambda row: " ".join(row.values).lower(), axis=1)
@@ -104,49 +116,48 @@ try:
             sub_df = df[mask]
 
         with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("Menyusun ringkasan cepat..."):
+            with st.spinner("Menganalisis data..."):
                 if len(sub_df) > 0:
-                    # Ambil kolom metrik utama
-                    metric_cols = [col for col in df.columns if any(k in col.lower() for k in ['gmv', 'target', 'cm', 'lm']) and not any(x in col.lower() for x in ['code', 'assignment'])]
+                    summary_lines = []
+                    for col in sub_df.columns:
+                        if any(k in col.lower() for k in ['gmv', 'target', 'sales', 'value', 'amount', 'cm', 'lm', 'misi', 'gold']):
+                            numeric_series = sub_df[col].apply(parse_currency)
+                            total_val = numeric_series.sum()
+                            if total_val > 0:
+                                summary_lines.append(f"Total {col}: Rp {total_val:,.0f}".replace(",", "."))
                     
-                    # Rangkum totalnya langsung pakai Python (Super Cepat!)
-                    totals_summary = []
-                    for c in metric_cols:
-                        val = sub_df[c].sum()
-                        if val != 0:
-                            totals_summary.append(f"{c}: Rp {val:,.0f}")
+                    calc_summary = "\n".join(summary_lines)
+                    data_csv = sub_df.to_csv(index=False)
                     
-                    data_ringkas = "\n".join(totals_summary)
+                    prompt_ai = f"""
+Berikut adalah ringkasan data pencapaian:
+{calc_summary if calc_summary else "Data tidak berupa angka metrik."}
 
-                    # Prompt sangat pendek agar respons AI secepat kilat
-                    system_prompt = f"""
-Kamu adalah asisten SPV yang ramah dan cepat.
-Berikut adalah HASIL KALKULASI PASTI dari sistem (Ditemukan {len(sub_df)} baris data):
-{data_ringkas}
+Data CSV Mentah:
+{data_csv}
 
-Pertanyaan user: "{prompt}"
+Pertanyaan: {prompt}
 
-Tugas:
-Jawab langsung pertanyaan user menggunakan data nominal angka pasti di atas.
-Berikan penjelasan/analisis singkat (1-2 kalimat) yang logis berdasarkan angka tersebut.
-JANGAN mengubah angka nominal sedikit pun!
+Jawab pertanyaan secara singkat dan sebutkan angka total Rupiah yang tepat.
 """
+                    response_text = ""
                     try:
-                        # Menggunakan model tercepat & ter-ringan
                         completion = client.chat.completions.create(
-                            model="meta-llama/llama-3.2-1b-instruct:free",
-                            messages=[{"role": "user", "content": system_prompt}]
+                            model="google/gemini-2.0-flash-lite-001:free",
+                            messages=[{"role": "user", "content": prompt_ai}],
+                            temperature=0.1
                         )
-                        response_text = completion.choices[0].message.content
+                        if completion.choices and len(completion.choices) > 0:
+                            response_text = completion.choices[0].message.content.strip()
                     except Exception:
-                        try:
-                            completion = client.chat.completions.create(
-                                model="openrouter/free",
-                                messages=[{"role": "user", "content": system_prompt}]
-                            )
-                            response_text = completion.choices[0].message.content
-                        except Exception as err:
-                            response_text = f"**Hasil Total Data:**\n\n" + "\n".join([f"- {item}" for item in totals_summary])
+                        pass
+
+                    # Filter jika AI merespon dengan pesan error/safety
+                    invalid_responses = ["user safety", "safe", "none", "null", ""]
+                    if any(bad in response_text.lower() for bad in invalid_responses) or len(response_text) < 5:
+                        # Fallback langsung menampilkan hasil hitungan pasti dari Python
+                        response_text = f"Berikut adalah total data pencapaian yang ditemukan:\n\n" + "\n".join([f"- **{item}**" for item in summary_lines])
+
                 else:
                     response_text = f"Maaf bro, data untuk **'{' '.join(search_tokens)}'** tidak ditemukan di Google Sheet."
 
