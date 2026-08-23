@@ -13,10 +13,20 @@ st.set_page_config(
     layout="centered"
 )
 
-# Kustomisasi Tampilan Visual (CSS)
+# Kustomisasi Tampilan Visual (CSS) & Sembunyikan Menu Bawaan
 st.markdown("""
     <style>
-    /* Mengubah background utama */
+    /* Sembunyikan Header, Footer, Toolbar, Ikon GitHub, dan Fork */
+    #MainMenu {visibility: hidden;}
+    header {visibility: hidden;}
+    footer {visibility: hidden;}
+    .stAppHeader {display: none !important;}
+    [data-testid="stToolbar"] {display: none !important;}
+    [data-testid="stDecoration"] {display: none !important;}
+    [data-testid="stStatusWidget"] {display: none !important;}
+    button[title="View source"] {display: none !important;}
+    
+    /* Background Utama */
     .stApp {
         background-color: #f8fafc;
     }
@@ -58,11 +68,11 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Tampilan Header Baru
+# Tampilan Header
 st.markdown("""
     <div class="main-header">
         <h1>🤖 Chatbot Universe SPV Happy</h1>
-        <p>Tanyakan apa saja terkait data universe.</p>
+        <p>Tanyakan apa saja terkait data universe, performa sales, hingga status transaksi.</p>
     </div>
 """, unsafe_allow_html=True)
 
@@ -96,7 +106,7 @@ try:
 
         data_str = df.to_csv(index=False)
         system_prompt = f"""
-        Kamu adalah asisten monitoring SPV Happy.
+        Kamu adalah asisten monitoring pekerjaan dan data universe yang cerdas dan profesional.
         Berikut adalah data terbaru dalam format CSV:
         {data_str}
         Tugasmu: Jawab pertanyaan user secara akurat HANYA berdasarkan data di atas dalam bahasa Indonesia yang rapi dan komunikatif.
