@@ -83,56 +83,52 @@ try:
             st.markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
 
-        prompt_lower = prompt.lower()
+        # --- 1. GUNAKAN AI UNTUK EKSTRAKSI NAMA PURE & INTENT ---
+        ner_prompt = f"""
+Tugasmu adalah menganalisis pertanyaan user dan mengembalikan JSON dengan format murni.
 
-        # --- 1. DETEKSI INTENT PERTANYAAN (PRESISI) ---
-        detected_intents = []
-        
-        is_cm = any(k in prompt_lower for k in ['bulan ini', 'cm', 'current month', 'bln ini'])
-        is_lm = any(k in prompt_lower for k in ['bulan lalu', 'lm', 'last month', 'bln lalu'])
-        is_misi = any(k in prompt_lower for k in ['misi', 'mission', 'reguler', 'gold', 'campaign'])
-        
-        if is_cm:
-            detected_intents.append('cm')
-        elif is_lm:
-            detected_intents.append('lm')
+Kolom yang tersedia di Sheet: {list(df.columns)}
+Pertanyaan User: "{prompt}"
+
+Keluarkan format JSON persis seperti ini (tanpa markdown ```json):
+{{
+    "target_name": "NAMA_TOKO_ATAU_REPS_SAJA",
+    "target_type": "apotek" atau "reps" atau "unknown",
+    "requested_metrics": ["kata_kunci_kolom_yang_diminta"],
+    "is_filter_query": true/false
+}}
+
+Aturan:
+- `target_name`: Hanya ambil MURNI nama apotek atau nama reps. BUANG semua kata tanya, kata depan (di, diapotek), kata minggu (W1, W2, W4), dan nama metrik (target, visit, gmv, pencapaian, transaksi).
+- Contoh 1: "berapa target visit diapotek gebang farma?" -> target_name: "gebang farma", requested_metrics: ["visit"]
+- Contoh 2: "berapa pencapaian gmv apotek gebang farma w4?" -> target_name: "gebang farma", requested_metrics: ["gmv", "w4"]
+- Contoh 3: "area Reps Afrianto apotek mana yg sudah transaksi di W4?" -> target_name: "afrianto", target_type: "reps", requested_metrics: ["w4", "transaksi"], is_filter_query: true
+"""
+
+        extracted_entity = ""
+        requested_metrics = []
+        is_filter_query = False
+
+        try:
+            ner_res = client.chat.completions.create(
+                model="google/gemini-2.0-flash-lite-001:free",
+                messages=[{"role": "user", "content": ner_prompt}],
+                temperature=0.0
+            )
+            raw_json = ner_res.choices[0].message.content.strip()
+            raw_json = re.sub(r'```json\s*|\s*```', '', raw_json)
+            parsed_data = json.loads(raw_json)
             
-        if is_misi:
-            detected_intents.append('misi')
-        elif 'dpd' in prompt_lower:
-            detected_intents.append('dpd')
-        elif any(k in prompt_lower for k in ['limit', 'plafon', 'kredit', 'avaibility']):
-            detected_intents.append('limit')
-        elif any(k in prompt_lower for k in ['visit', 'kunjungan']):
-            detected_intents.append('visit')
-        elif any(k in prompt_lower for k in ['gmv', 'omset', 'sales', 'penjualan', 'pencapaian', 'capaian']) and not is_misi:
-            detected_intents.append('gmv')
+            extracted_entity = parsed_data.get("target_name", "").strip()
+            requested_metrics = parsed_data.get("requested_metrics", [])
+            is_filter_query = parsed_data.get("is_filter_query", False)
+        except Exception:
+            extracted_entity = prompt
 
-        # --- 2. EXTRACTION NAMA TOKO / REPS (PEMBERSIHAN REGEX AGRESIF) ---
-        clean_prompt = prompt_lower
-
-        # Hapus imbuhan "di" di awal kata (misal: "diapotek" -> "apotek", "dibulan" -> "bulan")
-        clean_prompt = re.sub(r'\bdi([a-z]+)', r'\1', clean_prompt)
-        
-        junk_patterns = [
-            r'\bberapa\b', r'\btotal\b', r'\bjumlah\b', r'\byang\b', r'\btersedia\b', r'\bada\b', 
-            r'\bkunjungan\b', r'\breps\b', r'\bsales\b', r'\bsalesman\b', r'\blimit\b', r'\bplafon\b',
-            r'\bdpd\b', r'\bmisi\b', r'\bmission\b', r'\bgmv\b', r'\bomset\b', r'\bdi\b', r'\bapotek\b', 
-            r'\bapotik\b', r'\btoko\b', r'\boutlet\b', r'\bpt\b', r'\bcv\b', r'\bdata\b', r'\buntuk\b', 
-            r'\bbulan\b', r'\bini\b', r'\blalu\b', r'\bni\b', r'\binih\b', r'\bkah\b', r'\bdong\b', 
-            r'\bcek\b', r'\binfo\b', r'\bpencapaian\b', r'\bcapaian\b', r'\bperforma\b', r'\bhasil\b'
-        ]
-        
-        for junk in junk_patterns:
-            clean_prompt = re.sub(junk, ' ', clean_prompt)
-            
-        clean_prompt = re.sub(r'[^\w\s]', ' ', clean_prompt)
-        extracted_entity = " ".join(clean_prompt.split()).strip()
-
-        entity_tokens = extracted_entity.split()
+        # --- 2. PENULUSURAN DATA BERDASARKAN HASIL EKSTRAKSI AI ---
         sub_df = pd.DataFrame()
-
-        if entity_tokens:
+        if extracted_entity:
+            entity_tokens = extracted_entity.lower().split()
             ignored_cols = [c for c in df.columns if any(k in c.lower() for k in ['alamat', 'address', 'jalan', 'kota'])]
             searchable_cols = [c for c in df.columns if c not in ignored_cols]
 
@@ -143,47 +139,52 @@ try:
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Mengecek data..."):
                 if len(sub_df) > 0:
-                    target_columns = []
+                    
+                    # CASE A: Pertanyaan berbentuk Filter/List (Misal: "Apotek mana aja yg udah transaksi di W4")
+                    if is_filter_query and any(k in c.lower() for c in df.columns for k in requested_metrics):
+                        # Cari kolom metrik transaksi W4
+                        target_col = [c for c in df.columns if any(m.lower() in c.lower() for m in requested_metrics)]
+                        name_col = [c for c in df.columns if any(k in c.lower() for k in ['toko', 'apotek', 'outlet', 'customer'])][0]
+                        
+                        sub_df['val_check'] = sub_df[target_col[0]].apply(parse_number_exact)
+                        transacted_outlets = sub_df[sub_df['val_check'] > 0][name_col].tolist()
 
-                    # --- 3. FILTERING KOLOM KHUSUS (ON-POINT KUNCI METRIK) ---
-                    if 'misi' in detected_intents:
-                        target_columns = [c for c in sub_df.columns if 'misi' in c.lower()]
-                    elif 'cm' in detected_intents:
-                        target_columns = [c for c in sub_df.columns if c.lower() == 'cm' or 'cm' in c.lower()]
-                    elif 'lm' in detected_intents:
-                        target_columns = [c for c in sub_df.columns if c.lower() == 'lm' or 'lm' in c.lower()]
-                    elif 'dpd' in detected_intents:
-                        target_columns = [c for c in sub_df.columns if 'dpd' in c.lower()]
-                    elif 'limit' in detected_intents:
-                        target_columns = [c for c in sub_df.columns if 'limit' in c.lower()]
-                    elif 'visit' in detected_intents:
-                        target_columns = [c for c in sub_df.columns if 'visit' in c.lower() or 'kunjungan' in c.lower()]
-                    elif 'gmv' in detected_intents:
-                        target_columns = [c for c in sub_df.columns if any(k in c.lower() for k in ['gmv', 'sales'])]
-
-                    if not target_columns:
-                        important_keys = ['gmv', 'cm', 'lm', 'sales', 'limit', 'dpd', 'misi']
-                        target_columns = [c for c in sub_df.columns if any(k in c.lower() for k in important_keys)]
-
-                    calculated_metrics = []
-                    for col in target_columns:
-                        col_lower = col.lower()
-                        if any(ignore in col_lower for ignore in ['id', 'code', 'telepon', '%', 'nama', 'toko', 'apotek', 'address']):
-                            continue
-
-                        num_series = sub_df[col].apply(parse_number_exact)
-                        total_val = num_series.sum()
-
-                        if 'dpd' in col_lower:
-                            calculated_metrics.append(f"• **{col}**: {num_series.mean():.0f} hari")
-                        elif any(k in col_lower for k in ['visit', 'kunjungan', 'count']):
-                            calculated_metrics.append(f"• **{col}**: {total_val:,.0f} kali".replace(",", "."))
+                        if transacted_outlets:
+                            outlets_formatted = "\n".join([f"{i+1}. {out}" for i, out in enumerate(transacted_outlets)])
+                            response_text = f"Berikut daftar apotek under **{extracted_entity.title()}** yang sudah bertransaksi di {target_col[0]}:\n\n{outlets_formatted}"
                         else:
-                            calculated_metrics.append(f"• **{col}**: Rp {total_val:,.0f}".replace(",", "."))
+                            response_text = f"Belum ada apotek under **{extracted_entity.title()}** yang bertransaksi di {target_col[0]}."
 
-                    calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Metrik tidak terdeteksi di sheet."
+                    # CASE B: Pertanyaan Angka / Metrik Biasa
+                    else:
+                        target_columns = []
+                        if requested_metrics:
+                            for col in sub_df.columns:
+                                if any(m.lower() in col.lower() for m in requested_metrics):
+                                    target_columns.append(col)
 
-                    system_prompt = f"""
+                        if not target_columns:
+                            target_columns = [c for c in sub_df.columns if any(k in c.lower() for k in ['gmv', 'cm', 'lm', 'sales', 'limit', 'dpd', 'visit', 'target'])]
+
+                        calculated_metrics = []
+                        for col in target_columns:
+                            col_lower = col.lower()
+                            if any(ignore in col_lower for ignore in ['id', 'code', 'telepon', '%', 'nama', 'toko', 'apotek', 'address']):
+                                continue
+
+                            num_series = sub_df[col].apply(parse_number_exact)
+                            total_val = num_series.sum()
+
+                            if 'dpd' in col_lower:
+                                calculated_metrics.append(f"• **{col}**: {num_series.mean():.0f} hari")
+                            elif any(k in col_lower for k in ['visit', 'kunjungan', 'count', 'target visit']):
+                                calculated_metrics.append(f"• **{col}**: {total_val:,.0f} kali".replace(",", "."))
+                            else:
+                                calculated_metrics.append(f"• **{col}**: Rp {total_val:,.0f}".replace(",", "."))
+
+                        calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Metrik tidak ditemukan di sheet."
+
+                        system_prompt = f"""
 Kamu adalah Assistant Data SPV.
 
 DATA UNTUK: '{extracted_entity.title()}'.
@@ -192,24 +193,19 @@ PERTANYAAN USER: "{prompt}"
 HASIL KALKULASI PRESISI:
 {calc_summary_str}
 
-Instruksi Ringkas & Direct:
+Instruksi Direct:
 1. Jawab LANGSUNG ke inti pertanyaan tanpa salam berbelit-belit.
-2. Tampilkan HANYA angka metrik yang diminta user. JANGAN menampilkan data yang tidak berhubungan dengan intent pertanyaan!
+2. Tampilkan HANYA angka metrik yang relevan dengan pertanyaan user.
 """
-                    response_text = ""
-                    try:
-                        completion = client.chat.completions.create(
-                            model="google/gemini-2.0-flash-lite-001:free",
-                            messages=[{"role": "user", "content": system_prompt}],
-                            temperature=0.0
-                        )
-                        if completion.choices and len(completion.choices) > 0:
+                        try:
+                            completion = client.chat.completions.create(
+                                model="google/gemini-2.0-flash-lite-001:free",
+                                messages=[{"role": "user", "content": system_prompt}],
+                                temperature=0.0
+                            )
                             response_text = completion.choices[0].message.content.strip()
-                    except Exception:
-                        response_text = ""
-
-                    if not response_text:
-                        response_text = f"Data **{extracted_entity.title()}**:\n{calc_summary_str}"
+                        except Exception:
+                            response_text = f"Data **{extracted_entity.title()}**:\n{calc_summary_str}"
 
                 else:
                     searched_name = extracted_entity.title() if extracted_entity else prompt
