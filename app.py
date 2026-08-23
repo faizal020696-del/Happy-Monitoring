@@ -239,9 +239,16 @@ try:
                         if wtu_cols:
                             calculated_metrics.append("\n**📋 Data WTU / Kunjungan:**")
                             for col in wtu_cols:
-                                sum_val = sum(parse_number_general(r.get(col, 0)) for _, r in matched_reps_df.iterrows())
-                                val_formatted = f"{sum_val:,.0f}".replace(",", ".") if sum_val > 0 else "Cek detail sheet"
-                                calculated_metrics.append(f"• **Total {col}**: {val_formatted}")
+                                c_lower = col.lower()
+                                if any(date_term in c_lower for date_term in ['last', 'tanggal', 'date', 'terakhir']):
+                                    # Untuk kolom tanggal/last visit, tampilkan informasi teks/sample atau lewati penjumlahan angka
+                                    non_empty_vals = [str(r.get(col, '')).strip() for _, r in matched_reps_df.iterrows() if str(r.get(col, '')).strip() not in ['', '-', 'nan', '0']]
+                                    sample_val = non_empty_vals[0] if non_empty_vals else "-"
+                                    calculated_metrics.append(f"• **{col}**: (Contoh: {sample_val})")
+                                else:
+                                    sum_val = sum(parse_number_general(r.get(col, 0)) for _, r in matched_reps_df.iterrows())
+                                    val_formatted = f"{sum_val:,.0f}".replace(",", ".") if sum_val > 0 else "0"
+                                    calculated_metrics.append(f"• **Total {col}**: {val_formatted}")
                         else:
                             calculated_metrics.append("• Kolom WTU / visit tidak ditemukan pada sheet.")
                     else:
