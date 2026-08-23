@@ -13,31 +13,36 @@ st.set_page_config(
     layout="centered"
 )
 
-# Kustomisasi Tampilan Visual (CSS) & Sembunyikan Seluruh Element Bawaan Streamlit
+# CSS Sapu Bersih untuk Menghilangkan Badge Streamlit Cloud
 st.markdown("""
     <style>
-    /* Sembunyikan Header, Footer, Status, Toolbar, dan Badge Streamlit */
-    #MainMenu {visibility: hidden;}
-    header {visibility: hidden;}
-    footer {visibility: hidden;}
+    /* 1. Sembunyikan Header & Footer Bawaan */
+    #MainMenu {visibility: hidden !important;}
+    header {visibility: hidden !important;}
+    footer {visibility: hidden !important;}
     .stAppHeader {display: none !important;}
     [data-testid="stToolbar"] {display: none !important;}
     [data-testid="stDecoration"] {display: none !important;}
     [data-testid="stStatusWidget"] {display: none !important;}
     button[title="View source"] {display: none !important;}
     
-    /* Sembunyikan Footer 'Created by' dan tombol merah 'Hosted with Streamlit' */
-    div[class*="viewerBadge"] {display: none !important;}
-    [data-testid="stFooter"] {display: none !important;}
-    .styles_stateContainer__2mB3_ {display: none !important;}
-    iframe[title="streamlit_badge"] {display: none !important;}
+    /* 2. Sembunyikan Badge 'Hosted with Streamlit' & 'Created by' */
+    .viewerBadge_container__1A5DN {display: none !important;}
+    .viewerBadge_link__1A5DN {display: none !important;}
+    [class*="viewerBadge"] {display: none !important;}
+    [class*="styles_viewerBadge"] {display: none !important;}
+    [data-testid="stAppViewBlockContainer"] + div {display: none !important;}
     
-    /* Background Utama */
+    /* Sasar elemen footer paling bawah */
+    div[data-testid="stApp"] > div:nth-child(2) {display: none !important;}
+    #root > div:nth-child(2) {display: none !important;}
+    
+    /* 3. Background Utama */
     .stApp {
         background-color: #f8fafc;
     }
     
-    /* Header Container dengan Gradient */
+    /* 4. Header Container dengan Gradient */
     .main-header {
         background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
         padding: 2.5rem 2rem;
@@ -59,7 +64,7 @@ st.markdown("""
         margin: 0;
     }
 
-    /* Kustomisasi Gelembung Chat */
+    /* 5. Kustomisasi Gelembung Chat */
     .stChatMessage {
         border-radius: 16px !important;
         padding: 1rem 1.2rem !important;
@@ -67,7 +72,7 @@ st.markdown("""
         box-shadow: 0 2px 5px rgba(0,0,0,0.03) !important;
     }
     
-    /* Input Chat di Bawah */
+    /* 6. Input Chat di Bawah */
     .stChatInputContainer {
         border-radius: 15px !important;
     }
