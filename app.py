@@ -126,50 +126,40 @@ try:
         if not search_tokens:
             search_tokens = extracted_entity.split()
 
-        valid_indices = []
+        matched_rows = []
         for idx, row in raw_df.iterrows():
             row_text = " ".join([str(val) for val in row.values if pd.notna(val)]).lower()
             
-            # Cek apakah token nama toko masuk
-            matches_name = search_tokens and all(token in row_text for token in search_tokens)
-            if matches_name:
-                # Blokir mutlak baris yang namanya terlalu panjang / mengandung kata rekap wilayah
-                if any(bad_word in row_text for bad_word in ['sangiang', 'periuk', 'total', 'all area', 'region', 'kabupaten']):
-                    continue
-                
-                # Cek nilai W1 apakah masuk akal (di bawah 500 juta rupiah per minggu untuk toko normal)
+            # Cek apakah setidaknya ada SATU kata kunci penting yang cocok (misal 'gebang' atau 'farma')
+            if any(token in row_text for token in search_tokens):
+                # Lewati baris rekap besar yang triliunan
                 w1_val = parse_number_exact(str(row.get('W1', '0')))
                 if w1_val < 500_000_000:
-                    valid_indices.append(idx)
-
-        sub_df = raw_df.loc[valid_indices] if valid_indices else pd.DataFrame(columns=raw_df.columns)
+                    matched_rows.append(row)
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Mengecek data..."):
-                if len(sub_df) > 0:
-                    target_columns = []
-                    if weeks_requested:
-                        target_columns = [w for w in weeks_requested if w in sub_df.columns]
-                    
-                    if not target_columns:
-                        target_columns = ['W1', 'W2', 'W3', 'W4']
+                if len(matched_rows) == 1:
+                    target_row = matched_rows[0]
+                    target_columns = weeks_requested if weeks_requested else ['W1', 'W2', 'W3', 'W4']
+                    target_columns = [c for c in target_columns if c in raw_df.columns]
 
-                    target_columns = [c for c in target_columns if c in sub_df.columns]
-
-                    calculated_metrics = []
-                    target_row = sub_df.iloc[0]
                     display_name = target_row.get(name_cols[0], extracted_entity.title())
-
+                    calculated_metrics = []
                     for col in target_columns:
-                        val_raw = str(target_row.get(col, '')).strip()
-                        val_parsed = parse_number_exact(val_raw)
+                        val_parsed = parse_number_exact(str(target_row.get(col, '')))
                         calculated_metrics.append(f"• **{col}**: Rp {val_parsed:,.0f}".replace(",", "."))
 
-                    calc_summary_str = "\n".join(calculated_metrics)
-                    response_text = f"Data untuk **{str(display_name).title()}**:\n{calc_summary_str}"
+                    response_text = f"Data untuk **{str(display_name).title()}**:\n" + "\n".join(calculated_metrics)
 
+                elif len(matched_rows) > 1:
+                    response_text = f"Menemukan beberapa outlet yang mirip dengan '**{extracted_entity.title()}**'. Maksud kamu yang mana?\n"
+                    for r in matched_rows[:5]: # Tampilkan maksimal 5 pilihan
+                        d_name = r.get(name_cols[0], 'Outlet Tanpa Nama')
+                        w1_val = parse_number_exact(str(r.get('W1', '0')))
+                        response_text += f"- **{d_name}** (W1: Rp {w1_val:,.0f})\n".replace(",", ".")
                 else:
-                    response_text = f"Waduh, data detail untuk **'{extracted_entity.title()}'** (selain baris rekap wilayah) tidak ditemukan di Google Sheet."
+                    response_text = f"Waduh, data untuk **'{extracted_entity.title()}'** tidak ditemukan di Google Sheet. Coba cek ejaan namanya."
 
                 st.markdown(response_text)
         
