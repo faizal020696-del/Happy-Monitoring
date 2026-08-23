@@ -3,7 +3,6 @@ import pandas as pd
 import re
 import io
 import requests
-import difflib
 
 SHEET_URL = st.secrets.get("SHEET_URL", "")
 
@@ -146,7 +145,6 @@ try:
         is_gold_mission_query = 'gold' in prompt_lower and ('misi' in prompt_lower or 'mission' in prompt_lower)
         is_regular_mission_query = ('misi' in prompt_lower or 'mission' in prompt_lower) and not is_gold_mission_query
 
-        # Deteksi pencarian metrik spesifik via teks prompt
         metric_requested = None
         if not weeks_requested and not is_limit_query and not is_general_gmv_query and not is_visit_query and not is_gold_mission_query and not is_regular_mission_query:
             for c in raw_df.columns:
@@ -166,12 +164,11 @@ try:
 
         target_row = None
         
-        # Command words murni untuk membuang kata bantu tanya, TANPA membuang kata kunci metrik
         command_words = {
             'cek', 'data', 'id', 'berapa', 'total', 'jumlah', 'w1', 'w2', 'w3', 'w4', 
             'transaksi', 'tolong', 'visit', 'kunjungan', 'misi', 'gold', 'mission',
             'campaign', 'type', 'start', 'date', 'duration', 'target', 'level', 'gmv', 
-            'ppn', 'gap', 'hna', 'pencapaian', 'kekurangan', 'info'
+            'ppn', 'gap', 'hna', 'pencapaian', 'kekurangan', 'info', 'apotek', 'toko', 'wtu'
         }
 
         # 1. Cek berdasarkan ID jika ada angka 4-6 digit di prompt
@@ -187,33 +184,33 @@ try:
                 if target_row is not None:
                     break
 
-        # 2. Cek Berdasarkan Nama Outlet Lengkap / Toleransi Typo (difflib)
+        # 2. Cek Berdasarkan Nama Outlet secara Presisi (Handle Typo gabang -> gebang khusus)
         if target_row is None:
-            outlet_query_words = [w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in command_words]
+            # Koreksi otomatis khusus typo gabang -> gebang jika user mengetik gabang
+            corrected_prompt_lower = prompt_lower.replace('gabang', 'gebang')
+            outlet_query_words = [w for w in re.findall(r'\b\w+\b', corrected_prompt_lower) if w not in command_words]
+            
             if outlet_query_words:
                 name_series = raw_df[name_col].fillna("").astype(str).str.lower()
+                
+                # Cek apakah semua kata kunci spesifik ada di nama outlet
                 match_mask = name_series.apply(lambda x: all(qw in x for qw in outlet_query_words))
                 matches = raw_df[match_mask]
                 
                 if not matches.empty:
                     target_row = matches.iloc[0]
                 else:
-                    for qw in outlet_query_words:
-                        if len(qw) > 3:
+                    # Cari kata kunci terpanjang yang spesifik (misal nama khas seperti "gebang")
+                    valid_qw = [qw for qw in outlet_query_words if len(qw) > 3]
+                    if valid_qw:
+                        for qw in valid_qw:
                             sub_matches = raw_df[name_series.str.contains(qw)]
-                            if not sub_matches.empty:
+                            if len(sub_matches) == 1:
                                 target_row = sub_matches.iloc[0]
                                 break
-                    
-                    if target_row is None:
-                        clean_prompt_name = " ".join(outlet_query_words)
-                        if clean_prompt_name:
-                            all_names = name_series.tolist()
-                            closest = difflib.get_close_matches(clean_prompt_name, all_names, n=1, cutoff=0.35)
-                            if closest:
-                                matched_rows = raw_df[name_series == closest[0]]
-                                if not matched_rows.empty:
-                                    target_row = matched_rows.iloc[0]
+                            elif len(sub_matches) > 1:
+                                target_row = sub_matches.iloc[0]
+                                break
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Mengecek data..."):
