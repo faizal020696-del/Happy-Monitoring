@@ -3,9 +3,9 @@ import pandas as pd
 from google import genai
 import re
 
-st.set_page_config(page_title="Chatbot Monitoring Pekerjaan", page_icon="📊", layout="centered")
-st.title("📊 Chatbot Monitoring Pekerjaan")
-st.caption("Tanyakan apa saja terkait status pekerjaan/project tim berdasarkan data Google Sheets.")
+st.set_page_config(page_title="Chatbot Monitoring SPV Happy", page_icon="📊", layout="centered")
+st.title("📊 Chatbot Monitoring SPV Happy")
+st.caption("Tanyakan apa saja terkait data universe kalian.")
 
 st.sidebar.header("⚙️ Pengaturan Data & API")
 api_key = st.sidebar.text_input("Gemini API Key:", type="password")
