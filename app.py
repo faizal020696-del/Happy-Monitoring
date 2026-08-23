@@ -80,7 +80,7 @@ try:
             
     df = pd.read_csv(io.StringIO(csv_text), skiprows=header_idx, dtype=str)
     
-    # Bersihkan nama kolom dari prefix/suffix aneh (contoh: 'W1: 241' -> 'W1')
+    # Clean nama kolom
     new_cols = []
     for c in df.columns:
         c_clean = str(c).strip()
@@ -184,8 +184,10 @@ try:
             searchable_cols = [c for c in df.columns if c not in ignored_cols]
 
             pattern = r'(?=.*\b' + r'\b)(?=.*\b'.join([re.escape(t) for t in entity_tokens]) + r'\b)'
-            series_clean = df_clean_text[searchable_cols].apply(lambda row: " ".join(row.values).lower(), axis=1)
-            sub_df = df[series_clean.str.contains(pattern, regex=True, na=False)]
+            
+            # DIGANTI: Menggabungkan baris menjadi satu Series string sebelum .str.contains
+            search_series = df_clean_text[searchable_cols].apply(lambda row: " ".join(row.values).lower(), axis=1)
+            sub_df = df[search_series.str.contains(pattern, regex=True, na=False)]
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Mengecek data..."):
