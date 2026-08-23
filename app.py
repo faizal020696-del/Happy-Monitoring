@@ -102,12 +102,12 @@ try:
                     valid_metric_cols = [col for col in df.columns if any(k in col.lower() for k in ['gmv', 'cm']) and not any(x in col.lower() for x in ['code', 'assignment'])]
                     
                     summary_lines = [f"Data performa untuk sales {name.upper()}:"]
-                    summary_lines.append(- Total baris data: {len(sub_df)})
+                    summary_lines.append(f"- Total baris data: {len(sub_df)}")
                     
                     for col in valid_metric_cols:
                         total_val = sub_df[col].sum()
                         if total_val > 0:
-                            summary_lines.append(- {col}: Rp {total_val:,.0f})
+                            summary_lines.append(f"- {col}: Rp {total_val:,.0f}")
                     
                     python_summary_text = "\n".join(summary_lines)
                     break
@@ -115,14 +115,13 @@ try:
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Menganalisis data..."):
                 if python_summary_text:
-                    # PYTHON MENYEDIAKAN ANGKA, GEMINI MERANGKAI JADI KALIMAT NATURAL
                     formatting_prompt = f"""
 Kamu adalah asisten AI analitik yang ramah dan profesional. 
 Berikut adalah data angka valid yang sudah dihitung secara mutlak oleh sistem:
 
 {python_summary_text}
 
-Tugasmu: Jawab pertanyaan user ({prompt}) dengan merangkai data di atas menjadi kalimat narasi yang mengalir, rapi, dan *on point*, seolah-olah kamu sendiri yang menghitungnya secara instan. 
+Tugasmu: Jawab pertanyaan user ({prompt}) dengan merangkai data di atas menjadi kalimat narasi yang mengalir, rapi, dan on point, seolah-olah kamu sendiri yang menghitungnya secara instan. 
 ATURAN MUTLAK: Jangan mengubah angka atau nominal Rupiah yang ada di dalam data di atas sedikit pun!
 """
                     response = client.models.generate_content(
@@ -131,7 +130,6 @@ ATURAN MUTLAK: Jangan mengubah angka atau nominal Rupiah yang ada di dalam data 
                     )
                     response_text = response.text
                 else:
-                    # PERTANYAAN UMUM
                     data_str = df.head(50).to_csv(index=False)
                     system_prompt = f"Kamu adalah asisten data. Jawab pertanyaan berikut berdasarkan data ini:\n{data_str}"
                     response = client.models.generate_content(
