@@ -21,24 +21,24 @@ st.markdown("""
     .stApp { background-color: #f8fafc; }
     .main-header {
         background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-        padding: 2.5rem 2rem;
-        border-radius: 20px;
+        padding: 2rem 1.5rem;
+        border-radius: 16px;
         color: white;
         text-align: center;
-        box-shadow: 0 10px 25px -5px rgba(79, 70, 229, 0.2);
-        margin-bottom: 2rem;
+        box-shadow: 0 8px 20px -4px rgba(79, 70, 229, 0.2);
+        margin-bottom: 1.5rem;
     }
-    .main-header h1 { color: white !important; font-weight: 800; font-size: 2.2rem; margin-bottom: 0.5rem; }
-    .main-header p { color: #e0e7ff !important; font-size: 1rem; margin: 0; }
-    .stChatMessage { border-radius: 16px !important; padding: 1rem 1.2rem !important; margin-bottom: 0.8rem !important; box-shadow: 0 2px 5px rgba(0,0,0,0.03) !important; }
+    .main-header h1 { color: white !important; font-weight: 800; font-size: 2rem; margin-bottom: 0.3rem; }
+    .main-header p { color: #e0e7ff !important; font-size: 0.95rem; margin: 0; }
+    .stChatMessage { border-radius: 16px !important; padding: 0.8rem 1.1rem !important; margin-bottom: 0.8rem !important; }
     .stChatInputContainer { border-radius: 15px !important; bottom: 20px !important; }
     </style>
 """, unsafe_allow_html=True)
 
 st.markdown("""
     <div class="main-header">
-        <h1>🤖 Chatbot Universe SPV Happy</h1>
-        <p>Tanyakan apa saja terkait data universe kalian.</p>
+        <h1>🤖 Assistant Universe SPV</h1>
+        <p>Tanyakan info DPD, Limit, Omset, Kunjungan, atau Misi outlet & reps kapan saja!</p>
     </div>
 """, unsafe_allow_html=True)
 
@@ -99,30 +99,36 @@ try:
 
     with st.sidebar:
         st.write("### 📊 Status Data Master")
-        st.write(f"Total Baris: {len(df)}")
-        st.write("### 📋 Daftar Kolom Sheet:")
-        for idx, col in enumerate(df.columns):
-            st.text(f"{idx+1}. {col}")
+        st.write(f"Total Baris Data: **{len(df):,}**")
+        st.write("---")
+        st.write("### 💡 Tips Pertanyaan Friendly:")
+        st.caption("• *Berapa limit apotek berkah jaya?*")
+        st.caption("• *Berapa DPD gebang farma?*")
+        st.caption("• *Berapa jumlah kunjungan di berkah jaya?*")
+        st.caption("• *Minta data performa reps rizki*")
 
     if "messages" not in st.session_state:
-        st.session_state.messages = []
+        st.session_state.messages = [
+            {"role": "assistant", "content": "Halo SPV! 👋 Ada data outlet atau reps yang mau dicek hari ini? Ketik nama toko/reps dan data yang mau kamu ketahui ya."}
+        ]
 
     for message in st.session_state.messages:
         avatar = "👤" if message["role"] == "user" else "🤖"
         with st.chat_message(message["role"], avatar=avatar):
             st.markdown(message["content"])
 
-    if prompt := st.chat_input("Tanyakan sesuatu terkait data universe..."):
+    if prompt := st.chat_input("Tulis pertanyaan kamu di sini..."):
         with st.chat_message("user", avatar="👤"):
             st.markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
 
         prompt_lower = prompt.lower()
 
-        # --- 1. KAMUS SINONIM METRIK (FLEKSIBEL DI TINGKAT PYTHON) ---
+        # --- 1. KAMUS SINONIM METRIK (DETEKSI INTENT PERTANYAAN) ---
         SYNONYM_MAP = {
             'dpd': ['dpd', 'terlambat', 'tunggakan', 'jatuh tempo', 'overdue', 'macet', 'hari'],
-            'limit': ['limit', 'plafon', 'kredit', 'sisa limit', 'avaibility'],
+            'limit': ['limit', 'plafon', 'kredit', 'sisa limit', 'avaibility', 'tersedia'],
+            'visit': ['kunjungan', 'visit', 'datang', 'dikunjungi'],
             'misi': ['misi', 'mission', 'reguler', 'gold', 'campaign'],
             'cm': ['cm', 'bulan ini', 'current month', 'pencapaian bulan ini'],
             'lm': ['lm', 'bulan lalu', 'last month', 'pencapaian bulan lalu'],
@@ -134,37 +140,23 @@ try:
             if any(syn in prompt_lower for syn in synonyms):
                 detected_intents.append(key)
 
-        # --- 2. AI EKSTRAKSI ENTITAS NAMA ---
-        extraction_prompt = f"""
-Saring pertanyaan user dan kembalikan format JSON:
-{{"entity": "<nama entitas bersih>"}}
-
-Aturan:
-Ambil HANYA kata kunci nama toko/reps/objek (misal: "gebang farma", "rizki", "afrianto"). 
-Abaikan kata metrik seperti "dpd", "limit", "misi", "reguler", "gold", "apotek", "reps", "sales", "gmv", "pencapaian", "bulan ini", dll.
-
-Input: "{prompt}"
-JSON:"""
-
-        extracted_entity = ""
-        try:
-            ext_res = client.chat.completions.create(
-                model="google/gemini-2.0-flash-lite-001:free",
-                messages=[{"role": "user", "content": extraction_prompt}],
-                temperature=0.0
-            )
-            raw_out = ext_res.choices[0].message.content.strip()
-            json_match = re.search(r'\{.*\}', raw_out, re.DOTALL)
-            if json_match:
-                parsed_json = json.loads(json_match.group(0))
-                extracted_entity = parsed_json.get("entity", "").lower().strip()
-        except Exception:
-            extracted_entity = ""
-
-        if not extracted_entity:
-            clean_prompt = re.sub(r'[^\w\s]', ' ', prompt_lower)
-            stop_words = set(['berapa', 'total', 'gmv', 'dpd', 'limit', 'misi', 'reguler', 'gold', 'pencapaian', 'pencapian', 'capaian', 'target', 'data', 'untuk', 'bulan', 'ini', 'reps', 'sales', 'salesman', 'apotek', 'apotik', 'toko', 'outlet', 'pt', 'cv'])
-            extracted_entity = " ".join([w for w in clean_prompt.split() if w not in stop_words and len(w) > 1])
+        # --- 2. EKSTRAKSI NAMA TOKO / REPS SANGAT BERSIH (PYTHON REGEX) ---
+        clean_prompt = prompt_lower
+        
+        junk_words = [
+            r'\bberapa\b', r'\btotal\b', r'\bjumlah\b', r'\byang\b', r'\btersedia\b', r'\bada\b', 
+            r'\bkunjungan\b', r'\breps\b', r'\bsales\b', r'\bsalesman\b', r'\blimit\b', r'\bplafon\b',
+            r'\bdpd\b', r'\bmisi\b', r'\bgmv\b', r'\bomset\b', r'\bdi\b', r'\bdiapotek\b', r'\bdiapotik\b',
+            r'\bapotek\b', r'\bapotik\b', r'\btoko\b', r'\boutlet\b', r'\bpt\b', r'\bcv\b', r'\bdata\b',
+            r'\buntuk\b', r'\bbulan\b', r'\bini\b', r'\blalu\b', r'\bkah\b', r'\bdong\b', r'\btolong\b',
+            r'\bcek\b', r'\blihat\b', r'\binfo\b', r'\binformasi\b', r'\btolong\b', r'\bpls\b', r'\bplz\b'
+        ]
+        
+        for junk in junk_words:
+            clean_prompt = re.sub(junk, ' ', clean_prompt)
+            
+        clean_prompt = re.sub(r'[^\w\s]', ' ', clean_prompt)
+        extracted_entity = " ".join(clean_prompt.split()).strip()
 
         entity_tokens = extracted_entity.split()
         sub_df = pd.DataFrame()
@@ -204,11 +196,11 @@ JSON:"""
                 sub_df = df[series_clean.str.contains(pattern_fallback, regex=True, na=False)]
 
         with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("Menghitung data presisi..."):
+            with st.spinner("Sedang mengecek data..."):
                 if len(sub_df) > 0:
                     target_columns = []
 
-                    # --- 3. PEMILIHAN KOLOM PRESISI SESUAI SINONIM ---
+                    # Filter kolom presisi sesuai intent
                     if detected_intents:
                         for col in sub_df.columns:
                             col_lower = col.lower()
@@ -218,15 +210,16 @@ JSON:"""
                                     if col not in target_columns:
                                         target_columns.append(col)
                     
-                    # Jika user bertanya umum/tidak menyebut metrik spesifik, pilihkan metrik utama saja
+                    # Jika user minta data umum (tanpa metrik spesifik), tampilkan metrik utama
+                    is_general_query = False
                     if not target_columns:
-                        important_keys = ['gmv', 'cm', 'lm', 'sales', 'limit', 'dpd', 'misi', 'pencapaian']
+                        is_general_query = True
+                        important_keys = ['gmv', 'cm', 'lm', 'sales', 'limit', 'dpd', 'misi', 'visit', 'kunjungan']
                         for col in sub_df.columns:
                             col_lower = col.lower()
                             if any(k in col_lower for k in important_keys):
                                 target_columns.append(col)
 
-                    # Fallback akhir jika masih belum ada
                     if not target_columns:
                         target_columns = list(sub_df.columns)
 
@@ -241,34 +234,39 @@ JSON:"""
 
                         if 'dpd' in col_lower:
                             avg_dpd = num_series.mean()
-                            calculated_metrics.append(f"- **{col}**: {avg_dpd:.0f} hari")
+                            calculated_metrics.append(f"• **{col}**: {avg_dpd:.0f} hari")
+                        elif any(k in col_lower for k in ['visit', 'kunjungan', 'count']):
+                            calculated_metrics.append(f"• **{col}**: {total_val:,.0f} kali".replace(",", "."))
                         elif any(k in col_lower for k in ['limit', 'gmv', 'cm', 'lm', 'sales', 'pencapaian', 'misi', 'reguler', 'gold', 'target', 'omset', 'peak', 'gap']):
-                            calculated_metrics.append(f"- **{col}**: Rp {total_val:,.0f}".replace(",", "."))
+                            calculated_metrics.append(f"• **{col}**: Rp {total_val:,.0f}".replace(",", "."))
                         else:
                             if total_val > 0:
-                                calculated_metrics.append(f"- **{col}**: {total_val:,.0f}".replace(",", "."))
+                                calculated_metrics.append(f"• **{col}**: {total_val:,.0f}".replace(",", "."))
 
-                    calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Metrik yang ditanyakan tidak terdeteksi."
+                    calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Metrik yang ditanyakan tidak terdeteksi di sheet."
 
+                    # --- PROMPT AI UNTUK TONE JAWABAN SUPEL & FRIENDLY ---
                     system_prompt = f"""
-Kamu adalah Senior Data Analyst SPV yang ramah dan langsung pada inti jawaban.
+Kamu adalah Chatbot Assistant Universe SPV yang sangat ramah, profesional, dan membantu.
 
-DITEMUKAN DATA UNTUK ENTITAS: '{extracted_entity.title()}'.
+DATA DITEMUKAN UNTUK: '{extracted_entity.title()}'.
 PERTANYAAN USER: "{prompt}"
 
-HASIL KALKULASI PRESISI PYTHON:
+HASIL KALKULASI DARI DATASET:
 {calc_summary_str}
 
-Instruksi Utama:
-1. Jawab LANGSUNG di kalimat pertama dengan singkat dan padat (contoh: "DPD untuk **Apotek Gebang Farma** adalah **13 hari**.").
-2. JANGAN PERNAH menampilkan daftar data angka yang tidak ditanyakan oleh user, kecuali jika user memang meminta seluruh data secara ringkas.
+PETUNJUK RESPONS SUPEL:
+1. Jawab dengan gaya percakapan yang ramah, sopan, dan jelas (bisa gunakan emojI yang sesuai seperti 📊, 💳, 📍, 🚀 jika relevan).
+2. Jika user bertanya **hal spesifik** (misal DPD, Limit, atau Kunjungan), berikan jawaban langsung di baris pertama tanpa menyajikan daftar panjang.
+3. Jika user bertanya **data umum/ringkasan**, sajikan hasil kalkulasi dalam bentuk poin-poin rapi.
+4. Jangan pernah menampilkan rincian angka yang tidak relevan dengan pertanyaan user.
 """
                     response_text = ""
                     try:
                         completion = client.chat.completions.create(
                             model="google/gemini-2.0-flash-lite-001:free",
                             messages=[{"role": "user", "content": system_prompt}],
-                            temperature=0.0
+                            temperature=0.2
                         )
                         if completion.choices and len(completion.choices) > 0:
                             response_text = completion.choices[0].message.content.strip()
@@ -276,11 +274,13 @@ Instruksi Utama:
                         response_text = ""
 
                     if not response_text:
-                        entity_name = extracted_entity.title() if extracted_entity else "Entitas"
-                        response_text = f"Data **{entity_name}**:\n\n{calc_summary_str}"
+                        entity_name = extracted_entity.title() if extracted_entity else "Outlet/Reps"
+                        response_text = f"Berikut data untuk **{entity_name}**:\n\n{calc_summary_str}"
 
                 else:
-                    response_text = f"Maaf bro, data untuk **'{extracted_entity}'** tidak ditemukan di Google Sheet."
+                    # RESPON FRIENDLY SAAT DATA TIDAK DITEMUKAN
+                    searched_name = extracted_entity.title() if extracted_entity else prompt
+                    response_text = f"Waduh, data untuk **'{searched_name}'** belum ketemu nih di Google Sheet. 🤔\n\n**Coba cek tips berikut:**\n1. Pastikan ejaan nama toko/reps sudah benar.\n2. Coba gunakan kata kunci nama toko yang lebih singkat (contoh: cukup ketik *'Berkah Jaya'* atau *'Gebang'*)."
 
                 st.markdown(response_text)
         
