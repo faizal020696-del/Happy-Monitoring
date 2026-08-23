@@ -137,22 +137,36 @@ try:
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Menganalisis data universe..."):
-                try:
-                    # MODEL AKTIF GROQ: llama-3.1-8b-instant
-                    chat_completion = client.chat.completions.create(
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": prompt}
-                        ],
-                        model="llama-3.1-8b-instant",
-                    )
-                    
-                    response_text = chat_completion.choices[0].message.content
+                # Daftar nama model Groq untuk dicoba berurutan
+                models_to_try = [
+                    "llama-3.3-70b-versatile",
+                    "mixtral-8x7b-32768",
+                    "meta-llama/llama-4-scout-17b-16e-instruct"
+                ]
+                
+                response_text = None
+                last_error = None
+
+                for model_name in models_to_try:
+                    try:
+                        chat_completion = client.chat.completions.create(
+                            messages=[
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": prompt}
+                            ],
+                            model=model_name,
+                        )
+                        response_text = chat_completion.choices[0].message.content
+                        break  # Berhasil dapat respon, keluar dari loop
+                    except Exception as err:
+                        last_error = err
+                        continue
+
+                if response_text:
                     st.markdown(response_text)
                     st.session_state.messages.append({"role": "assistant", "content": response_text})
-
-                except Exception as api_err:
-                    st.error(f"Gagal memproses AI Groq: {api_err}")
+                else:
+                    st.error(f"Gagal memproses AI Groq: {last_error}")
 
 except Exception as e:
     st.error(f"Gagal memuat data: {e}")
