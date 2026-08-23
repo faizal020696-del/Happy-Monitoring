@@ -130,7 +130,7 @@ try:
         if re.search(r'\b(w2|week\s*2|week2|minggu\s*2|minggu2)\b', prompt_lower):
             weeks_requested.append('W2')
         if re.search(r'\b(w3|week\s*3|week3|minggu\s*3|minggu3)\b', prompt_lower):
-            weeks_requested. & append('W3') if hasattr(weeks_requested, 'append') else weeks_requested.append('W3')
+            weeks_requested.append('W3')
         if re.search(r'\b(w4|week\s*4|week4|minggu\s*4|minggu4)\b', prompt_lower):
             weeks_requested.append('W4')
 
