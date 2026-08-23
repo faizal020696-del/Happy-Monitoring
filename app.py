@@ -21,7 +21,7 @@ def convert_to_csv_url(url):
     gid = gid_match.group(1) if gid_match else "0"
     return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
 
-# Parser khusus transaksi agar selalu presisi murni angka
+# Parser khusus transaksi/angka agar selalu presisi murni angka
 def parse_number_transaction(val):
     if pd.isna(val) or val is None:
         return 0.0
@@ -36,7 +36,7 @@ def parse_number_transaction(val):
     except Exception:
         return 0.0
 
-# Parser untuk kolom umum (DPD, Limit, dll)
+# Parser untuk kolom umum (DPD, Limit, GMV, Total, dll)
 def parse_number_general(val):
     if pd.isna(val) or val is None:
         return None
@@ -75,7 +75,7 @@ try:
     header_idx = 0
     for idx, line in enumerate(lines[:15]):
         line_lower = line.lower()
-        if ('w1' in line_lower or 'week 1' in line_lower or 'dpd' in line_lower or 'limit' in line_lower) and ('name' in line_lower or 'nama' in line_lower or 'apotek' in line_lower or 'toko' in line_lower):
+        if ('w1' in line_lower or 'week 1' in line_lower or 'dpd' in line_lower or 'limit' in line_lower or 'gmv' in line_lower) and ('name' in line_lower or 'nama' in line_lower or 'apotek' in line_lower or 'toko' in line_lower):
             header_idx = idx
             break
             
@@ -116,7 +116,7 @@ try:
 
         prompt_lower = prompt.lower()
 
-        # Deteksi variasi minggu yang lebih luas (mendukung spasi maupun tanpa spasi: week1, week 1, w1, minggu1, dll)
+        # Deteksi variasi minggu yang luas
         weeks_requested = []
         if re.search(r'\b(w1|week\s*1|week1|minggu\s*1|minggu1)\b', prompt_lower):
             weeks_requested.append('W1')
@@ -129,22 +129,32 @@ try:
 
         # Jika user mengetik "WTU" atau "transaksi" secara umum tanpa spesifik minggu, tampilkan W1-W4 sekaligus
         if ('wtu' in prompt_lower or 'transaksi' in prompt_lower) and not weeks_requested:
-            if not any(k in prompt_lower for k in ['w1', 'w2', 'w3', 'w4', 'week', 'minggu']):
+            if not any(k in prompt_lower for k in ['w1', 'w2', 'w3', 'w4', 'week', 'minggu', 'gmv', 'total']):
                 weeks_requested = ['W1', 'W2', 'W3', 'W4']
 
+        # Deteksi pencarian metrik khusus (misal: GMV, Total, DPD, Limit, dll dari teks prompt)
         metric_requested = None
         if not weeks_requested:
-            if 'dpd' in prompt_lower:
-                for c in raw_df.columns:
-                    if 'dpd' in c.lower():
-                        metric_requested = c
-                        break
-            elif 'limit' in prompt_lower:
-                for c in raw_df.columns:
-                    if 'limit' in c.lower():
-                        metric_requested = c
-                        break
-            else:
+            # Cek pencarian eksplisit kata 'gmv' atau 'total' atau lainnya di nama kolom sheet
+            for c in raw_df.columns:
+                c_lower = c.lower()
+                # Jika user mengetik 'gmv' dan kolom mengandung 'gmv'
+                if 'gmv' in prompt_lower and 'gmv' in c_lower:
+                    metric_requested = c
+                    break
+                # Jika user mengetik 'total' dan kolom mengandung 'total'
+                elif 'total' in prompt_lower and 'total' in c_lower:
+                    metric_requested = c
+                    break
+                elif 'dpd' in prompt_lower and 'dpd' in c_lower:
+                    metric_requested = c
+                    break
+                elif 'limit' in prompt_lower and 'limit' in c_lower:
+                    metric_requested = c
+                    break
+
+            # Jika belum ketemu juga, cari pencocokan kata lain di luar nama kolom bawaan
+            if not metric_requested:
                 for col in raw_df.columns:
                     col_lower = col.lower()
                     if col != name_col and col not in id_cols and col_lower in prompt_lower:
@@ -166,12 +176,13 @@ try:
                 if target_row is not None:
                     break
 
-        # 2. Cari berdasarkan nama toko (mengabaikan kata-kata perintah minggu dan angka 1-4)
+        # 2. Cari berdasarkan nama toko (mengabaikan kata perintah, metrik, & waktu agar nama toko murni yang dicari)
         if target_row is None:
             ignore_words = {
                 'transaksi', 'wtu', 'w1', 'w2', 'w3', 'w4', 'week', 'week1', 'week2', 'week3', 'week4', 
                 'minggu', 'minggu1', 'minggu2', 'minggu3', 'minggu4', '1', '2', '3', '4', 
-                'berapa', 'total', 'jumlah', 'apotek', 'apotik', 'toko', 'cek', 'data', 'id', 'dpd', 'limit'
+                'berapa', 'total', 'jumlah', 'apotek', 'apotik', 'toko', 'cek', 'data', 'id', 'dpd', 'limit',
+                'bulan', 'ini', 'kemarin', 'lalu', 'gmv', 'penjualan', 'omset'
             }
             query_words = [w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in ignore_words]
             
@@ -210,7 +221,7 @@ try:
                                 calculated_metrics.append(f"• **{w}**: Rp {val_parsed:,.0f}".replace(",", "."))
 
                     if calculated_metrics:
-                        response_text = f"Data WTU untuk **{str(display_name).title()}**:\n" + "\n".join(calculated_metrics)
+                        response_text = f"Data untuk **{str(display_name).title()}**:\n" + "\n".join(calculated_metrics)
                     else:
                         response_text = f"Data untuk kolom tersebut tidak ditemukan."
                 else:
