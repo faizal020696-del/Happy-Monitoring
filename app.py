@@ -118,7 +118,6 @@ try:
         if not extracted_entity:
             extracted_entity = prompt
 
-        matched_indices = []
         name_cols = [c for c in raw_df.columns if any(k in c.lower() for k in ['name', 'nama', 'pharmacy', 'toko', 'apotek'])]
         if not name_cols:
             name_cols = raw_df.columns
@@ -127,23 +126,21 @@ try:
         if not search_tokens:
             search_tokens = extracted_entity.split()
 
-        for idx, row in raw_df[name_cols].iterrows():
-            row_text = " ".join([str(val) for val in row.values if pd.notna(val)]).lower()
-            if search_tokens and all(token in row_text for token in search_tokens):
-                matched_indices.append(idx)
-
-        # Cari baris yang nilainya wajar (bukan baris total rekap triliunan)
         valid_indices = []
-        for idx in matched_indices:
-            row_data = raw_df.loc[idx]
-            w1_val = parse_number_exact(str(row_data.get('W1', '0')))
-            if w1_val < 1_000_000_000:
-                valid_indices.append(idx)
-        
-        if not valid_indices and matched_indices:
-            valid_indices = [matched_indices[-1]]
-        elif not valid_indices:
-            valid_indices = matched_indices
+        for idx, row in raw_df.iterrows():
+            row_text = " ".join([str(val) for val in row.values if pd.notna(val)]).lower()
+            
+            # Cek apakah token nama toko masuk
+            matches_name = search_tokens and all(token in row_text for token in search_tokens)
+            if matches_name:
+                # Blokir mutlak baris yang namanya terlalu panjang / mengandung kata rekap wilayah
+                if any(bad_word in row_text for bad_word in ['sangiang', 'periuk', 'total', 'all area', 'region', 'kabupaten']):
+                    continue
+                
+                # Cek nilai W1 apakah masuk akal (di bawah 500 juta rupiah per minggu untuk toko normal)
+                w1_val = parse_number_exact(str(row.get('W1', '0')))
+                if w1_val < 500_000_000:
+                    valid_indices.append(idx)
 
         sub_df = raw_df.loc[valid_indices] if valid_indices else pd.DataFrame(columns=raw_df.columns)
 
@@ -172,7 +169,7 @@ try:
                     response_text = f"Data untuk **{str(display_name).title()}**:\n{calc_summary_str}"
 
                 else:
-                    response_text = f"Waduh, data untuk **'{extracted_entity.title()}'** tidak ditemukan di Google Sheet."
+                    response_text = f"Waduh, data detail untuk **'{extracted_entity.title()}'** (selain baris rekap wilayah) tidak ditemukan di Google Sheet."
 
                 st.markdown(response_text)
         
