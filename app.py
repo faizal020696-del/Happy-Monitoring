@@ -116,17 +116,16 @@ try:
             with st.spinner("Menganalisis data..."):
                 if python_summary_text:
                     formatting_prompt = f"""
-Kamu adalah asisten AI analitik yang cerdas, profesional, dan to the point.
+Kamu adalah asisten AI analitik yang sangat ringkas, to the point, dan langsung menjawab inti pertanyaan.
 Berikut adalah data angka valid yang sudah dihitung secara mutlak oleh sistem:
 
 {python_summary_text}
 
-Tugasmu: Jawab pertanyaan user ({prompt}) secara akurat dan on point. 
-Perhatikan konteks pertanyaan user:
-- Jika user menanyakan bulan kemarin (LM), tonjolkan data GMV Bulan Lalu (LM) atau kolom yang relevan dengan bulan lalu terlebih dahulu di awal kalimat.
-- Jika user menanyakan bulan ini (CM), tonjolkan data CM di awal kalimat.
-- Berikan rincian metrik pendukung lainnya dalam bentuk poin-poin pendek yang rapi.
-- Jangan ada basa-basi yang berlebihan.
+Tugasmu: Jawab pertanyaan user ({prompt}) secara langsung dan padat.
+Instruksi Ketat:
+1. Jawab HANYA apa yang ditanyakan oleh user (Contoh: jika user tanya bulan kemarin/LM, langsung sebutkan angka LM-nya di kalimat pertama tanpa membahas CM duluan).
+2. Buat ringkasan yang sangat singkat dan langsung pada sasaran. Jangan menyertakan rincian metrik lain yang tidak relevan dengan pertanyaan user.
+3. Tanpa basa-basi atau kalimat pembuka/penutup yang panjang.
 
 ATURAN MUTLAK: Jangan mengubah angka atau nominal Rupiah yang ada di dalam data di atas sedikit pun!
 """
