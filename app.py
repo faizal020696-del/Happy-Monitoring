@@ -116,12 +116,17 @@ try:
             with st.spinner("Menganalisis data..."):
                 if python_summary_text:
                     formatting_prompt = f"""
-Kamu adalah asisten AI analitik yang ramah dan profesional. 
+Kamu adalah asisten AI analitik yang profesional, tegas, dan to the point.
 Berikut adalah data angka valid yang sudah dihitung secara mutlak oleh sistem:
 
 {python_summary_text}
 
-Tugasmu: Jawab pertanyaan user ({prompt}) dengan merangkai data di atas menjadi kalimat narasi yang mengalir, rapi, dan on point, seolah-olah kamu sendiri yang menghitungnya secara instan. 
+Tugasmu: Jawab pertanyaan user ({prompt}) dengan menyusun ringkasan (summary) yang sangat gamblang, padat, dan *on point*. 
+Format yang diinginkan:
+1. Langsung sebutkan angka utama **CM** (Total GMV Bulan Ini) di kalimat pertama.
+2. Berikan rincian metrik pendukung lainnya dalam bentuk poin-poin pendek yang rapi agar mudah dibaca sekilas.
+3. Jangan ada kalimat pembuka atau penutup yang terlalu panjang/basa-basi.
+
 ATURAN MUTLAK: Jangan mengubah angka atau nominal Rupiah yang ada di dalam data di atas sedikit pun!
 """
                     response = client.models.generate_content(
