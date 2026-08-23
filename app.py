@@ -12,7 +12,7 @@ st.set_page_config(
     layout="centered"
 )
 
-# Kustomisasi Tampilan Visual
+# Kustomisasi Tampilan Visual Light Mode
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden !important;}
@@ -93,40 +93,38 @@ try:
             st.markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
 
-        # SOLUSI TOKEN: Filter data yang relevan dengan keyword user
-        keywords = prompt.lower().split()
-        
-        # Cari baris yang mengandung kata kunci pertanyaan (jika ada)
-        mask = df.astype(str).apply(lambda row: row.str.lower().str.contains('|'.join(keywords)).any(), axis=1)
-        filtered_df = df[mask]
+        # SOLUSI: Deteksi Sapaan Ringan vs Pertanyaan Data
+        common_greetings = ["hi", "halo", "hello", "pagi", "siang", "malam", "ping", "tes", "test", "terima kasih", "makasih"]
+        is_greeting = prompt.strip().lower() in common_greetings
 
-        # Jika hasil filter terlalu sedikit atau tidak ada kata kunci cocok, ambil 30 baris sampel
-        if len(filtered_df) == 0 or len(filtered_df) > 50:
-            sample_data = df.head(30).to_csv(index=False)
+        if is_greeting:
+            system_prompt = "Kamu adalah Asisten AI Profesional untuk SPV Happy. Sapa balik user dengan sopan, ramah, dan informasikan bahwa kamu siap membantu menganalisis data Universe."
         else:
-            sample_data = filtered_df.to_csv(index=False)
+            # Cari baris yang relevan dengan keyword user
+            keywords = prompt.lower().split()
+            mask = df.astype(str).apply(lambda row: row.str.lower().str.contains('|'.join(keywords)).any(), axis=1)
+            filtered_df = df[mask]
 
-        # Ringkasan struktur data agar AI paham konteks tabel
-        data_summary = f"""
-        - Total Baris Data: {len(df)}
-        - Nama Kolom: {list(df.columns)}
-        - Sampel Data Relevan:
-        {sample_data}
-        """
+            # Ambil maksimal 15 baris sampel agar token tetap kecil
+            if len(filtered_df) == 0:
+                sample_data = df.head(10).to_csv(index=False)
+            else:
+                sample_data = filtered_df.head(15).to_csv(index=False)
 
-        system_prompt = f"""
-        Kamu adalah Asisten AI Profesional untuk SPV Happy. Tugasmu adalah menganalisis data Universe.
-        Berikut adalah informasi ringkas dan sampel data CSV dari sheet:
-        
-        {data_summary}
-        
-        Jawablah pertanyaan user dengan sopan, akurat, dan ringkas berdasarkan struktur data di atas. Jika butuh detail spesifik yang tidak ada di sampel, jelaskan dengan jujur.
-        """
+            system_prompt = f"""
+            Kamu adalah Asisten AI Profesional untuk SPV Happy.
+            Informasi Ringkas Data:
+            - Total Baris: {len(df)}
+            - Nama Kolom: {list(df.columns)}
+            - Sampel Data Terkait:
+            {sample_data}
+
+            Jawab pertanyaan user berdasarkan sampel data di atas dengan sopan dan singkat.
+            """
 
         with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("Menganalisis data universe..."):
+            with st.spinner("Memproses respon..."):
                 try:
-                    # Ambil model aktif di Groq
                     available_models = client.models.list()
                     active_model_ids = [m.id for m in available_models.data if hasattr(m, 'id')]
 
@@ -144,7 +142,7 @@ try:
                                         {"role": "user", "content": prompt}
                                     ],
                                     model=model_id,
-                                    max_tokens=1000
+                                    max_tokens=500
                                 )
                                 response_text = chat_completion.choices[0].message.content
                                 break
