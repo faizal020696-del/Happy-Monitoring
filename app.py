@@ -235,22 +235,14 @@ try:
                         for col in mission_cols:
                             calculated_metrics.append(f"• **Kolom {col}**: (Data rekap misi sales rep)")
                     elif is_wtu_query:
-                        wtu_cols = [c for c in raw_df.columns if any(term in c.lower() for term in ['wtu', 'visit', 'kunjungan'])]
-                        if wtu_cols:
-                            calculated_metrics.append("\n**📋 Data WTU / Kunjungan:**")
-                            for col in wtu_cols:
-                                c_lower = col.lower()
-                                if any(date_term in c_lower for date_term in ['last', 'tanggal', 'date', 'terakhir']):
-                                    # Untuk kolom tanggal/last visit, tampilkan informasi teks/sample atau lewati penjumlahan angka
-                                    non_empty_vals = [str(r.get(col, '')).strip() for _, r in matched_reps_df.iterrows() if str(r.get(col, '')).strip() not in ['', '-', 'nan', '0']]
-                                    sample_val = non_empty_vals[0] if non_empty_vals else "-"
-                                    calculated_metrics.append(f"• **{col}**: (Contoh: {sample_val})")
-                                else:
-                                    sum_val = sum(parse_number_general(r.get(col, 0)) for _, r in matched_reps_df.iterrows())
-                                    val_formatted = f"{sum_val:,.0f}".replace(",", ".") if sum_val > 0 else "0"
-                                    calculated_metrics.append(f"• **Total {col}**: {val_formatted}")
-                        else:
-                            calculated_metrics.append("• Kolom WTU / visit tidak ditemukan pada sheet.")
+                        # Khusus WTU / kunjungan: tampilkan outlet lalu langsung Total Performa Per Week tanpa data bulanan di atasnya
+                        calculated_metrics.append("\n**📅 Total Performa Per Week (Mingguan & Jumlah Outlet Transaksi):**")
+                        for w in ['W1', 'W2', 'W3', 'W4']:
+                            if w in week_cols_map:
+                                col_name = week_cols_map[w]
+                                sum_w = sum(parse_number_transaction(r.get(col_name, 0)) for _, r in matched_reps_df.iterrows())
+                                active_outlets = sum(1 for _, r in matched_reps_df.iterrows() if parse_number_transaction(r.get(col_name, 0)) > 0)
+                                calculated_metrics.append(f"• **Total {w}**: Rp {sum_w:,.0f} ({active_outlets} outlet transaksi)".replace(",", "."))
                     else:
                         calculated_metrics.append("\n**📊 Total Performa Bulanan:**")
                         target_cols_gmv = [
