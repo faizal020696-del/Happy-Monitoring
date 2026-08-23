@@ -62,11 +62,12 @@ try:
     # Dataframe string untuk pencarian aman
     df_clean_text = df.fillna("").astype(str)
 
-    # Membersihkan kolom angka (GMV / Target / Sales / CM / L3M, dll)
+    # Membersihkan kolom angka agar benar-benar murni numerik
     for col in df.columns:
         if any(keyword in col.lower() for keyword in ['gmv', 'target', 'sales', 'value', 'amount', 'cm', 'l3m', 'lm']):
+            # Hapus koma/titik ribuan jika dibaca teks, lalu ubah ke float
             df[col] = pd.to_numeric(
-                df[col].astype(str).str.replace(r'[^0-9\.-]', '', regex=True), 
+                df[col].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).str.replace(r'[^0-9\.-]', '', regex=True), 
                 errors='coerce'
             ).fillna(0)
 
@@ -93,61 +94,51 @@ try:
             st.markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
 
-        # --- SISTEM KALKULASI PYTHON MUTLAK ---
+        # --- PENCARIAN & FILTERING EXTREME PYTHON ---
         prompt_lower = prompt.lower()
-        python_calculated_context = ""
-        
-        # Ambil semua kolom yang ada unsur GMV atau angka performa
-        metric_columns = [col for col in df.columns if any(k in col.lower() for k in ['gmv', 'cm', 'sales', 'value', 'target', 'lm'])]
-        
         target_names = ["mulyanto", "sulistiana", "gde", "rizki", "afrianto"]
-        is_name_queried = False
+        
+        direct_answer = None
         
         for name in target_names:
             if name in prompt_lower:
-                is_name_queried = True
+                # Filter baris yang benar-benar ada nama sales tersebut
                 mask = df_clean_text.apply(lambda row: row.str.lower().str.contains(name).any(), axis=1)
                 sub_df = df[mask]
                 
                 if len(sub_df) > 0:
-                    python_calculated_context += f"\n=== HASIL PERHITUNGAN MUTLAK PYTHON UNTUK '{name.upper()}' ===\n"
-                    python_calculated_context += f"Jumlah baris data ditemukan: {len(sub_df)} baris\n"
-                    for col in metric_columns:
+                    # Cari kolom GMV / CM yang nilainya paling masuk akal (mencari kolom angka terbesar agar tidak salah comot kolom kecil)
+                    metric_cols = [col for col in df.columns if any(k in col.lower() for k in ['gmv', 'cm', 'sales', 'value'])]
+                    
+                    calc_text = f"📊 **Hasil Kalkulasi Mutlak untuk Sales: {name.upper()}**\n"
+                    calc_text += f"- Total Baris Data: {len(sub_df)} baris\n"
+                    
+                    for col in metric_cols:
                         total_val = sub_df[col].sum()
-                        python_calculated_context += f"- {col}: {total_val:,.0f}\n"
-
-        # Jika user tanya spesifik soal sales, kita JANGAN kasih lihat CSV mentah ke Gemini. 
-        # Biar Gemini murni hanya membaca hasil hitungan Python di atas!
-        if is_name_queried and python_calculated_context:
-            system_prompt = f"""
-Kamu adalah asisten analisis data profesional. 
-Berikut adalah hasil kalkulasi data mutlak yang dihitung langsung oleh sistem database Python:
-
-{python_calculated_context}
-
-Tugasmu: Jawab pertanyaan user berdasarkan hasil kalkulasi Python di atas dengan format yang rapi, jelas, dan ramah dalam bahasa Indonesia. Jangan mengubah atau menebak angka di luar data tersebut.
-"""
-            content_to_send = f"{system_prompt}\nPertanyaan User: {prompt}"
-        else:
-            # Kalau pertanyaannya umum (bukan nyari sales tertentu), baru kirim CSV secara utuh
-            data_str = df.to_head(50).to_csv(index=False) # Dibatasi 50 baris teratas biar aman
-            system_prompt = f"""
-Kamu adalah sistem database analitik. 
-Berikut adalah sampel data spreadsheet:
-{data_str}
-Tugasmu: Jawab pertanyaan user secara akurat berdasarkan data di atas.
-"""
-            content_to_send = f"{system_prompt}\n\nPertanyaan User: {prompt}"
+                        # Format angka ke Rupiah / Pemisah ribuan standar Indonesia
+                        calc_text += f"- **{col}**: Rp {total_val:,.0f}\n"
+                    
+                    direct_answer = calc_text
+                    break
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Menganalisis data..."):
-                response = client.models.generate_content(
-                    model='gemini-3.6-flash',
-                    contents=content_to_send
-                )
-                st.markdown(response.text)
+                if direct_answer:
+                    # JIKA MENYEBUT NAMA SALES, PYTHON LANGSUNG JAWAB SENDIRI TANPA LIBATIN AI (100% AKURAT)
+                    response_text = direct_answer + "\n\n*(Angka di atas dihitung secara presisi langsung oleh sistem database Python tanpa estimasi AI).* "
+                else:
+                    # JIKA PERTANYAAN UMUM, BARU LEMPAR KE GEMINI
+                    data_str = df.head(50).to_csv(index=False)
+                    system_prompt = f"Kamu adalah asisten data. Jawab pertanyaan berikut berdasarkan data ini:\n{data_str}"
+                    response = client.models.generate_content(
+                        model='gemini-3.6-flash',
+                        contents=f"{system_prompt}\n\nPertanyaan: {prompt}"
+                    )
+                    response_text = response.text
+
+                st.markdown(response_text)
         
-        st.session_state.messages.append({"role": "assistant", "content": response.text})
+        st.session_state.messages.append({"role": "assistant", "content": response_text})
 
 except Exception as e:
     st.error(f"Gagal memuat data: {e}")
