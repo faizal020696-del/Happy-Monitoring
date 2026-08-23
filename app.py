@@ -143,7 +143,7 @@ ATURAN MUTLAK: Jangan mengubah angka atau nominal Rupiah yang ada di dalam data 
                         try:
                             # Menggunakan model gratis di OpenRouter, misal Llama 3 atau Gemma 2
                             completion = client.chat.completions.create(
-                                model="google/gemma-2-9b-it:free",
+                                model="deepseek/deepseek-chat:free",
                                 messages=[
                                     {"role": "user", "content": formatting_prompt}
                                 ]
