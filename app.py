@@ -131,7 +131,7 @@ Tugasmu: Jawab pertanyaan user secara akurat HANYA berdasarkan data dan kalkulas
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Menganalisis data..."):
                 response = client.models.generate_content(
-                    model='gemini-2.5-flash',  # Menggunakan versi model flash yang stabil
+                    model='gemini-3.6-flash',  # Menggunakan versi model flash yang stabil
                     contents=f"{system_prompt}\n\nPertanyaan User: {prompt}"
                 )
                 st.markdown(response.text)
