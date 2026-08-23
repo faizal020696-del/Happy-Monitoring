@@ -59,6 +59,7 @@ try:
     df.columns = df.columns.str.strip()
     df_clean_text = df.fillna("").astype(str)
 
+    # Membersihkan kolom angka agar bisa dihitung totalnya
     for col in df.columns:
         if any(keyword in col.lower() for keyword in ['gmv', 'target', 'sales', 'value', 'amount', 'cm', 'lm', 'l3m']):
             df[col] = pd.to_numeric(
@@ -89,43 +90,48 @@ try:
         st.session_state.messages.append({"role": "user", "content": prompt})
 
         prompt_lower = prompt.lower()
-        target_names = ["mulyanto", "sulistiana", "gde", "rizki", "afrianto"]
+        
+        # PENCARIAN UNIVERSAL: Mendeteksi kata penting dari pertanyaan user (mengabaikan kata tanya umum)
+        stop_words = ['berapa', 'data', 'untuk', 'bulan', 'ini', 'kemarin', '1', '2', '3', 'di', 'dan', 'yang', 'dari', 'tentang']
+        keywords = [word for word in prompt_lower.split() if word not in stop_words and len(word) > 2]
         
         python_summary_text = None
-        
-        for name in target_names:
-            if name in prompt_lower:
-                mask = df_clean_text.apply(lambda row: row.str.lower().str.contains(name).any(), axis=1)
-                sub_df = df[mask]
-                
-                if len(sub_df) > 0:
-                    valid_metric_cols = [col for col in df.columns if any(k in col.lower() for k in ['gmv', 'cm', 'lm']) and not any(x in col.lower() for x in ['code', 'assignment'])]
-                    
-                    summary_lines = [f"Data performa untuk sales {name.upper()}:"]
-                    summary_lines.append(f"- Total baris data: {len(sub_df)}")
-                    
-                    for col in valid_metric_cols:
-                        total_val = sub_df[col].sum()
-                        if total_val > 0:
-                            summary_lines.append(f"- {col}: Rp {total_val:,.0f}")
-                    
-                    python_summary_text = "\n".join(summary_lines)
-                    break
+        sub_df = pd.DataFrame()
+
+        # Mencari baris di dataframe yang mengandung kata kunci dari user
+        if keywords:
+            mask = pd.Series([False] * len(df))
+            for kw in keywords:
+                mask = mask | df_clean_text.apply(lambda row: row.str.lower().str.contains(kw).any(), axis=1)
+            sub_df = df[mask]
+
+        if len(sub_df) > 0:
+            # Jika data ditemukan, hitung metrik angka yang relevan
+            valid_metric_cols = [col for col in df.columns if any(k in col.lower() for k in ['gmv', 'cm', 'lm']) and not any(x in col.lower() for x in ['code', 'assignment'])]
+            
+            summary_lines = [f"Ditemukan {len(sub_df)} baris data terkait kata kunci '{prompt}':"]
+            
+            for col in valid_metric_cols:
+                total_val = sub_df[col].sum()
+                if total_val > 0:
+                    summary_lines.append(f"- {col}: Rp {total_val:,.0f}")
+            
+            python_summary_text = "\n".join(summary_lines)
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Menganalisis data..."):
                 if python_summary_text:
                     formatting_prompt = f"""
 Kamu adalah asisten AI analitik yang ramah, profesional, dan to the point.
-Berikut adalah data angka valid yang sudah dihitung secara mutlak oleh sistem:
+Berikut adalah data angka valid yang sudah dihitung secara mutlak oleh sistem berdasarkan pencarian kata kunci user:
 
 {python_summary_text}
 
 Tugasmu: Jawab pertanyaan user ({prompt}) dengan gaya bahasa yang mengalir natural.
 Struktur jawaban yang diinginkan:
-1. Jawab langsung ke inti pertanyaan di kalimat pertama (sesuai yang ditanya, misal jika tanya bulan ini/CM sebutkan CM-nya, jika bulan kemarin/LM sebutkan LM-nya).
-2. Tambahkan **1-2 kalimat ringkasan (summary/analisis singkat)** di bawahnya untuk mengulas atau menyimpulkan performa tersebut secara manusiawi (tidak kaku).
-3. Jangan menampilkan daftar metrik lain yang tidak ditanyakan agar tetap *clean* dan fokus.
+1. Jawab langsung ke inti pertanyaan di kalimat pertama (sebutkan angka atau total yang ditanyakan user secara spesifik).
+2. Tambahkan **1-2 kalimat ringkasan (summary/analisis singkat)** di bawahnya untuk menyimpulkan data tersebut secara manusiawi.
+3. Jangan menampilkan rincian metrik lain yang tidak berhubungan agar tetap *clean*.
 
 ATURAN MUTLAK: Jangan mengubah angka atau nominal Rupiah yang ada di dalam data di atas sedikit pun!
 """
@@ -135,13 +141,8 @@ ATURAN MUTLAK: Jangan mengubah angka atau nominal Rupiah yang ada di dalam data 
                     )
                     response_text = response.text
                 else:
-                    data_str = df.head(50).to_csv(index=False)
-                    system_prompt = f"Kamu adalah asisten data. Jawab pertanyaan berikut berdasarkan data ini:\n{data_str}"
-                    response = client.models.generate_content(
-                        model='gemini-3.6-flash',
-                        contents=f"{system_prompt}\n\nPertanyaan: {prompt}"
-                    )
-                    response_text = response.text
+                    # Jika data benar-benar tidak ada sama sekali di file CSV
+                    response_text = f"Maaf bro, setelah dicek di dalam database/spreadsheet, data untuk '{prompt}' tidak ditemukan atau tidak tercatat."
 
                 st.markdown(response_text)
         
