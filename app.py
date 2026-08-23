@@ -82,17 +82,17 @@ try:
     raw_df = pd.read_csv(io.StringIO(csv_text), skiprows=header_idx, dtype=str)
     raw_df.columns = [str(c).strip() for c in raw_df.columns]
 
-    # Petakan kolom W1-W4 secara eksplisien
+    # Petakan kolom W1-W4 secara fleksibel
     week_cols_map = {}
     for col in raw_df.columns:
         col_lower = col.lower()
-        if re.search(r'\bw[,\s_-]*1\b', col_lower) or 'week 1' in col_lower or 'minggu 1' in col_lower:
+        if re.search(r'\bw[,\s_-]*1\b', col_lower) or 'week1' in col_lower or 'week 1' in col_lower or 'minggu1' in col_lower or 'minggu 1' in col_lower:
             week_cols_map['W1'] = col
-        elif re.search(r'\bw[,\s_-]*2\b', col_lower) or 'week 2' in col_lower or 'minggu 2' in col_lower:
+        elif re.search(r'\bw[,\s_-]*2\b', col_lower) or 'week2' in col_lower or 'week 2' in col_lower or 'minggu2' in col_lower or 'minggu 2' in col_lower:
             week_cols_map['W2'] = col
-        elif re.search(r'\bw[,\s_-]*3\b', col_lower) or 'week 3' in col_lower or 'minggu 3' in col_lower:
+        elif re.search(r'\bw[,\s_-]*3\b', col_lower) or 'week3' in col_lower or 'week 3' in col_lower or 'minggu3' in col_lower or 'minggu 3' in col_lower:
             week_cols_map['W3'] = col
-        elif re.search(r'\bw[,\s_-]*4\b', col_lower) or 'week 4' in col_lower or 'minggu 4' in col_lower:
+        elif re.search(r'\bw[,\s_-]*4\b', col_lower) or 'week4' in col_lower or 'week 4' in col_lower or 'minggu4' in col_lower or 'minggu 4' in col_lower:
             week_cols_map['W4'] = col
 
     name_cols = [c for c in raw_df.columns if any(k in c.lower() for k in ['name', 'nama', 'pharmacy', 'toko', 'apotek'])]
@@ -116,18 +116,18 @@ try:
 
         prompt_lower = prompt.lower()
 
-        # Deteksi variasi penyebutan minggu (W1, W2, W3, W4, Week 1-4, Minggu 1-4)
+        # Deteksi variasi minggu yang lebih luas (mendukung spasi maupun tanpa spasi: week1, week 1, w1, minggu1, dll)
         weeks_requested = []
-        if re.search(r'\b(w1|week\s*1|minggu\s*1)\b', prompt_lower):
+        if re.search(r'\b(w1|week\s*1|week1|minggu\s*1|minggu1)\b', prompt_lower):
             weeks_requested.append('W1')
-        if re.search(r'\b(w2|week\s*2|minggu\s*2)\b', prompt_lower):
+        if re.search(r'\b(w2|week\s*2|week2|minggu\s*2|minggu2)\b', prompt_lower):
             weeks_requested.append('W2')
-        if re.search(r'\b(w3|week\s*3|minggu\s*3)\b', prompt_lower):
+        if re.search(r'\b(w3|week\s*3|week3|minggu\s*3|minggu3)\b', prompt_lower):
             weeks_requested.append('W3')
-        if re.search(r'\b(w4|week\s*4|minggu\s*4)\b', prompt_lower):
+        if re.search(r'\b(w4|week\s*4|week4|minggu\s*4|minggu4)\b', prompt_lower):
             weeks_requested.append('W4')
 
-        # Jika user mengetik "WTU" atau "transaksi" secara umum tanpa menyebutkan angka minggu spesifik, tampilkan W1-W4 sekaligus
+        # Jika user mengetik "WTU" atau "transaksi" secara umum tanpa spesifik minggu, tampilkan W1-W4 sekaligus
         if ('wtu' in prompt_lower or 'transaksi' in prompt_lower) and not weeks_requested:
             if not any(k in prompt_lower for k in ['w1', 'w2', 'w3', 'w4', 'week', 'minggu']):
                 weeks_requested = ['W1', 'W2', 'W3', 'W4']
@@ -166,9 +166,13 @@ try:
                 if target_row is not None:
                     break
 
-        # 2. Cari berdasarkan nama toko (abaikan kata sampah umum)
+        # 2. Cari berdasarkan nama toko (mengabaikan kata-kata perintah minggu dan angka 1-4)
         if target_row is None:
-            ignore_words = {'transaksi', 'wtu', 'w1', 'w2', 'w3', 'w4', 'week', 'minggu', '1', '2', '3', '4', 'berapa', 'total', 'jumlah', 'apotek', 'apotik', 'toko', 'cek', 'data', 'id', 'dpd', 'limit'}
+            ignore_words = {
+                'transaksi', 'wtu', 'w1', 'w2', 'w3', 'w4', 'week', 'week1', 'week2', 'week3', 'week4', 
+                'minggu', 'minggu1', 'minggu2', 'minggu3', 'minggu4', '1', '2', '3', '4', 
+                'berapa', 'total', 'jumlah', 'apotek', 'apotik', 'toko', 'cek', 'data', 'id', 'dpd', 'limit'
+            }
             query_words = [w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in ignore_words]
             
             if query_words:
@@ -185,7 +189,6 @@ try:
                     display_name = target_row.get(name_col, "Outlet Ditemukan")
                     calculated_metrics = []
 
-                    # Jika menanyakan metrik khusus (DPD, Limit, dll)
                     if metric_requested:
                         val_raw = target_row.get(metric_requested, "Tidak tersedia")
                         val_parsed = parse_number_general(val_raw)
@@ -197,8 +200,6 @@ try:
                         else:
                             val_str = str(val_raw)
                         calculated_metrics.append(f"• **{metric_requested}**: {val_str}")
-
-                    # Jika menanyakan minggu (W1-W4 / Week 1-4 / Minggu 1-4)
                     else:
                         target_weeks = weeks_requested if weeks_requested else ['W1', 'W2', 'W3', 'W4']
                         for w in target_weeks:
