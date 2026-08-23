@@ -90,8 +90,6 @@ try:
         else:
             new_cols.append(c_clean)
     df.columns = new_cols
-    
-    df_clean_text = df.fillna("").astype(str)
 
     client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
@@ -185,8 +183,8 @@ try:
 
             pattern = r'(?=.*\b' + r'\b)(?=.*\b'.join([re.escape(t) for t in entity_tokens]) + r'\b)'
             
-            # DIGANTI: Menggabungkan baris menjadi satu Series string sebelum .str.contains
-            search_series = df_clean_text[searchable_cols].apply(lambda row: " ".join(row.values).lower(), axis=1)
+            # Aman dari error: Menggunakan Series string yang digabungkan per baris
+            search_series = df[searchable_cols].fillna("").astype(str).apply(lambda row: " ".join(row.values).lower(), axis=1)
             sub_df = df[search_series.str.contains(pattern, regex=True, na=False)]
 
         with st.chat_message("assistant", avatar="🤖"):
