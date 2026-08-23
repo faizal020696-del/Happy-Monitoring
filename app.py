@@ -150,19 +150,15 @@ try:
                 if len(sub_df) > 0:
                     target_columns = []
 
-                    # --- FILTER KOLOM KETAT SESUAI INTENT & WAKTU ---
+                    # --- FILTER KOLOM KETAT SESUAI INTENT ---
                     if 'average' in detected_intents:
-                        target_columns = [c for c in sub_df.columns if any(k in c.lower() for k in ['avg', 'average', 'rata', '3'])]
+                        target_columns = [c for c in sub_df.columns if 'average' in c.lower() or 'avg' in c.lower()]
 
                     elif 'lm' in detected_intents:
-                        target_columns = [c for c in sub_df.columns if 'lm' in c.lower() or 'last month' in c.lower() or 'bulan lalu' in c.lower()]
-                        if not target_columns and 'gmv' in detected_intents:
-                            target_columns = [c for c in sub_df.columns if 'gmv' in c.lower() and ('lm' in c.lower() or 'lalu' in c.lower())]
+                        target_columns = [c for c in sub_df.columns if c.lower() in ['lm', 'l3m', 'l2m'] or 'last month' in c.lower()]
 
                     elif 'cm' in detected_intents:
-                        target_columns = [c for c in sub_df.columns if 'cm' in c.lower() or 'current month' in c.lower() or 'bulan ini' in c.lower()]
-                        if not target_columns and 'gmv' in detected_intents:
-                            target_columns = [c for c in sub_df.columns if 'gmv' in c.lower() and ('cm' in c.lower() or 'ini' in c.lower())]
+                        target_columns = [c for c in sub_df.columns if c.lower() == 'cm' or 'current month' in c.lower()]
 
                     elif 'target_visit' in detected_intents:
                         target_columns = [c for c in sub_df.columns if 'target' in c.lower() and 'visit' in c.lower()]
@@ -189,37 +185,35 @@ try:
                     calculated_metrics = []
                     for col in target_columns:
                         col_lower = col.lower()
-                        # Blacklist kolom nama/teks agar tidak diolah sebagai angka
-                        if any(ignore in col_lower for ignore in ['id', 'code', 'telepon', '%', 'nama', 'toko', 'apotek', 'address', 'sales rep', 'reps', 'salesman']):
+                        # Ignore kolom metadata / tanggal / unnamed
+                        if any(ignore in col_lower for ignore in ['id', 'code', 'telepon', '%', 'nama', 'toko', 'apotek', 'address', 'sales rep', 'reps', 'salesman', 'unnamed', 'w1', 'w2', 'w3', 'w4']):
                             continue
 
-                        is_dpd_col = 'dpd' in col_lower
-                        is_limit_col = any(k in col_lower for k in ['limit', 'plafon', 'avaibility', 'availability'])
-                        is_status_col = any(k in col_lower for k in ['misi', 'gold', 'reguler', 'status', 'tier'])
-                        is_avg_col = any(k in col_lower for k in ['avg', 'average', 'rata'])
+                        # Metrik Snapshot / Master (Ambil Baris Terakhir)
+                        is_snapshot_col = any(k in col_lower for k in ['dpd', 'limit', 'plafon', 'avaibility', 'availability', 'misi', 'gold', 'reguler', 'status', 'tier', 'avg', 'average', 'l3m', 'l2m', 'lm', 'cm'])
 
-                        # A. KOLOM ATRIBUT / STATUS / LIMIT / AVERAGE -> Ambil Baris Terakhir (Latest Update)
-                        if is_dpd_col or is_limit_col or is_status_col or is_avg_col:
+                        # A. KOLOM SNAPSHOT -> Ambil Baris Terakhir (Latest Update)
+                        if is_snapshot_col:
                             valid_rows = sub_df[sub_df[col].notna() & (sub_df[col].astype(str).str.strip() != '')]
                             if not valid_rows.empty:
                                 val_raw = valid_rows[col].iloc[-1]
-                                if is_dpd_col:
+                                if 'dpd' in col_lower:
                                     val_parsed = parse_number_exact(val_raw, is_dpd=True)
                                     calculated_metrics.append(f"• **{col}**: {val_parsed:.0f} hari")
-                                elif is_limit_col or is_avg_col:
+                                elif any(k in col_lower for k in ['misi', 'gold', 'reguler', 'status', 'tier']):
+                                    calculated_metrics.append(f"• **{col}**: {str(val_raw).strip()}")
+                                else:
                                     val_parsed = parse_number_exact(val_raw, is_dpd=False)
                                     calculated_metrics.append(f"• **{col}**: Rp {val_parsed:,.0f}".replace(",", "."))
-                                else:
-                                    calculated_metrics.append(f"• **{col}**: {str(val_raw).strip()}")
                             else:
-                                if is_dpd_col:
+                                if 'dpd' in col_lower:
                                     calculated_metrics.append(f"• **{col}**: 0 hari")
-                                elif is_limit_col or is_avg_col:
-                                    calculated_metrics.append(f"• **{col}**: Rp 0")
-                                else:
+                                elif any(k in col_lower for k in ['misi', 'gold', 'reguler', 'status', 'tier']):
                                     calculated_metrics.append(f"• **{col}**: -")
+                                else:
+                                    calculated_metrics.append(f"• **{col}**: Rp 0")
 
-                        # B. KOLOM TRANSAKSIONAL / AKUMULATIF (GMV, VISIT) -> Pakai SUM
+                        # B. KOLOM AKUMULASI (TRANSAKSI HARIAN / VISIT) -> Pakai SUM
                         elif any(k in col_lower for k in ['visit', 'kunjungan', 'count', 'target']):
                             num_series = sub_df[col].apply(lambda x: parse_number_exact(x, is_dpd=False))
                             total_val = num_series.sum()
