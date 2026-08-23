@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from google import genai
+import time
 import re
 
 # Mengambil data dari Secrets aman Streamlit
@@ -93,7 +94,6 @@ try:
 
         prompt_lower = prompt.lower()
         
-        # Menyaring kata umum untuk mendapatkan kata kunci entitas yang spesifik
         ignore_words = ['berapa', 'data', 'untuk', 'bulan', 'ini', 'kemarin', 'di', 'dan', 'yang', 'dari', 'tentang', 'pencapaian', 'capaian', 'misi', 'gold', 'gmv']
         filtered_words = [word for word in prompt_lower.split() if word not in ignore_words and len(word) > 2]
         
@@ -134,12 +134,22 @@ Struktur jawaban:
 
 ATURAN MUTLAK: Jangan mengubah angka atau nominal Rupiah yang ada di dalam data di atas sedikit pun!
 """
-                    # Menggunakan model gemini-2.5-flash yang stabil
-                    response = client.models.generate_content(
-                        model='gemini-3.7-flash',
-                        contents=formatting_prompt
-                    )
-                    response_text = response.text
+                    # Mekanisme coba ulang otomatis (retry) jika server sedang sibuk/high demand
+                    response_text = None
+                    for attempt in range(3):
+                        try:
+                            response = client.models.generate_content(
+                                model='gemini-2.5-flash',
+                                contents=formatting_prompt
+                            )
+                            response_text = response.text
+                            break
+                        except Exception as api_err:
+                            if "503" in str(api_err) and attempt < 2:
+                                time.sleep(1) # Tunggu 1 detik sebelum coba lagi
+                                continue
+                            else:
+                                raise api_err
                 else:
                     response_text = f"Maaf bro, data untuk '{prompt}' tidak ditemukan di dalam sistem."
 
