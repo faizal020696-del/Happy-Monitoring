@@ -14,31 +14,29 @@ st.set_page_config(
     layout="centered"
 )
 
-# Kustomisasi Tampilan Visual Presisi (Tema Deep Space Dark Mode)
+# Kustomisasi Tampilan Visual (Tema Light Mode Clean)
 st.markdown("""
     <style>
-    /* 1. Menghilangkan header & footer bawaan Streamlit */
+    /* 1. Menghilangkan elemen internal Streamlit */
     #MainMenu {visibility: hidden !important;}
     header {visibility: hidden !important;}
     footer {visibility: hidden !important;}
     .stAppHeader {display: none !important;}
     [data-testid="stToolbar"] {display: none !important;}
     
-    /* 2. BACKGROUND UTAMA: Dark Blue Navy solid/gradient halus */
+    /* 2. BACKGROUND UTAMA: Putih Bersih */
     .stApp {
-        background: #0d1527 !important;
-        background-attachment: fixed;
+        background-color: #ffffff !important;
     }
     
-    /* 3. HEADER CONTAINER: Box Gelap Terang Elegan */
+    /* 3. HEADER CONTAINER: Gelap Elegan agar Menjolok di Background Putih */
     .main-header {
-        background: #172238;
+        background: #0f172a;
         padding: 2.5rem 2rem;
         border-radius: 20px;
         color: white;
         text-align: center;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        box-shadow: 0 10px 25px rgba(15, 23, 42, 0.15);
         margin-bottom: 2rem;
     }
     .main-header h1 {
@@ -53,43 +51,42 @@ st.markdown("""
         margin: 0;
     }
 
-    /* 4. GELEMBUNG CHAT: Dark Container */
+    /* 4. GELEMBUNG CHAT: Teks Gelap Kontras di Background Terang */
     .stChatMessage {
-        background: #172238 !important;
+        background: #f8fafc !important;
         border-radius: 16px !important;
-        border: 1px solid rgba(255, 255, 255, 0.05) !important;
+        border: 1px solid #e2e8f0 !important;
         padding: 1rem 1.2rem !important;
         margin-bottom: 1rem !important;
-        color: #f1f5f9 !important;
+        color: #0f172a !important;
     }
     
     .stChatMessage[data-testid="stChatMessageUser"] {
-        background: #1e2d4a !important;
-        border: 1px solid rgba(96, 165, 250, 0.2) !important;
+        background: #eff6ff !important;
+        border: 1px solid #bfdbfe !important;
     }
 
-    /* 5. INPUT CHAT DI BAWAH & TEKS INPUT KETIK JELAS */
+    /* 5. INPUT CHAT DI BAWAH */
     .stChatInputContainer {
         border-radius: 16px !important;
         bottom: 25px !important;
-        background: #172238 !important;
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        background: #ffffff !important;
+        border: 1px solid #cbd5e1 !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05) !important;
     }
     
-    /* Perbaikan Teks saat diketik agar terang & jelas */
     .stChatInputContainer textarea {
-        color: #ffffff !important;
-        background-color: transparent !important;
+        color: #0f172a !important;
     }
     
     /* Loading Spinner */
     .stSpinner i {
-        color: #60a5fa !important;
+        color: #2563eb !important;
     }
     </style>
 """, unsafe_allow_html=True)
 
-# Tampilan Header Sesuai Gambar
+# Tampilan Header
 st.markdown("""
     <div class="main-header">
         <h1>🌌 Chatbot Universe SPV Happy</h1>
