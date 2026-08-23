@@ -135,7 +135,8 @@ try:
             r'\baverage\b', r'\bavg\b', r'\brata-rata\b', r'\bratarata\b', r'\b3\b', r'\bbln\b',
             r'\bl3m\b', r'\bl2m\b', r'\blm\b', r'\bcm\b', r'\bdan\b', r'\bdan2\b',
             r'\bkemarin\b', r'\bkemaren\b', r'\bkemarin2\b', r'\bkemaren2\b',
-            r'\bawal\b', r'\bpertama\b', r'\bterakhir\b', r'\bterbaru\b', r'\b1st\b', r'\blast\b', r'\btrx\b', r'\bdate\b', r'\btanggal\b'
+            r'\bawal\b', r'\bpertama\b', r'\bterakhir\b', r'\bterbaru\b', r'\b1st\b', r'\blast\b', r'\btrx\b', r'\bdate\b', r'\btanggal\b',
+            r'\bkapan\b', r'\bkapan2\b', r'\btgl\b'
         ]
 
         for junk in junk_words:
@@ -164,9 +165,9 @@ try:
                     # --- FILTER KOLOM KETAT SESUAI INTENT ---
                     if 'first_trx' in detected_intents or 'last_trx' in detected_intents:
                         if 'first_trx' in detected_intents:
-                            target_columns.extend([c for c in sub_df.columns if '1st' in c.lower() or 'first' in c.lower()])
+                            target_columns.extend([c for c in sub_df.columns if ('1st' in c.lower() or 'first' in c.lower()) and ('trx' in c.lower() or 'date' in c.lower())])
                         if 'last_trx' in detected_intents:
-                            target_columns.extend([c for c in sub_df.columns if 'last' in c.lower()])
+                            target_columns.extend([c for c in sub_df.columns if 'last' in c.lower() and ('trx' in c.lower() or 'date' in c.lower())])
 
                     elif 'l3m' in detected_intents or 'l2m' in detected_intents:
                         if 'l3m' in detected_intents:
