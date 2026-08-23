@@ -21,18 +21,31 @@ def convert_to_csv_url(url):
     gid = gid_match.group(1) if gid_match else "0"
     return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
 
-def parse_number_clean(val):
+# Parser khusus untuk transaksi W1-W4 agar tidak kepotong (murni angka dari string)
+def parse_number_transaction(val):
+    if pd.isna(val) or val is None:
+        return 0.0
+    val_str = str(val).strip()
+    if not val_str or val_str.lower() in ['nan', 'null', 'none', '', '-', ' - ', '0']:
+        return 0.0
+    cleaned = re.sub(r'[^0-9]', '', val_str)
+    if not cleaned:
+        return 0.0
+    try:
+        return float(cleaned)
+    except Exception:
+        return 0.0
+
+# Parser untuk kolom lain (seperti DPD, Limit, dll)
+def parse_number_general(val):
     if pd.isna(val) or val is None:
         return None
     val_str = str(val).strip()
     if not val_str or val_str.lower() in ['nan', 'null', 'none', '', '-', ' - ']:
         return None
-
-    # Cek apakah nilai tersebut berupa teks biasa (bukan angka)
     cleaned = re.sub(r'[^0-9\,\.]', '', val_str)
     if not cleaned:
-        return val_str # Kembalikan teks aslinya jika bukan angka (misal status atau nama)
-
+        return val_str
     try:
         if '.' in cleaned and ',' in cleaned:
             if cleaned.rfind('.') < cleaned.rfind(','):
@@ -49,7 +62,6 @@ def parse_number_clean(val):
                 cleaned = cleaned.replace(',', '.')
             else:
                 cleaned = cleaned.replace(',', '')
-
         return float(cleaned)
     except Exception:
         return val_str
@@ -70,9 +82,21 @@ try:
     raw_df = pd.read_csv(io.StringIO(csv_text), skiprows=header_idx, dtype=str)
     raw_df.columns = [str(c).strip() for c in raw_df.columns]
 
+    # Petakan kolom W1-W4 secara eksplisit
+    week_cols_map = {}
+    for col in raw_df.columns:
+        col_lower = col.lower()
+        if re.search(r'\bw[,\s_-]*1\b', col_lower) or 'week 1' in col_lower:
+            week_cols_map['W1'] = col
+        elif re.search(r'\bw[,\s_-]*2\b', col_lower) or 'week 2' in col_lower:
+            week_cols_map['W2'] = col
+        elif re.search(r'\bw[,\s_-]*3\b', col_lower) or 'week 3' in col_lower:
+            week_cols_map['W3'] = col
+        elif re.search(r'\bw[,\s_-]*4\b', col_lower) or 'week 4' in col_lower:
+            week_cols_map['W4'] = col
+
     name_cols = [c for c in raw_df.columns if any(k in c.lower() for k in ['name', 'nama', 'pharmacy', 'toko', 'apotek'])]
     name_col = name_cols[0] if name_cols else raw_df.columns[0]
-    
     id_cols = [c for c in raw_df.columns if 'id' in c.lower()]
 
     if "messages" not in st.session_state:
@@ -92,20 +116,10 @@ try:
 
         prompt_lower = prompt.lower()
 
-        # Deteksi minggu (W1-W4)
         weeks_requested = [w for w in ['W1', 'W2', 'W3', 'W4'] if re.search(r'\b' + w.lower() + r'\b', prompt_lower)]
         
-        # Deteksi kata kunci khusus lain seperti DPD, Limit, Status, dll.
         metric_requested = None
-        for col in raw_df.columns:
-            col_lower = col.lower()
-            if col_lower in prompt_lower or any(kw in prompt_lower for kw in [col_lower, col_lower.replace(' ', '')]):
-                if col != name_col and col not in id_cols:
-                    metric_requested = col
-                    break
-
-        # Fallback manual jika keyword singkat (misal "dpd" atau "limit")
-        if not metric_requested:
+        if not weeks_requested:
             if 'dpd' in prompt_lower:
                 for c in raw_df.columns:
                     if 'dpd' in c.lower():
@@ -116,10 +130,16 @@ try:
                     if 'limit' in c.lower():
                         metric_requested = c
                         break
+            else:
+                for col in raw_df.columns:
+                    col_lower = col.lower()
+                    if col != name_col and col not in id_cols and col_lower in prompt_lower:
+                        metric_requested = col
+                        break
 
         target_row = None
         
-        # 1. Cari berdasarkan ID (4-6 digit)
+        # Cari berdasarkan ID (4-6 digit)
         id_match_prompt = re.search(r'\b(\d{4,6})\b', prompt)
         if id_match_prompt and id_cols:
             search_id = id_match_prompt.group(1)
@@ -132,7 +152,7 @@ try:
                 if target_row is not None:
                     break
 
-        # 2. Cari berdasarkan nama toko di prompt
+        # Cari berdasarkan nama toko
         if target_row is None:
             ignore_words = {'transaksi', 'w1', 'w2', 'w3', 'w4', 'berapa', 'total', 'jumlah', 'apotek', 'apotik', 'toko', 'cek', 'data', 'id', 'dpd', 'limit'}
             query_words = [w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in ignore_words]
@@ -151,33 +171,34 @@ try:
                     display_name = target_row.get(name_col, "Outlet Ditemukan")
                     calculated_metrics = []
 
-                    # Jika user menanyakan metrik spesifik (DPD / Limit / Kolom Lain)
+                    # Jika menanyakan metrik khusus (DPD, Limit, dll)
                     if metric_requested:
                         val_raw = target_row.get(metric_requested, "Tidak tersedia")
-                        val_parsed = parse_number_clean(val_raw)
+                        val_parsed = parse_number_general(val_raw)
                         if isinstance(val_parsed, float):
-                            val_str = f"Rp {val_parsed:,.0f}".replace(",", ".")
+                            # Cek apakah ini angka uang atau hari (DPD biasanya angka biasa tanpa 'Rp' jika kecil)
+                            if 'dpd' in metric_requested.lower():
+                                val_str = f"{val_parsed:.0f}"
+                            else:
+                                val_str = f"Rp {val_parsed:,.0f}".replace(",", ".")
                         else:
                             val_str = str(val_raw)
                         calculated_metrics.append(f"• **{metric_requested}**: {val_str}")
 
-                    # Jika user meminta minggu W1-W4 atau tidak spesifik kolom
-                    elif weeks_requested or not metric_requested:
-                        target_weeks = weeks_requested if weeks_requested else [c for c in raw_df.columns if re.search(r'w[1-4]', c, re.IGNORECASE)]
+                    # Jika menanyakan transaksi W1-W4 atau format default
+                    else:
+                        target_weeks = weeks_requested if weeks_requested else ['W1', 'W2', 'W3', 'W4']
                         for w in target_weeks:
-                            # Cari kolom yang cocok
-                            matching_cols = [c for c in raw_df.columns if w.lower() in c.lower()]
-                            if matching_cols:
-                                col_name = matching_cols[0]
+                            if w in week_cols_map:
+                                col_name = week_cols_map[w]
                                 val_raw = target_row.get(col_name, 0)
-                                val_parsed = parse_number_clean(val_raw)
-                                val_str = f"Rp {val_parsed:,.0f}".replace(",", ".") if isinstance(val_parsed, float) else str(val_raw)
-                                calculated_metrics.append(f"• **{w}**: {val_str}")
+                                val_parsed = parse_number_transaction(val_raw)
+                                calculated_metrics.append(f"• **{w}**: Rp {val_parsed:,.0f}".replace(",", "."))
 
                     if calculated_metrics:
                         response_text = f"Data untuk **{str(display_name).title()}**:\n" + "\n".join(calculated_metrics)
                     else:
-                        response_text = f"Kolom data yang diminta tidak ditemukan untuk outlet **{str(display_name).title()}**."
+                        response_text = f"Data untuk kolom tersebut tidak ditemukan."
                 else:
                     response_text = f"Data untuk pencarian tersebut tidak ditemukan di Google Sheet."
 
