@@ -119,21 +119,20 @@ try:
 
         prompt_lower = prompt.lower()
 
-        # --- 1. DETEKSI METRIK SPESIFIK LANGSUNG DARI PROMPT (PYTHON FIRST) ---
-        target_metric = None
-        if 'dpd' in prompt_lower:
-            target_metric = 'dpd'
-        elif any(k in prompt_lower for k in ['limit', 'plafon']):
-            target_metric = 'limit'
-        elif 'misi' in prompt_lower:
-            target_metric = 'misi'
-        elif any(k in prompt_lower for k in ['gmv', 'omset', 'sales', 'penjualan']):
-            if 'bulan ini' in prompt_lower or 'cm' in prompt_lower:
-                target_metric = 'cm'
-            elif 'bulan lalu' in prompt_lower or 'lm' in prompt_lower:
-                target_metric = 'lm'
-            else:
-                target_metric = 'gmv'
+        # --- 1. KAMUS SINONIM METRIK (FLEKSIBEL DI TINGKAT PYTHON) ---
+        SYNONYM_MAP = {
+            'dpd': ['dpd', 'terlambat', 'tunggakan', 'jatuh tempo', 'overdue', 'macet', 'hari'],
+            'limit': ['limit', 'plafon', 'kredit', 'sisa limit', 'avaibility'],
+            'misi': ['misi', 'mission', 'reguler', 'gold', 'campaign'],
+            'cm': ['cm', 'bulan ini', 'current month', 'pencapaian bulan ini'],
+            'lm': ['lm', 'bulan lalu', 'last month', 'pencapaian bulan lalu'],
+            'gmv': ['gmv', 'omset', 'sales', 'penjualan', 'pencapaian', 'capaian', 'target', 'l3m', 'l2m', 'peak']
+        }
+
+        detected_intents = []
+        for key, synonyms in SYNONYM_MAP.items():
+            if any(syn in prompt_lower for syn in synonyms):
+                detected_intents.append(key)
 
         # --- 2. AI EKSTRAKSI ENTITAS NAMA ---
         extraction_prompt = f"""
@@ -142,7 +141,7 @@ Saring pertanyaan user dan kembalikan format JSON:
 
 Aturan:
 Ambil HANYA kata kunci nama toko/reps/objek (misal: "gebang farma", "rizki", "afrianto"). 
-Hapus kata metrik seperti "dpd", "limit", "misi", "reguler", "gold", "apotek", "reps", "sales", "gmv", "pencapaian", "bulan ini", dll.
+Abaikan kata metrik seperti "dpd", "limit", "misi", "reguler", "gold", "apotek", "reps", "sales", "gmv", "pencapaian", "bulan ini", dll.
 
 Input: "{prompt}"
 JSON:"""
@@ -205,62 +204,64 @@ JSON:"""
                 sub_df = df[series_clean.str.contains(pattern_fallback, regex=True, na=False)]
 
         with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("Mencari data presisi..."):
+            with st.spinner("Menghitung data presisi..."):
                 if len(sub_df) > 0:
-                    calculated_metrics = []
+                    target_columns = []
+
+                    # --- 3. PEMILIHAN KOLOM PRESISI SESUAI SINONIM ---
+                    if detected_intents:
+                        for col in sub_df.columns:
+                            col_lower = col.lower()
+                            for intent in detected_intents:
+                                synonyms = SYNONYM_MAP[intent]
+                                if any(syn in col_lower for syn in synonyms):
+                                    if col not in target_columns:
+                                        target_columns.append(col)
                     
-                    # --- 3. FILTERING KOLOM KHUSUS SESUAI METRIK SPESIFIK ---
-                    matched_cols = []
-                    if target_metric:
-                        for c in sub_df.columns:
-                            c_lower = c.lower()
-                            if target_metric == 'dpd' and 'dpd' in c_lower:
-                                matched_cols.append(c)
-                            elif target_metric == 'limit' and 'limit' in c_lower:
-                                matched_cols.append(c)
-                            elif target_metric == 'misi' and 'misi' in c_lower:
-                                matched_cols.append(c)
-                            elif target_metric == 'cm' and any(k in c_lower for k in ['cm', 'bulan ini']):
-                                matched_cols.append(c)
-                            elif target_metric == 'lm' and any(k in c_lower for k in ['lm', 'bulan lalu']):
-                                matched_cols.append(c)
-                            elif target_metric == 'gmv' and any(k in c_lower for k in ['gmv', 'sales', 'pencapaian']):
-                                matched_cols.append(c)
+                    # Jika user bertanya umum/tidak menyebut metrik spesifik, pilihkan metrik utama saja
+                    if not target_columns:
+                        important_keys = ['gmv', 'cm', 'lm', 'sales', 'limit', 'dpd', 'misi', 'pencapaian']
+                        for col in sub_df.columns:
+                            col_lower = col.lower()
+                            if any(k in col_lower for k in important_keys):
+                                target_columns.append(col)
 
-                    # Jika tidak ada metrik spesifik yang cocok/ditanya, baru ambil semua kolom angka berharga
-                    cols_to_process = matched_cols if matched_cols else sub_df.columns
+                    # Fallback akhir jika masih belum ada
+                    if not target_columns:
+                        target_columns = list(sub_df.columns)
 
-                    for col in cols_to_process:
+                    calculated_metrics = []
+                    for col in target_columns:
                         col_lower = col.lower()
-                        if any(ignore in col_lower for ignore in ['date', 'tanggal', 'id', 'code', 'zip', 'durasi', 'duration', 'telepon', 'phone', '%', 'pct']):
+                        if any(ignore in col_lower for ignore in ['date', 'tanggal', 'id', 'code', 'zip', 'durasi', 'duration', 'telepon', 'phone', '%', 'pct', 'nama', 'toko', 'apotek', 'address', 'alamat', 'status']):
                             continue
 
                         num_series = sub_df[col].apply(parse_number_exact)
                         total_val = num_series.sum()
-                        
+
                         if 'dpd' in col_lower:
                             avg_dpd = num_series.mean()
                             calculated_metrics.append(f"- **{col}**: {avg_dpd:.0f} hari")
-                        elif any(k in col_lower for k in ['limit', 'gmv', 'cm', 'lm', 'sales', 'pencapaian', 'misi', 'reguler', 'gold', 'target', 'omset']):
+                        elif any(k in col_lower for k in ['limit', 'gmv', 'cm', 'lm', 'sales', 'pencapaian', 'misi', 'reguler', 'gold', 'target', 'omset', 'peak', 'gap']):
                             calculated_metrics.append(f"- **{col}**: Rp {total_val:,.0f}".replace(",", "."))
                         else:
                             if total_val > 0:
                                 calculated_metrics.append(f"- **{col}**: {total_val:,.0f}".replace(",", "."))
 
-                    calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Metrik yang ditanyakan tidak ditemukan pada kolom sheet."
-                    
+                    calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Metrik yang ditanyakan tidak terdeteksi."
+
                     system_prompt = f"""
-Kamu adalah Senior Data Analyst SPV.
+Kamu adalah Senior Data Analyst SPV yang ramah dan langsung pada inti jawaban.
 
 DITEMUKAN DATA UNTUK ENTITAS: '{extracted_entity.title()}'.
 PERTANYAAN USER: "{prompt}"
 
-HASIL KALKULASI RELEVAN:
+HASIL KALKULASI PRESISI PYTHON:
 {calc_summary_str}
 
-Instruksi Sangat Penting:
-1. Jawab LANGSUNG di kalimat pertama dengan singkat, to the point, dan ramah (misal: "DPD untuk **Apotek Gebang Farma** adalah **13 hari**.").
-2. JANGAN PERNAH menampilkan/menyebutkan nama kolom atau metrik lain yang tidak ditanyakan user!
+Instruksi Utama:
+1. Jawab LANGSUNG di kalimat pertama dengan singkat dan padat (contoh: "DPD untuk **Apotek Gebang Farma** adalah **13 hari**.").
+2. JANGAN PERNAH menampilkan daftar data angka yang tidak ditanyakan oleh user, kecuali jika user memang meminta seluruh data secara ringkas.
 """
                     response_text = ""
                     try:
