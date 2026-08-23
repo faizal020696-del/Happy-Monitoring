@@ -12,6 +12,7 @@ st.set_page_config(
     layout="centered"
 )
 
+# Kustomisasi Tampilan Visual (Background Putih)
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden !important;}
@@ -112,8 +113,8 @@ try:
             st.markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
 
-        # OPTIMASI TEKS CSV: Ambil maksimal 500 baris terbaru agar tidak Error 413
-        df_limited = df.tail(500) 
+        # Mencegah Error 413: Batasi data ke 300 baris terbaru
+        df_limited = df.tail(300) 
         data_str = df_limited.to_csv(index=False)
 
         system_prompt = f"""
@@ -127,34 +128,42 @@ try:
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Menganalisis data universe..."):
-                models_to_try = [
-                    "llama-3.3-70b-versatile",
-                    "llama-3.1-8b-instant"
-                ]
-                
-                response_text = None
-                last_error = None
+                try:
+                    # AUTO-DETECT MODEL AKTIF DARI API GROQ
+                    available_models = client.models.list()
+                    # Filter model yang aktif di akun
+                    active_model_ids = [m.id for m in available_models.data if hasattr(m, 'id')]
 
-                for model_name in models_to_try:
-                    try:
-                        chat_completion = client.chat.completions.create(
-                            messages=[
-                                {"role": "system", "content": system_prompt},
-                                {"role": "user", "content": prompt}
-                            ],
-                            model=model_name,
-                        )
-                        response_text = chat_completion.choices[0].message.content
-                        break
-                    except Exception as err:
-                        last_error = err
-                        continue
+                    if not active_model_ids:
+                        st.error("Tidak ada model AI yang ditemukan di akun Groq kamu.")
+                    else:
+                        response_text = None
+                        last_err = None
+                        
+                        # Coba pakai model pertama yang tersedia otomatis
+                        for model_id in active_model_ids:
+                            try:
+                                chat_completion = client.chat.completions.create(
+                                    messages=[
+                                        {"role": "system", "content": system_prompt},
+                                        {"role": "user", "content": prompt}
+                                    ],
+                                    model=model_id,
+                                )
+                                response_text = chat_completion.choices[0].message.content
+                                break
+                            except Exception as e:
+                                last_err = e
+                                continue
 
-                if response_text:
-                    st.markdown(response_text)
-                    st.session_state.messages.append({"role": "assistant", "content": response_text})
-                else:
-                    st.error(f"Gagal memproses AI Groq: {last_error}")
+                        if response_text:
+                            st.markdown(response_text)
+                            st.session_state.messages.append({"role": "assistant", "content": response_text})
+                        else:
+                            st.error(f"Gagal memproses AI Groq: {last_err}")
+
+                except Exception as api_err:
+                    st.error(f"Gagal mengambil daftar model Groq: {api_err}")
 
 except Exception as e:
     st.error(f"Gagal memuat data: {e}")
