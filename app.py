@@ -122,6 +122,7 @@ try:
         if not name_cols:
             name_cols = raw_df.columns
 
+        # Ambil token yang panjangnya > 2 huruf saja untuk menghindari salah tangkap
         search_tokens = [t for t in extracted_entity.split() if len(t) > 2]
         if not search_tokens:
             search_tokens = extracted_entity.split()
@@ -130,9 +131,9 @@ try:
         for idx, row in raw_df.iterrows():
             row_text = " ".join([str(val) for val in row.values if pd.notna(val)]).lower()
             
-            # Cek apakah setidaknya ada SATU kata kunci penting yang cocok (misal 'gebang' atau 'farma')
-            if any(token in row_text for token in search_tokens):
-                # Lewati baris rekap besar yang triliunan
+            # ATURAN KETAT: SEMUA token penting (misal 'gebang' DAN 'farma') HARUS ADA di dalam baris tersebut
+            if search_tokens and all(token in row_text for token in search_tokens):
+                # Buang baris rekap wilayah triliunan
                 w1_val = parse_number_exact(str(row.get('W1', '0')))
                 if w1_val < 500_000_000:
                     matched_rows.append(row)
@@ -153,13 +154,13 @@ try:
                     response_text = f"Data untuk **{str(display_name).title()}**:\n" + "\n".join(calculated_metrics)
 
                 elif len(matched_rows) > 1:
-                    response_text = f"Menemukan beberapa outlet yang mirip dengan '**{extracted_entity.title()}**'. Maksud kamu yang mana?\n"
-                    for r in matched_rows[:5]: # Tampilkan maksimal 5 pilihan
+                    response_text = f"Menemukan beberapa outlet yang cocok:\n"
+                    for r in matched_rows[:5]:
                         d_name = r.get(name_cols[0], 'Outlet Tanpa Nama')
                         w1_val = parse_number_exact(str(r.get('W1', '0')))
                         response_text += f"- **{d_name}** (W1: Rp {w1_val:,.0f})\n".replace(",", ".")
                 else:
-                    response_text = f"Waduh, data untuk **'{extracted_entity.title()}'** tidak ditemukan di Google Sheet. Coba cek ejaan namanya."
+                    response_text = f"Waduh, data untuk **'{extracted_entity.title()}'** tidak ditemukan di Google Sheet. Pastikan ejaan 'Gebang Farma' sudah benar."
 
                 st.markdown(response_text)
         
