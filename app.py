@@ -140,7 +140,8 @@ try:
             weeks_requested.append('W4')
 
         is_limit_query = any(k in prompt_lower for k in ['limit', 'plafond', 'sisa', 'ssisa', 'avaiability', 'availability', 'avail']) and not weeks_requested
-        is_general_gmv_query = 'gmv' in prompt_lower and not weeks_requested and not is_limit_query and not any(k in prompt_lower for k in ['lalu', 'kemarin', 'peak', 'l3m', 'l2m', 'cm', 'lm', 'average', 'avg']) and not 'gold' in prompt_lower and not 'misi' in prompt_lower
+        is_mission_query = any(k in prompt_lower for k in ['misi', 'gold', 'mission', 'campaign', 'pencapaian misi']) and not weeks_requested
+        is_general_gmv_query = 'gmv' in prompt_lower and not weeks_requested and not is_limit_query and not is_mission_query and not any(k in prompt_lower for k in ['lalu', 'kemarin', 'peak', 'l3m', 'l2m', 'cm', 'lm', 'average', 'avg'])
         is_visit_query = any(k in prompt_lower for k in ['target visit', 'visit count', 'visit', 'kunjungan', 'last visit', 'terakhir']) and not weeks_requested
 
         command_words = {
@@ -229,6 +230,10 @@ try:
                         for col in limit_cols:
                             sum_val = sum(parse_number_general(r.get(col, 0)) for _, r in matched_reps_df.iterrows())
                             calculated_metrics.append(f"• **Total {col}**: Rp {sum_val:,.0f}".replace(",", "."))
+                    elif is_mission_query:
+                        mission_cols = [c for c in raw_df.columns if any(term in c.lower() for term in ['misi', 'gold', 'mission', 'campaign'])]
+                        for col in mission_cols:
+                            calculated_metrics.append(f"• **Kolom {col}**: (Data rekap misi sales rep)")
                     else:
                         calculated_metrics.append("\n**📊 Total Performa Bulanan:**")
                         target_cols_gmv = [
@@ -256,7 +261,6 @@ try:
                     display_name = target_row.get(name_col, "Outlet Ditemukan")
                     calculated_metrics = []
 
-                    # JIKA PERINTAH LIMIT / SISA LIMIT, TAMPILKAN SEMUA KOLOM TERKAIT LIMIT (Total Limit & Sisa Limit)
                     if is_limit_query:
                         limit_cols = [c for c in raw_df.columns if any(term in c.lower() for term in ['limit', 'plafond', 'sisa', 'avail'])]
                         if limit_cols:
@@ -267,8 +271,15 @@ try:
                                 calculated_metrics.append(f"• **{col}**: {val_formatted}")
                         else:
                             calculated_metrics.append("• Kolom limit/sisa limit tidak ditemukan pada sheet.")
+                    elif is_mission_query:
+                        mission_cols = [c for c in raw_df.columns if any(term in c.lower() for term in ['misi', 'gold', 'mission', 'campaign'])]
+                        if mission_cols:
+                            for col in mission_cols:
+                                val_metric = target_row.get(col, "-")
+                                calculated_metrics.append(f"• **{col}**: {val_metric}")
+                        else:
+                            calculated_metrics.append("• Kolom misi/gold tidak ditemukan pada sheet.")
                     else:
-                        # Cek kolom spesifik lain jika diminta selain limit/gmv
                         metric_requested = None
                         if 'dpd' in prompt_lower:
                             metric_requested = next((c for c in raw_df.columns if 'dpd' in c.lower()), None)
