@@ -56,13 +56,9 @@ try:
     csv_url = convert_to_csv_url(SHEET_URL)
     df = pd.read_csv(csv_url)
 
-    # Membersihkan nama kolom dari spasi berlebih
     df.columns = df.columns.str.strip()
-
-    # Dataframe string untuk pencarian aman
     df_clean_text = df.fillna("").astype(str)
 
-    # Membersihkan kolom angka agar benar-benar murni numerik
     for col in df.columns:
         if any(keyword in col.lower() for keyword in ['gmv', 'target', 'sales', 'value', 'amount', 'cm', 'l3m', 'lm']):
             df[col] = pd.to_numeric(
@@ -72,7 +68,6 @@ try:
 
     client = genai.Client(api_key=API_KEY)
 
-    # Sidebar Debugging Info
     with st.sidebar:
         st.write("### 📊 Status Data")
         st.write(f"Total Baris: {len(df)}")
@@ -93,11 +88,10 @@ try:
             st.markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
 
-        # --- PENCARIAN & FILTERING SALES ---
         prompt_lower = prompt.lower()
         target_names = ["mulyanto", "sulistiana", "gde", "rizki", "afrianto"]
         
-        direct_answer = None
+        python_summary_text = None
         
         for name in target_names:
             if name in prompt_lower:
@@ -105,25 +99,39 @@ try:
                 sub_df = df[mask]
                 
                 if len(sub_df) > 0:
-                    # HANYA AMBIL KOLOM UTAMA YANG RELEVAN DENGAN GMV/TARGET (ABAIKAN KOLOM KODE/ID)
                     valid_metric_cols = [col for col in df.columns if any(k in col.lower() for k in ['gmv', 'cm']) and not any(x in col.lower() for x in ['code', 'assignment'])]
                     
-                    calc_text = f"📊 **Ringkasan Performa Sales: {name.upper()}**\n\n"
-                    calc_text += f"• **Total Baris Data Terkait**: {len(sub_df)} baris\n"
+                    summary_lines = [f"Data performa untuk sales {name.upper()}:"]
+                    summary_lines.append(- Total baris data: {len(sub_df)})
                     
                     for col in valid_metric_cols:
                         total_val = sub_df[col].sum()
-                        if total_val > 0:  # Hanya tampilkan jika ada angkanya
-                            calc_text += f"• **{col}**: Rp {total_val:,.0f}\n"
+                        if total_val > 0:
+                            summary_lines.append(- {col}: Rp {total_val:,.0f})
                     
-                    direct_answer = calc_text
+                    python_summary_text = "\n".join(summary_lines)
                     break
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Menganalisis data..."):
-                if direct_answer:
-                    response_text = direct_answer + "\n*(Data dihitung secara presisi langsung oleh sistem Python).* "
+                if python_summary_text:
+                    # PYTHON MENYEDIAKAN ANGKA, GEMINI MERANGKAI JADI KALIMAT NATURAL
+                    formatting_prompt = f"""
+Kamu adalah asisten AI analitik yang ramah dan profesional. 
+Berikut adalah data angka valid yang sudah dihitung secara mutlak oleh sistem:
+
+{python_summary_text}
+
+Tugasmu: Jawab pertanyaan user ({prompt}) dengan merangkai data di atas menjadi kalimat narasi yang mengalir, rapi, dan *on point*, seolah-olah kamu sendiri yang menghitungnya secara instan. 
+ATURAN MUTLAK: Jangan mengubah angka atau nominal Rupiah yang ada di dalam data di atas sedikit pun!
+"""
+                    response = client.models.generate_content(
+                        model='gemini-2.5-flash',
+                        contents=formatting_prompt
+                    )
+                    response_text = response.text
                 else:
+                    # PERTANYAAN UMUM
                     data_str = df.head(50).to_csv(index=False)
                     system_prompt = f"Kamu adalah asisten data. Jawab pertanyaan berikut berdasarkan data ini:\n{data_str}"
                     response = client.models.generate_content(
