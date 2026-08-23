@@ -79,7 +79,6 @@ try:
             
     raw_df = pd.read_csv(io.StringIO(csv_text), skiprows=header_idx, dtype=str)
     
-    # Clean nama kolom dengan aman
     new_cols = []
     for c in raw_df.columns:
         c_clean = str(c).strip()
@@ -146,7 +145,7 @@ try:
         if any(k in prompt_lower for k in ['gmv', 'omset', 'sales', 'penjualan', 'pencapaian', 'capaian', 'total gmv']):
             detected_intents.append('gmv')
 
-        # --- 2. EXTRACTION NAMA PURE DENGAN REGEX SAPU BERSIH ---
+        # --- 2. EXTRACTION NAMA (JANGAN HAPUS W1-W4 DI SINI) ---
         clean_prompt = prompt_lower
         clean_prompt = re.sub(r'\bdi([a-z]+)', r'\1', clean_prompt)
 
@@ -158,7 +157,7 @@ try:
             r'\bpt\b', r'\bcv\b', r'\bdata\b', r'\buntuk\b', r'\bbulan\b', r'\bini\b', r'\blalu\b', 
             r'\bni\b', r'\binih\b', r'\bkah\b', r'\bdong\b', r'\bcek\b', r'\binfo\b', r'\bpencapaian\b', 
             r'\bcapaian\b', r'\bperforma\b', r'\bhasil\b', r'\barea\b', r'\bmana\b', r'\byg\b', 
-            r'\bsudah\b', r'\btransaksi\b', r'\bw1\b', r'\bw2\b', r'\bw3\b', r'\bw4\b',
+            r'\bsudah\b', r'\btransaksi\b',
             r'\baverage\b', r'\bavg\b', r'\brata-rata\b', r'\bratarata\b', r'\b3\b', r'\bbln\b',
             r'\bl3m\b', r'\bl2m\b', r'\blm\b', r'\bcm\b', r'\bdan\b', r'\bdan2\b',
             r'\bkemarin\b', r'\bkemaren\b', r'\bkemarin2\b', r'\bkemaren2\b',
@@ -170,9 +169,9 @@ try:
             clean_prompt = re.sub(junk, ' ', clean_prompt)
 
         clean_prompt = re.sub(r'[^\w\s]', ' ', clean_prompt)
-        extracted_entity = " ".join(clean_prompt.split()).strip()
+        extracted_entity = " ".join([t for t in clean_prompt.split() if t not in ['w1', 'w2', 'w3', 'w4']]).strip()
 
-        # --- 3. PENCARIAN AMAN TANPA METODE .str PADA DATAFRAME UTUH ---
+        # --- 3. PENCARIAN AMAN ---
         entity_tokens = extracted_entity.split()
         matched_indices = []
 
@@ -196,45 +195,6 @@ try:
                         for w in weeks_requested:
                             target_columns.extend([c for c in sub_df.columns if re.search(r'\b' + w + r'\b', c.lower())])
 
-                    elif 'first_trx' in detected_intents or 'last_trx' in detected_intents:
-                        if 'first_trx' in detected_intents:
-                            target_columns.extend([c for c in sub_df.columns if ('1st' in c.lower() or 'first' in c.lower()) and ('trx' in c.lower() or 'date' in c.lower())])
-                        if 'last_trx' in detected_intents:
-                            target_columns.extend([c for c in sub_df.columns if 'last' in c.lower() and ('trx' in c.lower() or 'date' in c.lower())])
-
-                    elif 'l3m' in detected_intents or 'l2m' in detected_intents:
-                        if 'l3m' in detected_intents:
-                            target_columns.extend([c for c in sub_df.columns if c.lower() == 'l3m'])
-                        if 'l2m' in detected_intents:
-                            target_columns.extend([c for c in sub_df.columns if c.lower() == 'l2m'])
-
-                    elif 'average' in detected_intents:
-                        target_columns = [c for c in sub_df.columns if 'average' in c.lower() or 'avg' in c.lower()]
-
-                    elif 'lm' in detected_intents:
-                        target_columns = [c for c in sub_df.columns if c.lower() in ['lm', 'last month']]
-
-                    elif 'cm' in detected_intents:
-                        target_columns = [c for c in sub_df.columns if c.lower() in ['cm', 'current month']]
-
-                    elif 'target_visit' in detected_intents:
-                        target_columns = [c for c in sub_df.columns if 'target' in c.lower() and 'visit' in c.lower()]
-                    elif 'visit' in detected_intents:
-                        target_columns = [c for c in sub_df.columns if 'visit' in c.lower() or 'kunjungan' in c.lower()]
-                    elif 'misi' in detected_intents:
-                        if 'gold' in prompt_lower:
-                            target_columns = [c for c in sub_df.columns if 'gold' in c.lower()]
-                        elif 'reguler' in prompt_lower:
-                            target_columns = [c for c in sub_df.columns if 'reguler' in c.lower()]
-                        if not target_columns:
-                            target_columns = [c for c in sub_df.columns if 'misi' in c.lower()]
-                    elif 'dpd' in prompt_lower:
-                        target_columns = [c for c in sub_df.columns if 'dpd' in c.lower()]
-                    elif 'limit' in detected_intents:
-                        target_columns = [c for c in sub_df.columns if 'limit' in c.lower() or 'plafon' in c.lower()]
-                    elif 'gmv' in detected_intents:
-                        target_columns = [c for c in sub_df.columns if 'gmv' in c.lower()]
-
                     if not target_columns:
                         important_keys = ['gmv', 'cm', 'lm', 'l2m', 'l3m', 'sales', 'limit', 'dpd', 'misi', 'visit', 'avg', 'average', 'trx', 'date', 'w1', 'w2', 'w3', 'w4']
                         target_columns = [c for c in sub_df.columns if any(k in c.lower() for k in important_keys)]
@@ -247,56 +207,32 @@ try:
                         if any(ignore in col_lower for ignore in ['id', 'code', 'telepon', '%', 'nama', 'toko', 'apotek', 'address', 'sales rep', 'reps', 'salesman', 'unnamed']):
                             continue
 
-                        if any(k in col_lower for k in ['date', 'trx', 'tanggal', 'misi', 'gold', 'reguler', 'status', 'tier']):
-                            valid_rows = sub_df[sub_df[col].notna() & (sub_df[col].astype(str).str.strip() != '')]
-                            if not valid_rows.empty:
-                                val_raw = valid_rows[col].iloc[-1]
-                                calculated_metrics.append(f"• **{col}**: {str(val_raw).strip()}")
-                            else:
-                                calculated_metrics.append(f"• **{col}**: -")
-
-                        elif 'dpd' in col_lower:
-                            valid_rows = sub_df[sub_df[col].notna() & (sub_df[col].astype(str).str.strip() != '')]
-                            if not valid_rows.empty:
-                                val_raw = valid_rows[col].iloc[-1]
-                                val_parsed = parse_number_exact(val_raw, is_dpd=True)
-                                calculated_metrics.append(f"• **{col}**: {val_parsed:.0f} hari")
-                            else:
-                                calculated_metrics.append(f"• **{col}**: 0 hari")
-
-                        elif any(k in col_lower for k in ['limit', 'plafon', 'avaibility', 'availability', 'avg', 'average', 'l3m', 'l2m', 'lm', 'cm', 'w1', 'w2', 'w3', 'w4']):
-                            valid_rows = sub_df[sub_df[col].notna() & (sub_df[col].astype(str).str.strip() != '')]
+                        # Murni pakai .astype(str) tanpa mengakses .str bawaan dataframe langsung yang rawan konflik versi pandas
+                        valid_rows = sub_df[sub_df[col].notna() & (sub_df[col].astype(str).str.strip() != '')]
+                        
+                        if any(k in col_lower for k in ['w1', 'w2', 'w3', 'w4', 'limit', 'plafon', 'avg', 'average', 'l3m', 'l2m', 'lm', 'cm']):
                             if not valid_rows.empty:
                                 val_raw = valid_rows[col].iloc[-1]
                                 val_parsed = parse_number_exact(val_raw, is_dpd=False)
                                 calculated_metrics.append(f"• **{col}**: Rp {val_parsed:,.0f}".replace(",", "."))
                             else:
                                 calculated_metrics.append(f"• **{col}**: Rp 0")
-
-                        elif any(k in col_lower for k in ['visit', 'kunjungan', 'count', 'target']):
-                            num_series = sub_df[col].apply(lambda x: parse_number_exact(x, is_dpd=False))
-                            total_val = num_series.sum()
-                            calculated_metrics.append(f"• **{col}**: {total_val:,.0f} kali".replace(",", "."))
-
                         else:
-                            num_series = sub_df[col].apply(lambda x: parse_number_exact(x, is_dpd=False))
-                            total_val = num_series.sum()
-                            calculated_metrics.append(f"• **{col}**: Rp {total_val:,.0f}".replace(",", "."))
+                            if not valid_rows.empty:
+                                val_raw = valid_rows[col].iloc[-1]
+                                calculated_metrics.append(f"• **{col}**: {str(val_raw).strip()}")
+                            else:
+                                calculated_metrics.append(f"• **{col}**: -")
 
                     calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Metrik tidak terdeteksi di sheet."
 
                     system_prompt = f"""
 Kamu adalah Assistant Data SPV.
-
 DATA UNTUK: '{extracted_entity.title()}'.
 PERTANYAAN USER: "{prompt}"
-
-HASIL KALKULASI PRESISI:
+HASIL KALKULASI:
 {calc_summary_str}
-
-Instruksi Direct:
-1. Jawab LANGSUNG ke inti pertanyaan tanpa salam berbelit-belit.
-2. Tampilkan HANYA angka metrik yang diminta user.
+Jawab langsung ke inti metrik transaksi W1-W4 yang diminta.
 """
                     response_text = ""
                     try:
