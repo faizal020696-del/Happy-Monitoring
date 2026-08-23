@@ -198,26 +198,32 @@ try:
                         break
 
             if target_row is None:
-                # Membersihkan prompt dari command words untuk mendapatkan query nama apotek yang bersih
-                query_words = [w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in command_words]
-                cleaned_outlet_query = " ".join(query_words).strip()
-                
-                if cleaned_outlet_query:
-                    # Mengambil seluruh list nama outlet dari dataframe
-                    outlet_names = raw_df[name_col].fillna("").astype(str).tolist()
-                    
-                    # Menggunakan RapidFuzz untuk mencari kecocokan terbaik (score tertinggi)
-                    best_match = process.extractOne(
-                        cleaned_outlet_query, 
-                        outlet_names, 
-                        scorer=fuzz.WRatio
-                    )
-                    
-                    # Jika tingkat kemiripan di atas batas aman (misal > 55%), ambil baris tersebut
-                    if best_match and best_match[1] >= 55:
-                        matched_name_in_df = best_match[0]
-                        matched_idx = raw_df[raw_df[name_col].astype(str) == matched_name_in_df].index[0]
-                        target_row = raw_df.loc[matched_idx]
+                # 1. Prioritas Utama: Cari berdasarkan exact substring kata kunci spesifik (misal: "gebang")
+                query_words = [w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in command_words and len(w) > 2]
+                if query_words:
+                    name_series = raw_df[name_col].fillna("").astype(str)
+                    for idx, name_val in name_series.items():
+                        name_lower = name_val.lower()
+                        # Jika kata kunci penting (selain kata umum) ada di nama outlet
+                        if all(qw in name_lower for qw in query_words if qw not in ['apotek', 'toko', 'farma']):
+                            target_row = raw_df.loc[idx]
+                            break
+
+                # 2. Cadangan: Fuzzy Matching dengan threshold ketat (>= 75) jika belum ketemu
+                if target_row is None:
+                    cleaned_outlet_query = " ".join([w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in command_words]).strip()
+                    if cleaned_outlet_query:
+                        outlet_names = raw_df[name_col].fillna("").astype(str).tolist()
+                        best_match = process.extractOne(
+                            cleaned_outlet_query, 
+                            outlet_names, 
+                            scorer=fuzz.WRatio
+                        )
+                        
+                        if best_match and best_match[1] >= 75:
+                            matched_name_in_df = best_match[0]
+                            matched_idx = raw_df[raw_df[name_col].astype(str) == matched_name_in_df].index[0]
+                            target_row = raw_df.loc[matched_idx]
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Mengecek data..."):
