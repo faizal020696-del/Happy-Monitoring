@@ -180,14 +180,12 @@ try:
                         is_dpd_col = 'dpd' in col_lower
 
                         if is_dpd_col:
-                            dpd_values = [parse_number_exact(v, is_dpd=True) for v in sub_df[col] if str(v).strip() != '']
-                            
-                            if len(dpd_values) == 1:
-                                calculated_metrics.append(f"• **{col}**: {dpd_values[0]:.0f} hari")
-                            elif len(dpd_values) > 1:
-                                vals_str = ", ".join([f"{v:.0f}" for v in dpd_values])
-                                avg_val = sum(dpd_values) / len(dpd_values)
-                                calculated_metrics.append(f"• **{col}**: {avg_val:.0f} hari (Rincian: {vals_str} hari)")
+                            # Mengambil nilai DPD dari baris TERAKHIR (data paling update di Sheet)
+                            valid_rows = sub_df[sub_df[col].notna() & (sub_df[col].astype(str).str.strip() != '')]
+                            if not valid_rows.empty:
+                                latest_val_raw = valid_rows[col].iloc[-1]
+                                latest_dpd = parse_number_exact(latest_val_raw, is_dpd=True)
+                                calculated_metrics.append(f"• **{col}**: {latest_dpd:.0f} hari")
                             else:
                                 calculated_metrics.append(f"• **{col}**: 0 hari")
 
