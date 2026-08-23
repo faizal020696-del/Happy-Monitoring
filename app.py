@@ -28,7 +28,6 @@ def parse_number_exact(val, is_dpd=False):
     if not val_str or val_str.lower() in ['nan', 'null', 'none', '', '-', ' - ']:
         return 0.0
 
-    # Khusus DPD: Tangkap angka bertanda minus (-) atau positif (+) murni
     if is_dpd:
         match = re.search(r'(-?\d+(?:\.\d+)?)', val_str.replace(',', '.'))
         if match:
@@ -51,7 +50,7 @@ def parse_number_exact(val, is_dpd=False):
                 cleaned = cleaned.replace(',', '.')
             else:
                 cleaned = cleaned.replace(',', '')
-        elif '.' in cleaned and '.' not in cleaned:
+        elif '.' in cleaned and ',' not in cleaned:
             parts = cleaned.split('.')
             if len(parts) > 2:
                 cleaned = cleaned.replace('.', '')
@@ -105,22 +104,20 @@ try:
             detected_intents.append('misi')
         if 'dpd' in prompt_lower:
             detected_intents.append('dpd')
-        if any(k in prompt_lower for k in ['limit', 'plafon', 'kredit', 'avaibility']):
+        if any(k in prompt_lower for k in ['limit', 'plafon', 'kredit', 'availability', 'avaibility']):
             detected_intents.append('limit')
         if any(k in prompt_lower for k in ['gmv', 'omset', 'sales', 'penjualan', 'pencapaian', 'capaian', 'total gmv']):
             detected_intents.append('gmv')
 
         # --- 2. EXTRACTION NAMA PURE DENGAN REGEX SAPU BERSIH ---
         clean_prompt = prompt_lower
-        
-        # Pisahkan kata "di" yang menempel (diapotek -> apotek, dibulan -> bulan)
         clean_prompt = re.sub(r'\bdi([a-z]+)', r'\1', clean_prompt)
 
         junk_words = [
             r'\bberapa\b', r'\btotal\b', r'\bjumlah\b', r'\byang\b', r'\btersedia\b', r'\bada\b', 
             r'\btarget\b', r'\bvisit\b', r'\bkunjungan\b', r'\breps\b', r'\bsales\b', r'\bsalesman\b', 
-            r'\blimit\b', r'\bplafon\b', r'\bdpd\b', r'\bmisi\b', r'\bmission\b', r'\bgmv\b', 
-            r'\bomset\b', r'\bdi\b', r'\bapotek\b', r'\bapotik\b', r'\btoko\b', r'\boutlet\b', 
+            r'\blimit\b', r'\bplafon\b', r'\bdpd\b', r'\bmisi\b', r'\bmission\b', r'\bgold\b', r'\breguler\b',
+            r'\bgmv\b', r'\bomset\b', r'\bdi\b', r'\bapotek\b', r'\bapotik\b', r'\btoko\b', r'\boutlet\b', 
             r'\bpt\b', r'\bcv\b', r'\bdata\b', r'\buntuk\b', r'\bbulan\b', r'\bini\b', r'\blalu\b', 
             r'\bni\b', r'\binih\b', r'\bkah\b', r'\bdong\b', r'\bcek\b', r'\binfo\b', r'\bpencapaian\b', 
             r'\bcapaian\b', r'\bperforma\b', r'\bhasil\b', r'\barea\b', r'\bmana\b', r'\byg\b', 
@@ -141,7 +138,6 @@ try:
             ignored_cols = [c for c in df.columns if any(k in c.lower() for k in ['alamat', 'address', 'jalan', 'kota'])]
             searchable_cols = [c for c in df.columns if c not in ignored_cols]
 
-            # Mencari baris yang mengandung semua kata dari nama entity
             pattern = r'(?=.*' + r')(?=.*'.join([re.escape(t) for t in entity_tokens]) + r')'
             series_clean = df_clean_text[searchable_cols].apply(lambda row: " ".join(row.values).lower(), axis=1)
             sub_df = df[series_clean.str.contains(pattern, regex=True, na=False)]
@@ -157,8 +153,13 @@ try:
                     elif 'visit' in detected_intents:
                         target_columns = [c for c in sub_df.columns if 'visit' in c.lower() or 'kunjungan' in c.lower()]
                     elif 'misi' in detected_intents:
-                        target_columns = [c for c in sub_df.columns if 'misi' in c.lower()]
-                    elif 'dpd' in detected_intents:
+                        if 'gold' in prompt_lower:
+                            target_columns = [c for c in sub_df.columns if 'gold' in c.lower()]
+                        elif 'reguler' in prompt_lower:
+                            target_columns = [c for c in sub_df.columns if 'reguler' in c.lower()]
+                        if not target_columns:
+                            target_columns = [c for c in sub_df.columns if 'misi' in c.lower()]
+                    elif 'dpd' in prompt_lower:
                         target_columns = [c for c in sub_df.columns if 'dpd' in c.lower()]
                     elif 'limit' in detected_intents:
                         target_columns = [c for c in sub_df.columns if 'limit' in c.lower()]
@@ -177,10 +178,8 @@ try:
                         if any(ignore in col_lower for ignore in ['id', 'code', 'telepon', '%', 'nama', 'toko', 'apotek', 'address']):
                             continue
 
-                        is_dpd_col = 'dpd' in col_lower
-
-                        if is_dpd_col:
-                            # Mengambil nilai DPD dari baris TERAKHIR (data paling update di Sheet)
+                        # A. KOLOM STATUS (DPD & MISI) -> Ambil Baris Terakhir
+                        if 'dpd' in col_lower:
                             valid_rows = sub_df[sub_df[col].notna() & (sub_df[col].astype(str).str.strip() != '')]
                             if not valid_rows.empty:
                                 latest_val_raw = valid_rows[col].iloc[-1]
@@ -189,6 +188,15 @@ try:
                             else:
                                 calculated_metrics.append(f"• **{col}**: 0 hari")
 
+                        elif 'misi' in col_lower or 'gold' in col_lower or 'reguler' in col_lower:
+                            valid_rows = sub_df[sub_df[col].notna() & (sub_df[col].astype(str).str.strip() != '')]
+                            if not valid_rows.empty:
+                                val_status = str(valid_rows[col].iloc[-1]).strip()
+                                calculated_metrics.append(f"• **{col}**: {val_status}")
+                            else:
+                                calculated_metrics.append(f"• **{col}**: -")
+
+                        # B. KOLOM ANGKA (LIMIT, GMV, VISIT) -> Pakai SUM dari seluruh baris
                         elif any(k in col_lower for k in ['visit', 'kunjungan', 'count', 'target']):
                             num_series = sub_df[col].apply(lambda x: parse_number_exact(x, is_dpd=False))
                             total_val = num_series.sum()
