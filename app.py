@@ -100,7 +100,7 @@ try:
             detected_intents.append('average')
         if any(k in prompt_lower for k in ['bulan ini', 'cm', 'current month', 'bln ini']):
             detected_intents.append('cm')
-        if any(k in prompt_lower for k in ['bulan lalu', 'lm', 'last month', 'bln lalu']):
+        if any(k in prompt_lower for k in ['bulan lalu', 'lm', 'last month', 'bln lalu', 'kemarin', 'kemaren']):
             detected_intents.append('lm')
         if any(k in prompt_lower for k in ['target visit', 'target kunjungan']):
             detected_intents.append('target_visit')
@@ -129,7 +129,8 @@ try:
             r'\bcapaian\b', r'\bperforma\b', r'\bhasil\b', r'\barea\b', r'\bmana\b', r'\byg\b', 
             r'\bsudah\b', r'\btransaksi\b', r'\bw1\b', r'\bw2\b', r'\bw3\b', r'\bw4\b',
             r'\baverage\b', r'\bavg\b', r'\brata-rata\b', r'\bratarata\b', r'\b3\b', r'\bbln\b',
-            r'\bl3m\b', r'\bl2m\b', r'\blm\b', r'\bcm\b', r'\bdan\b', r'\bdan2\b'
+            r'\bl3m\b', r'\bl2m\b', r'\blm\b', r'\bcm\b', r'\bdan\b', r'\bdan2\b',
+            r'\bkemarin\b', r'\bkemaren\b', r'\bkemarin2\b', r'\bkemaren2\b'
         ]
 
         for junk in junk_words:
