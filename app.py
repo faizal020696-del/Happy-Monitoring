@@ -125,7 +125,7 @@ Tugasmu: Jawab pertanyaan user ({prompt}) dengan merangkai data di atas menjadi 
 ATURAN MUTLAK: Jangan mengubah angka atau nominal Rupiah yang ada di dalam data di atas sedikit pun!
 """
                     response = client.models.generate_content(
-                        model='gemini-2.5-flash',
+                        model='gemini-3.6-flash',
                         contents=formatting_prompt
                     )
                     response_text = response.text
@@ -133,7 +133,7 @@ ATURAN MUTLAK: Jangan mengubah angka atau nominal Rupiah yang ada di dalam data 
                     data_str = df.head(50).to_csv(index=False)
                     system_prompt = f"Kamu adalah asisten data. Jawab pertanyaan berikut berdasarkan data ini:\n{data_str}"
                     response = client.models.generate_content(
-                        model='gemini-3.6-flash',
+                        model='gemini-2.5-flash',
                         contents=f"{system_prompt}\n\nPertanyaan: {prompt}"
                     )
                     response_text = response.text
