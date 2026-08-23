@@ -1,122 +1,42 @@
-import streamlit as st
-import pandas as pd
-from openai import OpenAI
-import re
-import json
+prompt_lower = prompt.lower()
 
-OPENROUTER_API_KEY = st.secrets["OPENROUTER_API_KEY"]
-SHEET_URL = st.secrets["SHEET_URL"]
-
-st.set_page_config(
-    page_title="Chatbot Universe SPV Happy", 
-    page_icon="🤖", 
-    layout="centered"
-)
-
-def convert_to_csv_url(url):
-    sheet_id_match = re.search(r'/d/([a-zA-Z0-9-_]+)', url)
-    if not sheet_id_match: 
-        return None
-    sheet_id = sheet_id_match.group(1)
-    gid_match = re.search(r'[#&?]gid=([0-9]+)', url)
-    gid = gid_match.group(1) if gid_match else "0"
-    return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
-
-def parse_number_exact(val):
-    if pd.isna(val) or val is None:
-        return 0.0
-    val_str = str(val).strip()
-    if not val_str or val_str.lower() in ['nan', 'null', 'none', '-', '']:
-        return 0.0
-
-    cleaned = re.sub(r'[^0-9\,\.-]', '', val_str)
-    if not cleaned:
-        return 0.0
-
-    try:
-        if '.' in cleaned and ',' in cleaned:
-            if cleaned.rfind('.') < cleaned.rfind(','):
-                cleaned = cleaned.replace('.', '').replace(',', '.')
-            else:
-                cleaned = cleaned.replace(',', '')
-        elif ',' in cleaned and '.' not in cleaned:
-            parts = cleaned.split(',')
-            if len(parts) == 2 and len(parts[1]) <= 2:
-                cleaned = cleaned.replace(',', '.')
-            else:
-                cleaned = cleaned.replace(',', '')
-        elif '.' in cleaned and ',' not in cleaned:
-            parts = cleaned.split('.')
-            if len(parts) > 2:
-                cleaned = cleaned.replace('.', '')
-            elif len(parts) == 2:
-                if len(parts[1]) == 3 or len(parts[1]) != 2:
-                    cleaned = cleaned.replace('.', '')
-
-        return float(cleaned)
-    except Exception:
-        return 0.0
-
-try:
-    csv_url = convert_to_csv_url(SHEET_URL)
-    df = pd.read_csv(csv_url, dtype=str)
-    df.columns = df.columns.str.strip()
-    df_clean_text = df.fillna("").astype(str)
-
-    client = OpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=OPENROUTER_API_KEY,
-    )
-
-    if "messages" not in st.session_state:
-        st.session_state.messages = [
-            {"role": "assistant", "content": "Halo SPV! 👋 Ada data outlet atau reps yang mau dicek hari ini?"}
-        ]
-
-    for message in st.session_state.messages:
-        avatar = "👤" if message["role"] == "user" else "🤖"
-        with st.chat_message(message["role"], avatar=avatar):
-            st.markdown(message["content"])
-
-    if prompt := st.chat_input("Tulis pertanyaan kamu di sini..."):
-        with st.chat_message("user", avatar="👤"):
-            st.markdown(prompt)
-        st.session_state.messages.append({"role": "user", "content": prompt})
-
-        prompt_lower = prompt.lower()
-
-        # --- 1. KAMUS INTENT METRIK KHUSUS ---
+        # --- 1. DETEKSI INTENT PERTANYAAN (PRESISI) ---
         detected_intents = []
         
-        # Cek spesifik waktu dulu
         is_cm = any(k in prompt_lower for k in ['bulan ini', 'cm', 'current month', 'bln ini'])
         is_lm = any(k in prompt_lower for k in ['bulan lalu', 'lm', 'last month', 'bln lalu'])
+        is_misi = any(k in prompt_lower for k in ['misi', 'mission', 'reguler', 'gold', 'campaign'])
         
         if is_cm:
             detected_intents.append('cm')
         elif is_lm:
             detected_intents.append('lm')
+            
+        if is_misi:
+            detected_intents.append('misi')
         elif 'dpd' in prompt_lower:
             detected_intents.append('dpd')
         elif any(k in prompt_lower for k in ['limit', 'plafon', 'kredit', 'avaibility']):
             detected_intents.append('limit')
         elif any(k in prompt_lower for k in ['visit', 'kunjungan']):
             detected_intents.append('visit')
-        elif any(k in prompt_lower for k in ['gmv', 'omset', 'sales', 'penjualan']):
+        elif any(k in prompt_lower for k in ['gmv', 'omset', 'sales', 'penjualan', 'pencapaian', 'capaian']) and not is_misi:
             detected_intents.append('gmv')
 
-        # --- 2. REGEX EXTRACTION SUPER BERSIH UNTUK NAMA ---
+        # --- 2. EXTRACTION NAMA TOKO / REPS (DENGAN TAMBAHAN KATA SAPU BERSIH) ---
         clean_prompt = prompt_lower
 
-        # Hapus awalan 'di' yang nempel di kata lain (misal: "dibulan", "diapotek")
+        # Hapus imbuhan "di" di awal kata (misal: "diapotek" -> "apotek", "dibulan" -> "bulan")
         clean_prompt = re.sub(r'\bdi([a-z]+)', r'\1', clean_prompt)
         
+        # Tambahkan 'pencapaian', 'capaian', 'performa', 'hasil' ke junk words
         junk_patterns = [
             r'\bberapa\b', r'\btotal\b', r'\bjumlah\b', r'\byang\b', r'\btersedia\b', r'\bada\b', 
             r'\bkunjungan\b', r'\breps\b', r'\bsales\b', r'\bsalesman\b', r'\blimit\b', r'\bplafon\b',
-            r'\bdpd\b', r'\bmisi\b', r'\bgmv\b', r'\bomset\b', r'\bdi\b', r'\bapotek\b', r'\bapotik\b', 
-            r'\btoko\b', r'\boutlet\b', r'\bpt\b', r'\bcv\b', r'\bdata\b', r'\buntuk\b', r'\bbulan\b', 
-            r'\bini\b', r'\blalu\b', r'\bni\b', r'\binih\b', r'\bkah\b', r'\bdong\b', r'\bcek\b', r'\binfo\b'
+            r'\bdpd\b', r'\bmisi\b', r'\bmission\b', r'\bgmv\b', r'\bomset\b', r'\bdi\b', r'\bapotek\b', 
+            r'\bapotik\b', r'\btoko\b', r'\boutlet\b', r'\bpt\b', r'\bcv\b', r'\bdata\b', r'\buntuk\b', 
+            r'\bbulan\b', r'\bini\b', r'\blalu\b', r'\bni\b', r'\binih\b', r'\bkah\b', r'\bdong\b', 
+            r'\bcek\b', r'\binfo\b', r'\bpencapaian\b', r'\bcapaian\b', r'\bperforma\b', r'\bhasil\b'
         ]
         
         for junk in junk_patterns:
@@ -141,9 +61,11 @@ try:
                 if len(sub_df) > 0:
                     target_columns = []
 
-                    # --- 3. FILTERING KOLOM ON-POINT ---
-                    if 'cm' in detected_intents:
-                        # Prioritaskan kolom CM jika user tanya "bulan ini"
+                    # --- 3. FILTERING KOLOM KHUSUS (ON-POINT KUNCI MISI) ---
+                    if 'misi' in detected_intents:
+                        # Hanya ambil kolom yang ADA KATA "MISI"
+                        target_columns = [c for c in sub_df.columns if 'misi' in c.lower()]
+                    elif 'cm' in detected_intents:
                         target_columns = [c for c in sub_df.columns if c.lower() == 'cm' or 'cm' in c.lower()]
                     elif 'lm' in detected_intents:
                         target_columns = [c for c in sub_df.columns if c.lower() == 'lm' or 'lm' in c.lower()]
@@ -154,11 +76,11 @@ try:
                     elif 'visit' in detected_intents:
                         target_columns = [c for c in sub_df.columns if 'visit' in c.lower() or 'kunjungan' in c.lower()]
                     elif 'gmv' in detected_intents:
-                        target_columns = [c for c in sub_df.columns if any(k in c.lower() for k in ['gmv', 'sales', 'cm'])]
+                        target_columns = [c for c in sub_df.columns if any(k in c.lower() for k in ['gmv', 'sales'])]
 
-                    # Fallback jika tidak ada intent spesifik
+                    # Fallback jika user hanya minta data umum tanpa kata kunci metrik
                     if not target_columns:
-                        important_keys = ['gmv', 'cm', 'lm', 'sales', 'limit', 'dpd']
+                        important_keys = ['gmv', 'cm', 'lm', 'sales', 'limit', 'dpd', 'misi']
                         target_columns = [c for c in sub_df.columns if any(k in c.lower() for k in important_keys)]
 
                     calculated_metrics = []
@@ -177,7 +99,7 @@ try:
                         else:
                             calculated_metrics.append(f"• **{col}**: Rp {total_val:,.0f}".replace(",", "."))
 
-                    calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Metrik tidak terdeteksi."
+                    calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Metrik misi tidak terdeteksi di sheet."
 
                     system_prompt = f"""
 Kamu adalah Assistant Data SPV.
@@ -189,9 +111,8 @@ HASIL KALKULASI PRESISI:
 {calc_summary_str}
 
 Instruksi Ringkas & Direct:
-1. Jawab LANGSUNG di baris pertama tanpa salam berbelit-belit.
-2. Contoh jika tanya GMV bulan ini: "GMV **Afrianto** bulan ini (CM) adalah **Rp 533.296.016**."
-3. HANYA sebutkan angka metrik yang diminta user. JANGAN tampilkan daftar kolom lainnya!
+1. Jawab LANGSUNG ke inti pertanyaan tanpa salam berbelit-belit.
+2. Tampilkan HANYA angka metrik yang diminta user. JANGAN menampilkan data yang tidak berhubungan dengan intent pertanyaan!
 """
                     response_text = ""
                     try:
@@ -213,8 +134,3 @@ Instruksi Ringkas & Direct:
                     response_text = f"Waduh, data untuk **'{searched_name}'** tidak ditemukan di Google Sheet. Cek ejaan nama toko/reps ya bro."
 
                 st.markdown(response_text)
-        
-        st.session_state.messages.append({"role": "assistant", "content": response_text})
-
-except Exception as e:
-    st.error(f"Gagal memuat data: {e}")
