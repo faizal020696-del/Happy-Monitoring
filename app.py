@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-from openai import OpenAI
 import re
 import io
 import requests
@@ -82,11 +81,6 @@ try:
             new_cols.append(c_clean)
     raw_df.columns = new_cols
 
-    client = OpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=OPENROUTER_API_KEY,
-    )
-
     if "messages" not in st.session_state:
         st.session_state.messages = [
             {"role": "assistant", "content": "Halo SPV! 👋 Ada data outlet atau reps yang mau dicek hari ini?"}
@@ -103,11 +97,8 @@ try:
         st.session_state.messages.append({"role": "user", "content": prompt})
 
         prompt_lower = prompt.lower()
-
-        # Deteksi Minggu W1-W4
         weeks_requested = [w for w in ['w1', 'w2', 'w3', 'w4'] if re.search(r'\b' + w + r'\b', prompt_lower)]
 
-        # Bersihkan teks prompt untuk mengambil nama tokonya saja
         clean_prompt = prompt_lower
         clean_prompt = re.sub(r'\bdi([a-z]+)', r'\1', clean_prompt)
 
@@ -133,7 +124,6 @@ try:
         clean_prompt = re.sub(r'[^\w\s]', ' ', clean_prompt)
         extracted_entity = " ".join(clean_prompt.split()).strip()
 
-        # Pencarian Data Aman Tanpa Error .str
         matched_indices = []
         entity_tokens = extracted_entity.split()
 
@@ -157,7 +147,7 @@ try:
                             target_columns.extend([c for c in sub_df.columns if re.search(r'\b' + w + r'\b', c.lower())])
                     
                     if not target_columns:
-                        target_columns = [c for c in sub_df.columns if any(k in c.lower() for k in ['w1', 'w2', 'w3', 'w4', 'gmv', 'sales'])]
+                        target_columns = [c for c in sub_df.columns if any(k in c.lower() for k in ['w1', 'w2', 'w3', 'w4', 'gmv', 'sales', 'limit'])]
 
                     target_columns = list(dict.fromkeys(target_columns))
 
@@ -167,22 +157,23 @@ try:
                         if any(ignore in col_lower for ignore in ['id', 'code', 'telepon', '%', 'nama', 'toko', 'apotek', 'address', 'sales rep', 'reps', 'salesman', 'unnamed']):
                             continue
 
-                        # Ekstraksi nilai per baris secara aman menggunakan list comprehension murni
-                        valid_values = [str(val).strip() for val in sub_df[col].tolist() if pd.notna(val) and str(val).strip() not in ['', 'nan', 'None']]
-                        
-                        if valid_values:
-                            val_raw = valid_values[-1]
-                            val_parsed = parse_number_exact(val_raw)
-                            if val_parsed > 0 or any(w in col_lower for w in ['w1', 'w2', 'w3', 'w4', 'gmv', 'sales']):
-                                calculated_metrics.append(f"• **{col}**: Rp {val_parsed:,.0f}".replace(",", "."))
+                        # Mengambil data baris terakhir dengan aman tanpa tolist()
+                        series_vals = sub_df[col].dropna()
+                        if not series_vals.empty:
+                            val_raw = str(series_vals.iloc[-1]).strip()
+                            if val_raw and val_raw.lower() not in ['nan', 'none', '']:
+                                val_parsed = parse_number_exact(val_raw)
+                                if val_parsed > 0 or any(w in col_lower for w in ['w1', 'w2', 'w3', 'w4', 'gmv', 'sales', 'limit']):
+                                    calculated_metrics.append(f"• **{col}**: Rp {val_parsed:,.0f}".replace(",", "."))
+                                else:
+                                    calculated_metrics.append(f"• **{col}**: {val_raw}")
                             else:
-                                calculated_metrics.append(f"• **{col}**: {val_raw}")
+                                calculated_metrics.append(f"• **{col}**: Rp 0")
                         else:
                             calculated_metrics.append(f"• **{col}**: Rp 0")
 
                     calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Data transaksi tidak ditemukan."
-
-                    response_text = f"Data transaksi **{extracted_entity.title()}**:\n{calc_summary_str}"
+                    response_text = f"Data untuk **{extracted_entity.title()}**:\n{calc_summary_str}"
                 else:
                     searched_name = extracted_entity.title() if extracted_entity else prompt
                     response_text = f"Waduh, data untuk **'{searched_name}'** tidak ditemukan di Google Sheet. Cek ejaan nama toko/reps ya bro."
