@@ -106,6 +106,10 @@ try:
     name_cols = [c for c in raw_df.columns if any(k in c.lower() for k in ['name', 'nama', 'pharmacy', 'toko', 'apotek'])]
     name_col = name_cols[0] if name_cols else raw_df.columns[0]
     id_cols = [c for c in raw_df.columns if 'id' in c.lower()]
+    
+    # Deteksi kolom Reps / Sales / PIC
+    reps_cols = [c for c in raw_df.columns if any(k in c.lower() for k in ['reps', 'sales', 'pic', 'team', 'user'])]
+    reps_col = reps_cols[0] if reps_cols else None
 
     if "messages" not in st.session_state:
         st.session_state.messages = [
@@ -145,8 +149,31 @@ try:
         is_gold_mission_query = 'gold' in prompt_lower and ('misi' in prompt_lower or 'mission' in prompt_lower)
         is_regular_mission_query = ('misi' in prompt_lower or 'mission' in prompt_lower) and not is_gold_mission_query
 
+        # Deteksi apakah user mencari berdasarkan nama Reps (misal "reps rizki" atau "rizki")
+        is_reps_query = False
+        matched_reps_name = None
+        if reps_col:
+            unique_reps = raw_df[reps_col].dropna().astype(str).unique()
+            for r in unique_reps:
+                r_clean = r.strip().lower()
+                if r_clean and r_clean in prompt_lower:
+                    is_reps_query = True
+                    matched_reps_name = r
+                    break
+            # Jika ada kata "reps" atau "sales" tapi namanya tidak tersebut persis, cek apakah ada kata setelahnya
+            if not is_reps_query and ('reps' in prompt_lower or 'sales' in prompt_lower):
+                words = prompt_lower.split()
+                for i, w in enumerate(words):
+                    if w in ['reps', 'sales', 'pic'] and i + 1 < len(words):
+                        candidate = words[i+1]
+                        for r in unique_reps:
+                            if candidate in r.lower():
+                                is_reps_query = True
+                                matched_reps_name = r
+                                break
+
         metric_requested = None
-        if not weeks_requested and not is_limit_query and not is_general_gmv_query and not is_visit_query and not is_gold_mission_query and not is_regular_mission_query:
+        if not is_reps_query and not weeks_requested and not is_limit_query and not is_general_gmv_query and not is_visit_query and not is_gold_mission_query and not is_regular_mission_query:
             for c in raw_df.columns:
                 c_low = c.strip().lower()
                 if c_low in prompt_lower:
@@ -163,58 +190,105 @@ try:
                             break
 
         target_row = None
+        matched_reps_df = None
         
         command_words = {
             'cek', 'data', 'id', 'berapa', 'total', 'jumlah', 'w1', 'w2', 'w3', 'w4', 
             'transaksi', 'tolong', 'visit', 'kunjungan', 'misi', 'gold', 'mission',
             'campaign', 'type', 'start', 'date', 'duration', 'target', 'level', 'gmv', 
             'ppn', 'gap', 'hna', 'pencapaian', 'kekurangan', 'info', 'apotek', 'toko', 'wtu',
-            'sisa', 'limit', 'avg', 'l3m'
+            'sisa', 'limit', 'avg', 'l3m', 'reps', 'sales', 'pic', 'bulan', 'ini'
         }
 
-        # 1. Cek berdasarkan ID jika ada angka 4-6 digit di prompt
-        id_match_prompt = re.search(r'\b(\d{4,6})\b', prompt)
-        if id_match_prompt and id_cols:
-            search_id = id_match_prompt.group(1)
-            for idx, row in raw_df.iterrows():
-                for col in id_cols:
-                    val_id = str(row.get(col, '')).strip()
-                    if val_id == search_id:
-                        target_row = row
+        if is_reps_query and reps_col and matched_reps_name:
+            matched_reps_df = raw_df[raw_df[reps_col].astype(str).str.strip().str.lower() == matched_reps_name.lower()]
+        else:
+            # 1. Cek berdasarkan ID jika ada angka 4-6 digit di prompt
+            id_match_prompt = re.search(r'\b(\d{4,6})\b', prompt)
+            if id_match_prompt and id_cols:
+                search_id = id_match_prompt.group(1)
+                for idx, row in raw_df.iterrows():
+                    for col in id_cols:
+                        val_id = str(row.get(col, '')).strip()
+                        if val_id == search_id:
+                            target_row = row
+                            break
+                    if target_row is not None:
                         break
-                if target_row is not None:
-                    break
 
-        # 2. Cek Berdasarkan Nama Outlet dengan Sistem Skor Akurasi Tinggi
-        if target_row is None:
-            corrected_prompt_lower = prompt_lower.replace('gabang', 'gebang')
-            outlet_query_words = [w for w in re.findall(r'\b\w+\b', corrected_prompt_lower) if w not in command_words]
-            
-            if outlet_query_words:
-                name_series = raw_df[name_col].fillna("").astype(str).str.lower()
+            # 2. Cek Berdasarkan Nama Outlet dengan Sistem Skor Akurasi Tinggi
+            if target_row is None:
+                corrected_prompt_lower = prompt_lower.replace('gabang', 'gebang')
+                outlet_query_words = [w for w in re.findall(r'\b\w+\b', corrected_prompt_lower) if w not in command_words]
                 
-                # Beri skor pada setiap baris berdasarkan jumlah kata kunci unik yang cocok
-                scores = []
-                for idx, name_val in name_series.items():
-                    score = sum(1 for qw in outlet_query_words if qw in name_val)
-                    # Beri bonus besar jika nama outlet mengandung kata kunci utama secara lengkap berurutan atau spesifik
-                    if all(qw in name_val for qw in outlet_query_words):
-                        score += 5
-                    # Penalti jika nama terlalu panjang melenceng (misal klinik/praktek padahal dicari apotek)
-                    if 'klinik' in name_val and 'klinik' not in corrected_prompt_lower:
-                        score -= 2
-                    scores.append((score, idx))
-                
-                # Urutkan dari skor tertinggi
-                scores.sort(key=lambda x: x[0], reverse=True)
-                best_score, best_idx = scores[0]
-                
-                if best_score > 0:
-                    target_row = raw_df.loc[best_idx]
+                if outlet_query_words:
+                    name_series = raw_df[name_col].fillna("").astype(str).str.lower()
+                    
+                    scores = []
+                    for idx, name_val in name_series.items():
+                        score = sum(1 for qw in outlet_query_words if qw in name_val)
+                        if all(qw in name_val for qw in outlet_query_words):
+                            score += 5
+                        if 'klinik' in name_val and 'klinik' not in corrected_prompt_lower:
+                            score -= 2
+                        scores.append((score, idx))
+                    
+                    scores.sort(key=lambda x: x[0], reverse=True)
+                    best_score, best_idx = scores[0]
+                    
+                    if best_score > 0:
+                        target_row = raw_df.loc[best_idx]
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Mengecek data..."):
-                if target_row is not None:
+                if matched_reps_df is not None and not matched_reps_df.empty:
+                    # Logika Summary Total untuk Reps tertentu
+                    total_outlets = len(matched_reps_df)
+                    calculated_metrics = [f"• **Jumlah Outlet**: {total_outlets} outlet"]
+
+                    cm_col = next((c for c in raw_df.columns if c.strip().lower() == 'cm'), None)
+                    lm_col = next((c for c in raw_df.columns if c.strip().lower() == 'lm'), None)
+                    l2m_col = next((c for c in raw_df.columns if c.strip().lower() == 'l2m'), None)
+                    l3m_col = next((c for c in raw_df.columns if c.strip().lower() == 'l3m'), None)
+                    avg_col = next((c for c in raw_df.columns if ('average' in c.lower() or 'avg' in c.lower()) and 'l3m' in c.lower()), None)
+                    if not avg_col:
+                        avg_col = next((c for c in raw_df.columns if 'average' in c.lower() or 'avg' in c.lower()), None)
+
+                    if is_limit_query:
+                        total_limit_col = next((c for c in raw_df.columns if 'total' in c.lower() and 'limit' in c.lower()), None)
+                        avail_limit_col = next((c for c in raw_df.columns if c != total_limit_col and ('limit' in c.lower() or 'sisa' in c.lower() or 'avail' in c.lower() or 'plafond' in c.lower())), None)
+
+                        sum_total_limit = sum(parse_number_general(r.get(total_limit_col, 0)) for _, r in matched_reps_df.iterrows()) if total_limit_col else 0
+                        sum_avail_limit = sum(parse_number_general(r.get(avail_limit_col, 0)) for _, r in matched_reps_df.iterrows()) if avail_limit_col else 0
+
+                        if total_limit_col:
+                            calculated_metrics.append(f"• **Total {total_limit_col}**: Rp {sum_total_limit:,.0f}".replace(",", "."))
+                        if avail_limit_col:
+                            calculated_metrics.append(f"• **Total {avail_limit_col}**: Rp {sum_avail_limit:,.0f}".replace(",", "."))
+                    else:
+                        calculated_metrics.append("\n**📊 Total Performa Bulanan:**")
+                        target_cols_gmv = [
+                            ("CM (Bulan Ini)", cm_col),
+                            ("LM (Bulan Lalu)", lm_col),
+                            ("L2M", l2m_col),
+                            ("L3M", l3m_col),
+                            ("Average / AVG L3M", avg_col)
+                        ]
+                        for label, col in target_cols_gmv:
+                            if col:
+                                sum_val = sum(parse_number_general(r.get(col, 0)) for _, r in matched_reps_df.iterrows())
+                                calculated_metrics.append(f"• **Total {label}**: Rp {sum_val:,.0f}".replace(",", "."))
+
+                        calculated_metrics.append("\n**📅 Total Performa Per Week (Mingguan):**")
+                        for w in ['W1', 'W2', 'W3', 'W4']:
+                            if w in week_cols_map:
+                                col_name = week_cols_map[w]
+                                sum_w = sum(parse_number_transaction(r.get(col_name, 0)) for _, r in matched_reps_df.iterrows())
+                                calculated_metrics.append(f"• **Total {w}**: Rp {sum_w:,.0f}".replace(",", "."))
+
+                    response_text = f"Rekap Total untuk Reps **{str(matched_reps_name).title()}**:\n" + "\n".join(calculated_metrics)
+
+                elif target_row is not None:
                     display_name = target_row.get(name_col, "Outlet Ditemukan")
                     calculated_metrics = []
 
