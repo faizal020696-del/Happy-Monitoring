@@ -21,7 +21,6 @@ def convert_to_csv_url(url):
     gid = gid_match.group(1) if gid_match else "0"
     return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
 
-# Parser khusus transaksi mingguan (W1-W4) agar murni angka
 def parse_number_transaction(val):
     if pd.isna(val) or val is None:
         return 0.0
@@ -36,7 +35,6 @@ def parse_number_transaction(val):
     except Exception:
         return 0.0
 
-# Parser presisi tinggi untuk kolom umum (CM, LM, L2M, L3M, DPD, Limit, dll)
 def parse_number_general(val):
     if pd.isna(val) or val is None:
         return 0.0
@@ -93,7 +91,6 @@ try:
     raw_df = pd.read_csv(io.StringIO(csv_text), skiprows=header_idx, dtype=str)
     raw_df.columns = [str(c).strip() for c in raw_df.columns]
 
-    # Petakan kolom W1-W4 secara fleksibel
     week_cols_map = {}
     for col in raw_df.columns:
         col_lower = col.lower()
@@ -127,7 +124,6 @@ try:
 
         prompt_lower = prompt.lower()
 
-        # Deteksi variasi minggu yang luas
         weeks_requested = []
         if re.search(r'\b(w1|week\s*1|week1|minggu\s*1|minggu1)\b', prompt_lower):
             weeks_requested.append('W1')
@@ -139,12 +135,14 @@ try:
             weeks_requested.append('W4')
 
         if ('wtu' in prompt_lower or 'transaksi' in prompt_lower) and not weeks_requested:
-            if not any(k in prompt_lower for k in ['w1', 'w2', 'w3', 'w4', 'week', 'minggu', 'gmv', 'total', 'cm', 'lm', 'l2m', 'l3m', 'lalu', 'kemarin']):
+            if not any(k in prompt_lower for k in ['w1', 'w2', 'w3', 'w4', 'week', 'minggu', 'gmv', 'total', 'cm', 'lm', 'l2m', 'l3m', 'lalu', 'kemarin', 'sisa', 'limit']):
                 weeks_requested = ['W1', 'W2', 'W3', 'W4']
 
-        # Deteksi pencarian metrik khusus (CM, LM, L2M, L3M, Average, DPD, dll)
+        # Deteksi khusus pertanyaan Limit / Sisa Limit (Menampilkan Total Limit & Avaiability Limit sekaligus)
+        is_limit_query = ('limit' in prompt_lower or 'plafond' in prompt_lower or 'sisa' in prompt_lower) and not weeks_requested
+
         metric_requested = None
-        if not weeks_requested:
+        if not weeks_requested and not is_limit_query:
             if re.search(r'\bl3m\b', prompt_lower) and not 'average' in prompt_lower:
                 for c in raw_df.columns:
                     if c.strip().lower() == 'l3m':
@@ -177,13 +175,7 @@ try:
                     if 'gmv' in prompt_lower and 'gmv' in c_lower and 'daily' not in c_lower:
                         metric_requested = c
                         break
-                    elif 'total' in prompt_lower and 'total' in c_lower:
-                        metric_requested = c
-                        break
                     elif 'dpd' in prompt_lower and 'dpd' in c_lower:
-                        metric_requested = c
-                        break
-                    elif 'limit' in prompt_lower and 'limit' in c_lower:
                         metric_requested = c
                         break
 
@@ -196,7 +188,6 @@ try:
 
         target_row = None
         
-        # 1. Cari berdasarkan ID (4-6 digit)
         id_match_prompt = re.search(r'\b(\d{4,6})\b', prompt)
         if id_match_prompt and id_cols:
             search_id = id_match_prompt.group(1)
@@ -206,18 +197,18 @@ try:
                     if val_id == search_id:
                         target_row = row
                         break
-                if target_row is not None:
+                if target_row is not Information:
                     break
 
-        # 2. Cari berdasarkan nama outlet
         if target_row is None:
             ignore_words = {
                 'transaksi', 'wtu', 'w1', 'w2', 'w3', 'w4', 'week', 'week1', 'week2', 'week3', 'week4', 
                 'minggu', 'minggu1', 'minggu2', 'minggu3', 'minggu4', '1', '2', '3', '4', 
-                'berapa', 'total', 'jumlah', 'apotek', 'apotik', 'toko', 'cek', 'data', 'id', 'dpd', 'limit',
+                'berapa', 'total', 'jumlah', 'apotek', 'apotik', 'toko', 'cek', 'data', 'id', 'dpd', 'limit', 'sisa', 'ssisa',
                 'bulan', 'ini', 'kemarin', 'lalu', 'gmv', 'penjualan', 'omset', 'cm', 'lm', 'l2m', 'l3m', 'average', 'avg'
             }
             query_words = [w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in ignore_words]
+            query_words = ['gebang' if w == 'gabang' else w for w in query_words]
             
             if query_words:
                 name_series = raw_df[name_col].fillna("").astype(str).str.lower()
@@ -233,7 +224,22 @@ try:
                     display_name = target_row.get(name_col, "Outlet Ditemukan")
                     calculated_metrics = []
 
-                    if metric_requested:
+                    if is_limit_query:
+                        # Cari kolom Total Limit dan Avaiability Limit secara fleksibel
+                        total_limit_col = next((c for c in raw_df.columns if 'total' in c.lower() and 'limit' in c.lower()), None)
+                        avail_limit_col = next((c for c in raw_df.columns if ('avaiability' in c.lower() or 'availability' in c.lower() or 'sisa' in c.lower()) and 'limit' in c.lower()), None)
+
+                        if total_limit_col:
+                            val_total = parse_number_general(target_row.get(total_limit_col, 0))
+                            calculated_metrics.append(f"• **{total_limit_col}**: Rp {val_total:,.0f}".replace(",", "."))
+                        if avail_limit_col:
+                            val_avail = parse_number_general(target_row.get(avail_limit_col, 0))
+                            calculated_metrics.append(f"• **{avail_limit_col}**: Rp {val_avail:,.0f}".replace(",", "."))
+                        
+                        if not calculated_metrics:
+                            calculated_metrics.append("Data limit tidak ditemukan di kolom sheet.")
+
+                    elif metric_requested:
                         val_raw = target_row.get(metric_requested, "Tidak tersedia")
                         val_parsed = parse_number_general(val_raw)
                         if isinstance(val_parsed, float):
