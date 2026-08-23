@@ -21,55 +21,20 @@ def convert_to_csv_url(url):
     gid = gid_match.group(1) if gid_match else "0"
     return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
 
-def parse_number_exact(val):
+def parse_number_clean(val):
     if pd.isna(val) or val is None:
         return 0.0
     val_str = str(val).strip()
     if not val_str or val_str.lower() in ['nan', 'null', 'none', '', '-', ' - ', '0']:
         return 0.0
 
-    # Ambil hanya karakter angka (0-9) dan pemisah desimal/titik
-    # Jangan gabungkan string sembarangan. Cari angka utama yang valid.
-    # Terkadang data csv menggabungkan beberapa kolom jika ada koma/pemisah yang salah.
-    # Kita ambil blok angka pertama yang masuk akal.
-    
-    # Hapus karakter selain angka, titik, dan koma
-    cleaned = re.sub(r'[^0-9\,\.]', '', val_str)
+    # Ambil murni hanya angka
+    cleaned = re.sub(r'[^0-9]', '', val_str)
     if not cleaned:
         return 0.0
 
     try:
-        # Jika ada titik dan koma, tentukan mana pemisah ribuan atau desimal
-        if '.' in cleaned and ',' in cleaned:
-            if cleaned.rfind('.') < cleaned.rfind(','):
-                cleaned = cleaned.replace('.', '').replace(',', '.')
-            else:
-                cleaned = cleaned.replace(',', '')
-        elif '.' in cleaned:
-            parts = cleaned.split('.')
-            # Jika titik terlalu banyak (misal format tidak sengaja tergabung), ambil bagian depannya atau parse float normal
-            if len(parts) > 2:
-                cleaned = "".join(parts[:-1]) + "." + parts[-1]
-        elif ',' in cleaned:
-            parts = cleaned.split(',')
-            if len(parts) == 2 and len(parts[1]) <= 2:
-                cleaned = cleaned.replace(',', '.')
-            else:
-                cleaned = cleaned.replace(',', '')
-
-        val_float = float(cleaned)
-        
-        # PENGAMANAN EKSTREM: Jika angka transaksi sebuah outlet per minggu tidak sengaja terbaca > 10 Miliar (pasti error gabungan kolom), 
-        # kita potong atau kembalikan ke 0 / ambil digit wajarnya.
-        if val_float > 10_000_000_000:
-            # Ambil hanya 8 digit pertama jika terjadi kesalahan penggabungan string csv
-            val_str_raw = re.sub(r'\D', '', val_str)
-            if len(val_str_raw) > 8:
-                val_float = float(val_str_raw[:8])
-            else:
-                val_float = 0.0
-                
-        return val_float
+        return float(cleaned)
     except Exception:
         return 0.0
 
@@ -80,23 +45,30 @@ try:
     lines = csv_text.splitlines()
     
     header_idx = 0
-    for idx, line in enumerate(lines[:10]):
-        if any(k in line.lower() for k in ['pharmacy name', 'nama toko', 'nama apotek', 'swiperx id', 'assignment']):
+    for idx, line in enumerate(lines[:15]):
+        line_lower = line.lower()
+        # Cari baris yang benar-benar memiliki header nama toko dan kolom W1
+        if ('w1' in line_lower or 'week 1' in line_lower) and ('name' in line_lower or 'nama' in line_lower or 'apotek' in line_lower or 'toko' in line_lower):
             header_idx = idx
             break
             
     raw_df = pd.read_csv(io.StringIO(csv_text), skiprows=header_idx, dtype=str)
     
-    # Normalisasi nama kolom W1 - W4
-    new_cols = []
-    for c in raw_df.columns:
-        c_clean = str(c).strip()
-        w_match = re.search(r'\b(w[1-4])\b', c_clean, re.IGNORECASE)
-        if w_match:
-            new_cols.append(w_match.group(1).upper())
-        else:
-            new_cols.append(c_clean)
-    raw_df.columns = new_cols
+    # Bersihkan nama kolom dari spasi berlebih
+    raw_df.columns = [str(c).strip() for c in raw_df.columns]
+
+    # Petakan ulang kolom W1, W2, W3, W4 secara persis
+    week_cols_map = {}
+    for col in raw_df.columns:
+        col_lower = col.lower()
+        if re.search(r'\bw[,\s_-]*1\b', col_lower) or 'week 1' in col_lower:
+            week_cols_map['W1'] = col
+        elif re.search(r'\bw[,\s_-]*2\b', col_lower) or 'week 2' in col_lower:
+            week_cols_map['W2'] = col
+        elif re.search(r'\bw[,\s_-]*3\b', col_lower) or 'week 3' in col_lower:
+            week_cols_map['W3'] = col
+        elif re.search(r'\bw[,\s_-]*4\b', col_lower) or 'week 4' in col_lower:
+            week_cols_map['W4'] = col
 
     name_cols = [c for c in raw_df.columns if any(k in c.lower() for k in ['name', 'nama', 'pharmacy', 'toko', 'apotek'])]
     name_col = name_cols[0] if name_cols else raw_df.columns[0]
@@ -120,6 +92,8 @@ try:
 
         prompt_lower = prompt.lower()
         weeks_requested = [w for w in ['W1', 'W2', 'W3', 'W4'] if re.search(r'\b' + w.lower() + r'\b', prompt_lower)]
+        if not weeks_requested:
+            weeks_requested = ['W1', 'W2', 'W3', 'W4']
 
         target_row = None
         
@@ -153,14 +127,16 @@ try:
             with st.spinner("Mengecek data..."):
                 if target_row is not None:
                     display_name = target_row.get(name_col, "Outlet Ditemukan")
-                    target_columns = weeks_requested if weeks_requested else ['W1', 'W2', 'W3', 'W4']
-                    target_columns = [c for c in target_columns if c in raw_df.columns]
-
+                    
                     calculated_metrics = []
-                    for col in target_columns:
-                        val_raw = str(target_row.get(col, '')).strip()
-                        val_parsed = parse_number_exact(val_raw)
-                        calculated_metrics.append(f"• **{col}**: Rp {val_parsed:,.0f}".replace(",", "."))
+                    for w in weeks_requested:
+                        if w in week_cols_map:
+                            col_name = week_cols_map[w]
+                            val_raw = target_row.get(col_name, 0)
+                            val_parsed = parse_number_clean(val_raw)
+                            calculated_metrics.append(f"• **{w}**: Rp {val_parsed:,.0f}".replace(",", "."))
+                        else:
+                            calculated_metrics.append(f"• **{w}**: Data tidak tersedia di kolom")
 
                     response_text = f"Data untuk **{str(display_name).title()}**:\n" + "\n".join(calculated_metrics)
                 else:
