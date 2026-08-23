@@ -3,6 +3,7 @@ import pandas as pd
 import re
 import io
 import requests
+import difflib
 
 SHEET_URL = st.secrets.get("SHEET_URL", "")
 
@@ -84,7 +85,7 @@ try:
     header_idx = 0
     for idx, line in enumerate(lines[:15]):
         line_lower = line.lower()
-        if ('w1' in line_lower or 'week 1' in line_lower or 'dpd' in line_lower or 'limit' in line_lower or 'gmv' in line_lower or 'cm' in line_lower or 'target' in line_lower or 'visit' in line_lower) and ('name' in line_lower or 'nama' in line_lower or 'apotek' in line_lower or 'toko' in line_lower):
+        if ('w1' in line_lower or 'week 1' in line_lower or 'dpd' in line_lower or 'limit' in line_lower or 'gmv' in line_lower or 'cm' in line_lower or 'target' in line_lower or 'visit' in line_lower or 'misi' in line_lower) and ('name' in line_lower or 'nama' in line_lower or 'apotek' in line_lower or 'toko' in line_lower):
             header_idx = idx
             break
             
@@ -140,8 +141,6 @@ try:
 
         is_limit_query = any(k in prompt_lower for k in ['limit', 'plafond', 'sisa', 'ssisa', 'avaiability', 'availability', 'avail']) and not weeks_requested
         is_general_gmv_query = 'gmv' in prompt_lower and not weeks_requested and not is_limit_query and not any(k in prompt_lower for k in ['lalu', 'kemarin', 'peak', 'l3m', 'l2m', 'cm', 'lm', 'average', 'avg'])
-        
-        # Deteksi query terkait visit (Target Visit / Visit Count / Last Visit)
         is_visit_query = any(k in prompt_lower for k in ['target visit', 'visit count', 'visit', 'kunjungan', 'last visit', 'terakhir']) and not weeks_requested
 
         metric_requested = None
@@ -197,6 +196,10 @@ try:
 
         target_row = None
         
+        # Kosongkan ignore_words supaya kata 'misi' dan kata penting lainnya aman terbaca
+        ignore_words = set()
+
+        # 1. Cek berdasarkan ID jika ada angka 4-6 digit di prompt
         id_match_prompt = re.search(r'\b(\d{4,6})\b', prompt)
         if id_match_prompt and id_cols:
             search_id = id_match_prompt.group(1)
@@ -209,17 +212,9 @@ try:
                 if target_row is not None:
                     break
 
+        # 2. Cek berdasarkan pencarian kata nama outlet (mengandung semua kata kunci)
         if target_row is None:
-            ignore_words = {
-                'transaksi', 'wtu', 'w1', 'w2', 'w3', 'w4', 'week', 'week1', 'week2', 'week3', 'week4', 
-                'minggu', 'minggu1', 'minggu2', 'minggu3', 'minggu4', '1', '2', '3', '4', 
-                'berapa', 'total', 'jumlah', 'apotek', 'apotik', 'toko', 'cek', 'data', 'id', 'dpd', 'limit', 'sisa', 'ssisa',
-                'bulan', 'ini', 'kemarin', 'lalu', 'gmv', 'penjualan', 'omset', 'cm', 'lm', 'l2m', 'l3m', 'average', 'avg',
-                'target', 'visit', 'count', 'last', 'terakhir'
-            }
             query_words = [w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in ignore_words]
-            query_words = ['gebang' if w == 'gabang' else w for w in query_words]
-            
             if query_words:
                 name_series = raw_df[name_col].fillna("").astype(str).str.lower()
                 match_mask = name_series.apply(lambda x: all(qw in x for qw in query_words))
@@ -227,6 +222,18 @@ try:
                 
                 if not matches.empty:
                     target_row = matches.iloc[0]
+
+        # 3. Cek menggunakan Fuzzy Matching (Toleransi Typo / Salah Eja Nama Outlet)
+        if target_row is None:
+            clean_prompt_str = " ".join([w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in ignore_words])
+            if clean_prompt_str.strip():
+                all_outlet_names = raw_df[name_col].fillna("").astype(str).tolist()
+                close_matches = difflib.get_close_matches(clean_prompt_str, all_outlet_names, n=1, cutoff=0.3)
+                if close_matches:
+                    matched_name = close_matches[0]
+                    matched_rows = raw_df[raw_df[name_col].astype(str).str.lower() == matched_name.lower()]
+                    if not matched_rows.empty:
+                        target_row = matched_rows.iloc[0]
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Mengecek data..."):
@@ -288,7 +295,6 @@ try:
                         if not visit_count_col:
                             visit_count_col = next((c for c in raw_df.columns if c != target_visit_col and 'visit' in c.lower() and 'last' not in c.lower()), None)
                         
-                        # Deteksi kolom Last Visit / Visit Terakhir
                         last_visit_col = next((c for c in raw_df.columns if ('last' in c.lower() and 'visit' in c.lower()) or 'terakhir' in c.lower() or ('visit' in c.lower() and ('date' in c.lower() or 'tanggal' in c.lower()))), None)
 
                         calculated_metrics.append("**📍 Performa & Riwayat Kunjungan (Visit):**")
