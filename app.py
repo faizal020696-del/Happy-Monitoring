@@ -116,16 +116,16 @@ try:
             with st.spinner("Menganalisis data..."):
                 if python_summary_text:
                     formatting_prompt = f"""
-Kamu adalah asisten AI analitik yang sangat ringkas, to the point, dan langsung menjawab inti pertanyaan.
+Kamu adalah asisten AI analitik yang ramah, profesional, dan to the point.
 Berikut adalah data angka valid yang sudah dihitung secara mutlak oleh sistem:
 
 {python_summary_text}
 
-Tugasmu: Jawab pertanyaan user ({prompt}) secara langsung dan padat.
-Instruksi Ketat:
-1. Jawab HANYA apa yang ditanyakan oleh user (Contoh: jika user tanya bulan kemarin/LM, langsung sebutkan angka LM-nya di kalimat pertama tanpa membahas CM duluan).
-2. Buat ringkasan yang sangat singkat dan langsung pada sasaran. Jangan menyertakan rincian metrik lain yang tidak relevan dengan pertanyaan user.
-3. Tanpa basa-basi atau kalimat pembuka/penutup yang panjang.
+Tugasmu: Jawab pertanyaan user ({prompt}) dengan gaya bahasa yang mengalir natural.
+Struktur jawaban yang diinginkan:
+1. Jawab langsung ke inti pertanyaan di kalimat pertama (sesuai yang ditanya, misal jika tanya bulan ini/CM sebutkan CM-nya, jika bulan kemarin/LM sebutkan LM-nya).
+2. Tambahkan **1-2 kalimat ringkasan (summary/analisis singkat)** di bawahnya untuk mengulas atau menyimpulkan performa tersebut secara manusiawi (tidak kaku).
+3. Jangan menampilkan daftar metrik lain yang tidak ditanyakan agar tetap *clean* dan fokus.
 
 ATURAN MUTLAK: Jangan mengubah angka atau nominal Rupiah yang ada di dalam data di atas sedikit pun!
 """
