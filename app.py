@@ -9,10 +9,9 @@ SHEET_URL = st.secrets["SHEET_URL"]
 st.set_page_config(
     page_title="Chatbot Universe SPV Happy", 
     page_icon="🤖", 
-    layout="centered"
+    layout="wide"
 )
 
-# Kustomisasi Tampilan Visual Streamlit
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden !important;}
@@ -25,13 +24,9 @@ st.markdown("""
         border-radius: 20px;
         color: white;
         text-align: center;
-        box-shadow: 0 10px 25px -5px rgba(79, 70, 229, 0.2);
         margin-bottom: 2rem;
     }
     .main-header h1 { color: white !important; font-weight: 800; font-size: 2.2rem; margin-bottom: 0.5rem; }
-    .main-header p { color: #e0e7ff !important; font-size: 1rem; margin: 0; }
-    .stChatMessage { border-radius: 16px !important; padding: 1rem 1.2rem !important; margin-bottom: 0.8rem !important; box-shadow: 0 2px 5px rgba(0,0,0,0.03) !important; }
-    .stChatInputContainer { border-radius: 15px !important; bottom: 20px !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -100,11 +95,11 @@ try:
     )
 
     with st.sidebar:
-        st.write("### 📊 Status Data")
+        st.write("### 📊 Panel Kontrol Data")
         st.write(f"Total Baris: {len(df)}")
         st.write(f"Total Kolom: {len(df.columns)}")
-        with st.expander("Lihat Daftar Kolom"):
-            st.write(list(df.columns))
+        st.write("**Daftar Kolom:**")
+        st.write(list(df.columns))
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
@@ -120,92 +115,82 @@ try:
         st.session_state.messages.append({"role": "user", "content": prompt})
 
         prompt_lower = prompt.lower()
-        
-        # Ekstrak kata kunci pencarian
-        stop_words = [
-            'berapa', 'total', 'gmv', 'pencapaian', 'capaian', 'misi', 'reguler', 'gold', 
-            'target', 'data', 'untuk', 'bulan', 'ini', 'kemarin', 'di', 'dan', 'yang', 
-            'dari', 'tentang', 'tim', 'gw', 'saya', 'tolong', 'coba', 'apotek', 'apotik'
-        ]
-        
-        tokens = [w for w in prompt_lower.split() if w not in stop_words and len(w) > 1]
-        if not tokens:
-            tokens = [w for w in prompt_lower.split() if len(w) > 2]
 
+        # Deteksi Nama Reps Utama
+        target_name = None
+        for name in ['sulistiana', 'afrianto', 'rizki', 'gde', 'mulyanto', 'happy']:
+            if name in prompt_lower:
+                target_name = name
+                break
+
+        # Cari Kolom
+        reps_cols = [c for c in df.columns if any(k in c.lower() for k in ['reps', 'sales', 'nama', 'spv'])]
+        gmv_cols = [c for c in df.columns if any(k in c.lower() for k in ['gmv', 'ach', 'total', 'nominal', 'sales', 'pencapaian'])]
+
+        # Filter DataFrame
         sub_df = pd.DataFrame()
-        if tokens:
-            row_combined = df_clean_text.apply(lambda row: " ".join(row.values).lower(), axis=1)
-            # Match jika kata kunci ada di baris data
-            mask_any = row_combined.apply(lambda x: any(t in x for t in tokens))
-            sub_df = df[mask_any]
+        if target_name and target_name != 'happy':
+            if reps_cols:
+                # Filter tepat di kolom Reps
+                r_col = reps_cols[0]
+                sub_df = df[df[r_col].fillna("").astype(str).str.lower().str.contains(target_name)]
+            else:
+                # Fallback ke seluruh teks
+                row_combined = df_clean_text.apply(lambda row: " ".join(row.values).lower(), axis=1)
+                sub_df = df[row_combined.str.contains(target_name)]
+        else:
+            # Jika 'happy' atau tanya total team
+            sub_df = df.copy()
 
         with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("Kalkulasi data presisi..."):
-                if len(sub_df) > 0:
-                    calculated_metrics = []
-                    
-                    # Hitung kolom yang berisi nilai nominal/angka
-                    for col in sub_df.columns:
-                        col_lower = col.lower()
-                        # Abaikan kolom ID, Tanggal, atau Kode
-                        if not any(ignore in col_lower for ignore in ['date', 'tanggal', 'id', 'code', 'durasi', 'no', 'phone']):
-                            num_series = sub_df[col].apply(parse_number_exact)
-                            total_val = num_series.sum()
-                            if total_val > 0:
-                                calculated_metrics.append(f"- **{col}**: Rp {total_val:,.0f}".replace(",", "."))
+            # Fitur Debugging: Tampilkan Baris & Kolom Terfilter di Expander
+            with st.expander("🔍 Lihat Hasil Filter Data (Debug)"):
+                st.write(f"Entitas Dicari: **{target_name}**")
+                st.write(f"Jumlah Baris Ditemukan: **{len(sub_df)}**")
+                st.dataframe(sub_df.head(20))
 
-                    calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Tidak ada kolom angka nominal terhitung."
-                    
-                    sub_df_sample = sub_df.dropna(how='all', axis=1).head(10)
-                    data_table_md = sub_df_sample.to_markdown(index=False)
+            if len(sub_df) > 0:
+                calculated_metrics = []
+                for g_col in gmv_cols:
+                    if not any(ignore in g_col.lower() for ignore in ['date', 'tanggal', 'id', 'code', 'durasi', 'no', 'phone']):
+                        total_val = sub_df[g_col].apply(parse_number_exact).sum()
+                        if total_val > 0:
+                            calculated_metrics.append(f"- **{g_col}**: Rp {total_val:,.0f}".replace(",", "."))
 
-                    system_prompt = f"""
+                calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Tidak ada angka terhitung dari kolom nominal."
+
+                system_prompt = f"""
 Kamu adalah Senior Data Analyst SPV.
 
-DITEMUKAN {len(sub_df)} BARIS DATA. HASIL KALKULASI PRESISI PYTHON:
+DITEMUKAN HASIL KALKULASI PYTHON DARI DATA SHEET:
 {calc_summary_str}
-
-SAMPEL TABEL DATA:
-{data_table_md}
 
 Pertanyaan User: "{prompt}"
 
 Instruksi Menjawab:
-1. GUNAKAN ANGKA HASIL KALKULASI PYTHON DI ATAS UNTUK MENJAWAB AKURAT.
-2. Jawab langsung di kalimat pertama dengan menyebutkan entitas dan angkanya.
-3. DILARANG MELAKUKAN PENJUMLAHAN MANUAL ULANG.
+1. GUNAKAN ANGKA TOTAL DARI HASIL DI ATAS UNTUK MENJAWAB.
+2. Sebutkan secara langsung nama entitas dan angkanya di kalimat pertama.
+3. JANGAN MENAMBAHKAN/MENGHITUNG MANUALLAGI.
 """
-                    response_text = ""
-                    models_to_try = [
-                        "google/gemini-2.0-flash-lite-001:free",
-                        "google/gemini-2.0-flash-exp:free",
-                        "openrouter/free"
-                    ]
+                response_text = ""
+                try:
+                    completion = client.chat.completions.create(
+                        model="google/gemini-2.0-flash-lite-001:free",
+                        messages=[{"role": "user", "content": system_prompt}],
+                        temperature=0.0
+                    )
+                    if completion.choices:
+                        response_text = completion.choices[0].message.content
+                except Exception:
+                    response_text = f"Berikut total pencapaian yang terhitung:\n\n{calc_summary_str}"
 
-                    for model_id in models_to_try:
-                        try:
-                            completion = client.chat.completions.create(
-                                model=model_id,
-                                messages=[{"role": "user", "content": system_prompt}],
-                                temperature=0.0
-                            )
-                            if completion.choices and len(completion.choices) > 0:
-                                res = completion.choices[0].message.content
-                                if res and len(res.strip()) > 5:
-                                    response_text = res
-                                    break
-                        except Exception:
-                            continue
-
-                    if not response_text or len(response_text.strip()) < 5:
-                        response_text = f"Berikut total angkanya:\n\n{calc_summary_str}"
-
-                else:
-                    search_kw = ' '.join(tokens) if tokens else prompt
-                    response_text = f"Maaf bro, data untuk **'{search_kw}'** tidak ditemukan di Google Sheet."
+                if not response_text:
+                    response_text = f"Berikut total pencapaian:\n\n{calc_summary_str}"
 
                 st.markdown(response_text)
-        
+            else:
+                st.markdown(f"Data untuk **{target_name}** tidak ditemukan.")
+
         st.session_state.messages.append({"role": "assistant", "content": response_text})
 
 except Exception as e:
