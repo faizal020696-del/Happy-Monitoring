@@ -142,14 +142,17 @@ try:
         is_limit_query = any(k in prompt_lower for k in ['limit', 'plafond', 'sisa', 'ssisa', 'avaiability', 'availability', 'avail']) and not weeks_requested
         is_mission_query = any(k in prompt_lower for k in ['misi', 'gold', 'mission', 'campaign', 'pencapaian misi']) and not weeks_requested
         is_wtu_query = any(k in prompt_lower for k in ['wtu', 'visit', 'kunjungan']) and not weeks_requested
-        is_general_gmv_query = 'gmv' in prompt_lower and not weeks_requested and not is_limit_query and not is_mission_query and not is_wtu_query and not any(k in prompt_lower for k in ['lalu', 'kemarin', 'peak', 'l3m', 'l2m', 'cm', 'lm', 'average', 'avg'])
+        
+        # Deteksi pertanyaan rekap total global (misal: "total gmv", "dayli gmv", "semua apotek")
+        is_total_gmv_query = (any(k in prompt_lower for k in ['total', 'semua', 'all']) and ('gmv' in prompt_lower or 'dayli' in prompt_lower or 'daily' in prompt_lower)) or prompt_lower.strip() in ['dayli gmv total', 'daily gmv total', 'total gmv'];
 
         command_words = {
             'cek', 'data', 'id', 'berapa', 'total', 'jumlah', 'w1', 'w2', 'w3', 'w4', 
             'transaksi', 'tolong', 'visit', 'kunjungan', 'misi', 'gold', 'mission',
             'campaign', 'type', 'start', 'date', 'duration', 'target', 'level', 'gmv', 
             'ppn', 'gap', 'hna', 'pencapaian', 'kekurangan', 'info', 'apotek', 'toko', 'wtu',
-            'sisa', 'limit', 'avg', 'l3m', 'reps', 'sales', 'pic', 'bulan', 'ini', 'dpd', 'plafond'
+            'sisa', 'limit', 'avg', 'l3m', 'reps', 'sales', 'pic', 'bulan', 'ini', 'dpd', 'plafond',
+            'dayli', 'daily', 'semua', 'list', 'dan', 'nya'
         }
 
         target_row = None
@@ -158,7 +161,7 @@ try:
 
         is_sales_query = 'reps' in prompt_lower or 'sales' in prompt_lower or 'pic' in prompt_lower
         
-        if not is_sales_query and reps_col:
+        if not is_sales_query and not is_total_gmv_query and reps_col:
             unique_reps = raw_df[reps_col].dropna().astype(str).unique()
             for r in unique_reps:
                 r_clean = r.strip().lower()
@@ -183,7 +186,7 @@ try:
                         matched_reps_df = raw_df[raw_df[reps_col].astype(str).str.strip().str.lower() == r_clean]
                         break
 
-        if matched_reps_df is None or matched_reps_df.empty:
+        if not is_total_gmv_query and (matched_reps_df is None or matched_reps_df.empty):
             id_match_prompt = re.search(r'\b(\d{4,6})\b', prompt)
             if id_match_prompt and id_cols:
                 search_id = id_match_prompt.group(1)
@@ -197,23 +200,62 @@ try:
                         break
 
             if target_row is None:
-                outlet_query_words = [w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in command_words]
+                outlet_query_words = [w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in command_words and w not in ['apotek', 'toko', 'farma']]
+                if not outlet_query_words:
+                    outlet_query_words = [w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in command_words]
+                
                 if outlet_query_words:
                     name_series = raw_df[name_col].fillna("").astype(str).str.lower()
                     scores = []
                     for idx, name_val in name_series.items():
-                        score = sum(1 for qw in outlet_query_words if qw in name_val)
-                        if all(qw in name_val for qw in outlet_query_words):
-                            score += 10
-                        scores.append((score, idx))
-                    scores.sort(key=lambda x: x[0], reverse=True)
-                    best_score, best_idx = scores[0]
-                    if best_score > 0:
+                        if any(qw in name_val for qw in outlet_query_words):
+                            score = sum(3 for qw in outlet_query_words if qw in name_val)
+                            if all(qw in name_val for qw in outlet_query_words):
+                                score += 20
+                            scores.append((score, idx))
+                    
+                    if scores:
+                        scores.sort(key=lambda x: x[0], reverse=True)
+                        best_score, best_idx = scores[0]
                         target_row = raw_df.loc[best_idx]
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Mengecek data..."):
-                if matched_reps_df is not None and not matched_reps_df.empty:
+                if is_total_gmv_query:
+                    # Menghitung total keseluruhan dari semua baris/apotek di sheet
+                    total_outlets = len(raw_df)
+                    cm_col = next((c for c in raw_df.columns if c.strip().lower() == 'cm'), None)
+                    lm_col = next((c for c in raw_df.columns if c.strip().lower() == 'lm'), None)
+                    
+                    calculated_metrics = [f"• **Total Keseluruhan Outlet**: {total_outlets} outlet\n"]
+                    calculated_metrics.append("**📊 Rekap Total GMV Seluruh Apotek:**")
+                    
+                    if cm_col:
+                        sum_cm = sum(parse_number_general(r.get(cm_col, 0)) for _, r in raw_df.iterrows())
+                        calculated_metrics.append(f"• **Total CM (Bulan Ini)**: Rp {sum_cm:,.0f}".replace(",", "."))
+                    if lm_col:
+                        sum_lm = sum(parse_number_general(r.get(lm_col, 0)) for _, r in raw_df.iterrows())
+                        calculated_metrics.append(f"• **Total LM (Bulan Lalu)**: Rp {sum_lm:,.0f}".replace(",", "."))
+
+                    calculated_metrics.append("\n**📅 Total Performa Per Week (Mingguan Keseluruhan):**")
+                    for w in ['W1', 'W2', 'W3', 'W4']:
+                        if w in week_cols_map:
+                            col_name = week_cols_map[w]
+                            sum_w = sum(parse_number_transaction(r.get(col_name, 0)) for _, r in raw_df.iterrows())
+                            active_outlets = sum(1 for _, r in raw_df.iterrows() if parse_number_transaction(r.get(col_name, 0)) > 0)
+                            calculated_metrics.append(f"• **Total {w}**: Rp {sum_w:,.0f} ({active_outlets} outlet transaksi)".replace(",", "."))
+
+                    # Menampilkan juga list ringkas nama apotek jika diminta list-nya
+                    if 'list' in prompt_lower:
+                        calculated_metrics.append("\n**📋 Daftar Singkat Apotek:**")
+                        for idx, r in raw_df.iterrows():
+                            out_name = r.get(name_col, f"Baris {idx+1}")
+                            cm_val = parse_number_general(r.get(cm_col, 0)) if cm_col else 0
+                            calculated_metrics.append(f"- {out_name} (CM: Rp {cm_val:,.0f})".replace(",", "."))
+
+                    response_text = "Rekap Total Keseluruhan (All Outlet):\n\n" + "\n".join(calculated_metrics)
+
+                elif matched_reps_df is not None and not matched_reps_df.empty:
                     total_outlets = len(matched_reps_df)
                     calculated_metrics = [f"• **Jumlah Outlet**: {total_outlets} outlet"]
 
@@ -295,7 +337,6 @@ try:
                                 else:
                                     val_formatted = val_metric
 
-                                # Bersihkan nama kolom agar bersih dari embel-embel berulang
                                 clean_label = col
                                 for remove_word in ['misi reguler', 'gold misi']:
                                     clean_label = re.sub(re.escape(remove_word), '', clean_label, flags=re.IGNORECASE).strip()
@@ -314,7 +355,7 @@ try:
                             
                             if gold_metrics:
                                 if reguler_metrics:
-                                    calculated_metrics.append("") # Spasi pemisah rapi
+                                    calculated_metrics.append("") 
                                 calculated_metrics.append("🏆 **Target & Pencapaian Gold Misi:**")
                                 calculated_metrics.extend(gold_metrics)
                         else:
