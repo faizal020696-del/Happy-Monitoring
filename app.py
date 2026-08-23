@@ -218,7 +218,8 @@ try:
             if 'dpd' in prompt_lower:
                 metric_requested = next((c for c in raw_df.columns if 'dpd' in c.lower()), None)
             elif any(k in prompt_lower for k in ['limit', 'plafond', 'sisa', 'avail']):
-                metric_requested = next((c for c in raw_df.columns if 'limit' in c.lower() or 'plafond' in c.lower() or 'sisa' in c.lower() or 'avail' in c.lower()), None)
+                # Prioritaskan kolom yang mengandung kata limit / plafond / sisa
+                metric_requested = next((c for c in raw_df.columns if any(term in c.lower() for term in ['limit', 'plafond', 'sisa', 'avail'])), None)
             elif any(k in prompt_lower for k in ['visit', 'kunjungan']):
                 metric_requested = next((c for c in raw_df.columns if 'visit' in c.lower() or 'kunjungan' in c.lower()), None)
             else:
@@ -280,10 +281,9 @@ try:
                     display_name = target_row.get(name_col, "Outlet Ditemukan")
                     calculated_metrics = []
 
-                    # Jika user meminta kolom spesifik (seperti DPD, Limit, Visit)
+                    # Jika user meminta kolom spesifik (seperti DPD, Limit, Sisa Limit, Visit)
                     if metric_requested:
                         val_metric = target_row.get(metric_requested, "-")
-                        # Format angka jika nilainya berupa nominal uang/angka
                         val_parsed = parse_number_general(val_metric)
                         if val_parsed > 0 and any(k in metric_requested.lower() for k in ['limit', 'plafond', 'sisa', 'avail', 'amount', 'rp']):
                             val_formatted = f"Rp {val_parsed:,.0f}".replace(",", ".")
