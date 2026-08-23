@@ -28,7 +28,6 @@ def parse_number_exact(val):
     if not val_str or val_str.lower() in ['nan', 'null', 'none', '', '-', ' - ']:
         return 0.0
 
-    # Ambil karakter angka, koma, titik saja
     cleaned = re.sub(r'[^0-9\,\.]', '', val_str)
     if not cleaned:
         return 0.0
@@ -97,25 +96,25 @@ try:
         prompt_lower = prompt.lower()
         weeks_requested = [w for w in ['W1', 'W2', 'W3', 'W4'] if re.search(r'\b' + w.lower() + r'\b', prompt_lower)]
 
-        # Cari kolom yang berisi nama toko
         name_cols = [c for c in raw_df.columns if any(k in c.lower() for k in ['name', 'nama', 'pharmacy', 'toko', 'apotek'])]
         name_col = name_cols[0] if name_cols else raw_df.columns[0]
 
-        # Ekstraksi kata kunci penting (mengabaikan kata perintah umum)
         ignore_words = {'transaksi', 'w1', 'w2', 'w3', 'w4', 'berapa', 'total', 'jumlah', 'apotek', 'apotik', 'toko', 'cek', 'data'}
         words = [w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in ignore_words]
         
         target_row = None
 
-        # 1. Cari exact/contains match berdasarkan kata kunci pencarian pada kolom nama toko
         if words:
-            # Cari baris yang mengandung SEMUA kata kunci pencarian (misal: "gebang" DAN "farma")
-            matches = raw_df[raw_df[name_col].astype(str).str.lower().apply(lambda x: all(w in x for w in words))]
+            # Konversi kolom nama ke string dengan aman untuk mencegah error float
+            name_series = raw_df[name_col].fillna("").astype(str).str.lower()
+            
+            # Cari baris yang mengandung SEMUA kata kunci
+            matches = raw_df[name_series.apply(lambda x: all(w in x for w in words))]
             if not matches.empty:
                 target_row = matches.iloc[0]
             else:
-                # Jika tidak ketemu semua, cari yang mengandung setidaknya kata utama (misal: "gebang")
-                matches = raw_df[raw_df[name_col].astype(str).str.lower().apply(lambda x: any(w in x for w in words))]
+                # Cari baris yang mengandung SETIDAKNYA satu kata kunci
+                matches = raw_df[name_series.apply(lambda x: any(w in x for w in words))]
                 if not matches.empty:
                     target_row = matches.iloc[0]
 
@@ -134,7 +133,7 @@ try:
 
                     response_text = f"Data untuk **{str(display_name).title()}**:\n" + "\n".join(calculated_metrics)
                 else:
-                    response_text = f"Data untuk pencarian **'{prompt}'** tidak ditemukan di Google Sheet. Pastikan nama toko terdaftar di kolom nama."
+                    response_text = f"Data untuk pencarian **'{prompt}'** tidak ditemukan di Google Sheet."
 
                 st.markdown(response_text)
         
