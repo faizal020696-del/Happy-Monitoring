@@ -14,89 +14,82 @@ st.set_page_config(
     layout="centered"
 )
 
-# Kustomisasi Tampilan Visual Total (Tema Deep Space Glassmorphism)
+# Kustomisasi Tampilan Visual Presisi (Tema Deep Space Dark Mode)
 st.markdown("""
     <style>
-    /* 1. Menghilangkan elemen internal Streamlit agar bersih */
+    /* 1. Menghilangkan header & footer bawaan Streamlit */
     #MainMenu {visibility: hidden !important;}
     header {visibility: hidden !important;}
     footer {visibility: hidden !important;}
     .stAppHeader {display: none !important;}
     [data-testid="stToolbar"] {display: none !important;}
     
-    /* 2. BACKGROUND UTAMA: Deep Space Gradient */
+    /* 2. BACKGROUND UTAMA: Dark Blue Navy solid/gradient halus */
     .stApp {
-        background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%);
+        background: #0d1527 !important;
         background-attachment: fixed;
     }
     
-    /* 3. HEADER CONTAINER: Futuristik & Terang */
+    /* 3. HEADER CONTAINER: Box Gelap Terang Elegan */
     .main-header {
-        background: rgba(255, 255, 255, 0.05);
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
+        background: #172238;
         padding: 2.5rem 2rem;
-        border-radius: 24px;
+        border-radius: 20px;
         color: white;
         text-align: center;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        box-shadow: 0 15px 35px rgba(0,0,0,0.2);
-        margin-bottom: 2.5rem;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        margin-bottom: 2rem;
     }
     .main-header h1 {
-        color: #60a5fa !important; /* Biru muda cerah */
+        color: #60a5fa !important;
         font-weight: 800;
-        font-size: 2.5rem;
-        margin-bottom: 0.5rem;
-        text-shadow: 0 2px 10px rgba(96, 165, 250, 0.3);
+        font-size: 2.2rem;
+        margin-bottom: 0.8rem;
     }
     .main-header p {
-        color: #cbd5e1 !important; /* Abu-abu terang */
-        font-size: 1.1rem;
+        color: #94a3b8 !important;
+        font-size: 1rem;
         margin: 0;
-        opacity: 0.9;
     }
 
-    /* 4. KUSTOMISASI GELEMBUNG CHAT: Glassmorphism */
+    /* 4. GELEMBUNG CHAT: Dark Container */
     .stChatMessage {
-        background: rgba(255, 255, 255, 0.03) !important;
-        backdrop-filter: blur(8px) !important;
-        -webkit-backdrop-filter: blur(8px) !important;
-        border-radius: 18px !important;
+        background: #172238 !important;
+        border-radius: 16px !important;
         border: 1px solid rgba(255, 255, 255, 0.05) !important;
-        padding: 1.2rem !important;
+        padding: 1rem 1.2rem !important;
         margin-bottom: 1rem !important;
-        color: #e2e8f0 !important; /* Teks chat abu-abu sangat terang */
+        color: #f1f5f9 !important;
     }
     
-    /* Warna teks khusus untuk user agar beda */
     .stChatMessage[data-testid="stChatMessageUser"] {
-        background: rgba(59, 130, 246, 0.1) !important; /* Sedikit sentuhan biru */
-        border: 1px solid rgba(59, 130, 246, 0.2) !important;
+        background: #1e2d4a !important;
+        border: 1px solid rgba(96, 165, 250, 0.2) !important;
     }
 
-    /* 5. INPUT CHAT DI BAWAH: Diangkat & Dipercantik */
+    /* 5. INPUT CHAT DI BAWAH & TEKS INPUT KETIK JELAS */
     .stChatInputContainer {
-        border-radius: 20px !important;
-        bottom: 30px !important; /* Jarak aman dari badge bawah */
-        background: rgba(255, 255, 255, 0.07) !important;
-        backdrop-filter: blur(12px) !important;
-        -webkit-backdrop-filter: blur(12px) !important;
+        border-radius: 16px !important;
+        bottom: 25px !important;
+        background: #172238 !important;
         border: 1px solid rgba(255, 255, 255, 0.1) !important;
-        box-shadow: 0 -10px 25px rgba(0,0,0,0.1) !important;
-    }
-    .stChatInputContainer input {
-        color: white !important;
     }
     
-    /* Warna Spinner Loading */
+    /* Perbaikan Teks saat diketik agar terang & jelas */
+    .stChatInputContainer textarea {
+        color: #ffffff !important;
+        background-color: transparent !important;
+    }
+    
+    /* Loading Spinner */
     .stSpinner i {
         color: #60a5fa !important;
     }
     </style>
 """, unsafe_allow_html=True)
 
-# Tampilan Header Tema Baru
+# Tampilan Header Sesuai Gambar
 st.markdown("""
     <div class="main-header">
         <h1>🌌 Chatbot Universe SPV Happy</h1>
@@ -123,7 +116,7 @@ try:
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    # Chat history dengan avatar modern
+    # Chat history
     for message in st.session_state.messages:
         avatar = "👤" if message["role"] == "user" else "🤖"
         with st.chat_message(message["role"], avatar=avatar):
@@ -136,7 +129,6 @@ try:
         st.session_state.messages.append({"role": "user", "content": prompt})
 
         data_str = df.to_csv(index=False)
-        # Prompt sistem yang lebih profesional
         system_prompt = f"""
         Kamu adalah Asisten AI Profesional untuk SPV Happy. Tugasmu adalah menganalisis data Universe.
         Jawablah pertanyaan user dengan sopan, akurat, dan ringkas HANYA berdasarkan data CSV berikut:
@@ -165,4 +157,4 @@ try:
                     st.error(f"Gagal memproses AI Groq: {api_err}")
 
 except Exception as e:
-    st.error(f"Gagal memuat data. Pastikan Link Google Sheets valid dan Public. Error: {e}")
+    st.error(f"Gagal memuat data: {e}")
