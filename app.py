@@ -59,11 +59,13 @@ try:
     df.columns = df.columns.str.strip()
     df_clean_text = df.fillna("").astype(str)
 
-    # Membersihkan kolom angka agar bisa dihitung totalnya secara presisi
+    # PERBAIKAN: Pembersihan kolom angka yang aman dari error tipe data string/int
     for col in df.columns:
-        if any(keyword in col.lower() for keyword in ['gmv', 'target', 'sales', 'value', 'amount', 'cm', 'lm', 'l3m']):
+        if any(keyword in col.lower() for keyword in ['gmv', 'target', 'sales', 'value', 'amount', 'cm', 'lm', 'l3m', 'misi', 'gold']):
             df[col] = pd.to_numeric(
-                df[col].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).str.replace(r'[^0-9\.-]', '', regex=True), 
+                df[col].astype(str).str.replace('.', '', regex=False)
+                                   .str.replace(',', '.', regex=False)
+                                   .str.replace(r'[^0-9\.-]', '', regex=True), 
                 errors='coerce'
             ).fillna(0)
 
@@ -91,7 +93,7 @@ try:
 
         prompt_lower = prompt.lower()
         
-        # PENCARAAN KETAT: Hanya ambil kata kunci spesifik (nama tempat/sales/entitas), abaikan kata umum
+        # Menyaring kata umum untuk mendapatkan kata kunci entitas yang spesifik
         ignore_words = ['berapa', 'data', 'untuk', 'bulan', 'ini', 'kemarin', 'di', 'dan', 'yang', 'dari', 'tentang', 'pencapaian', 'capaian', 'misi', 'gold', 'gmv']
         filtered_words = [word for word in prompt_lower.split() if word not in ignore_words and len(word) > 2]
         
@@ -99,20 +101,19 @@ try:
         sub_df = pd.DataFrame()
 
         if filtered_words:
-            # Cari baris yang benar-benar mengandung kata kunci spesifik (contoh: "gebang" atau "farma")
             target_keyword = filtered_words[-1] if len(filtered_words) > 0 else filtered_words[0]
             mask = df_clean_text.apply(lambda row: row.str.lower().str.contains(target_keyword).any(), axis=1)
             sub_df = df[mask]
 
         if len(sub_df) > 0:
-            # Ambil semua kolom metrik angka yang tersedia
             valid_metric_cols = [col for col in df.columns if any(k in col.lower() for k in ['gmv', 'cm', 'lm', 'misi', 'gold']) and not any(x in col.lower() for x in ['code', 'assignment'])]
             
             summary_lines = [f"Data akurat ditemukan ({len(sub_df)} baris) untuk kata kunci '{target_keyword}':"]
             
             for col in valid_metric_cols:
                 total_val = sub_df[col].sum()
-                if total_val > 0:
+                # Hanya masukkan metrik yang nilainya di atas 0 agar ringkas
+                if isinstance(total_val, (int, float)) and total_val > 0:
                     summary_lines.append(f"- {col}: Rp {total_val:,.0f}")
             
             python_summary_text = "\n".join(summary_lines)
@@ -121,7 +122,7 @@ try:
             with st.spinner("Menganalisis data..."):
                 if python_summary_text:
                     formatting_prompt = f"""
-Kamu adalah asisten AI analitik yang sangat teliti, profesional, dan to the point.
+Kamu adalah asisten AI analitik yang teliti, profesional, dan to the point.
 Berikut adalah data angka valid yang sudah dihitung secara mutlak oleh sistem:
 
 {python_summary_text}
@@ -135,7 +136,7 @@ Struktur jawaban:
 ATURAN MUTLAK: Jangan mengubah angka atau nominal Rupiah yang ada di dalam data di atas sedikit pun!
 """
                     response = client.models.generate_content(
-                        model='gemini-3.6-flash',
+                        model='gemini-3.4-flash',
                         contents=formatting_prompt
                     )
                     response_text = response.text
