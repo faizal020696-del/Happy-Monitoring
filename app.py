@@ -143,49 +143,26 @@ try:
         is_general_gmv_query = 'gmv' in prompt_lower and not weeks_requested and not is_limit_query and not any(k in prompt_lower for k in ['lalu', 'kemarin', 'peak', 'l3m', 'l2m', 'cm', 'lm', 'average', 'avg'])
         is_visit_query = any(k in prompt_lower for k in ['target visit', 'visit count', 'visit', 'kunjungan', 'last visit', 'terakhir']) and not weeks_requested
 
+        # Deteksi kolom spesifik (seperti misi / gold)
         metric_requested = None
         if not weeks_requested and not is_limit_query and not is_general_gmv_query and not is_visit_query:
-            if 'avg' in prompt_lower or 'average' in prompt_lower:
-                for c in raw_df.columns:
-                    c_low = c.lower()
-                    if ('average' in c_low or 'avg' in c_low) and 'l3m' in c_low:
-                        metric_requested = c
-                        break
-                if not metric_requested:
-                    for c in raw_df.columns:
-                        if 'average' in c.lower() or 'avg' in c.lower():
-                            metric_requested = c
-                            break
-            elif re.search(r'\bl3m\b', prompt_lower) and not 'average' in prompt_lower and not 'avg' in prompt_lower:
-                for c in raw_df.columns:
-                    if c.strip().lower() == 'l3m':
-                        metric_requested = c
-                        break
-            elif re.search(r'\bl2m\b', prompt_lower):
-                for c in raw_df.columns:
-                    if c.strip().lower() == 'l2m':
-                        metric_requested = c
-                        break
-            elif re.search(r'\blm\b', prompt_lower) or 'lalu' in prompt_lower or 'kemarin' in prompt_lower:
-                for c in raw_df.columns:
-                    if c.strip().lower() == 'lm':
-                        metric_requested = c
-                        break
-            elif re.search(r'\bcm\b', prompt_lower) or 'bulan ini' in prompt_lower:
-                for c in raw_df.columns:
-                    if c.strip().lower() == 'cm':
-                        metric_requested = c
-                        break
+            for c in raw_df.columns:
+                c_low = c.strip().lower()
+                if c_low in prompt_lower:
+                    metric_requested = c
+                    break
 
             if not metric_requested:
-                for c in raw_df.columns:
-                    c_lower = c.lower()
-                    if 'gmv' in prompt_lower and 'gmv' in c_lower and 'daily' not in c_lower:
-                        metric_requested = c
-                        break
-                    elif 'dpd' in prompt_lower and 'dpd' in c_lower:
-                        metric_requested = c
-                        break
+                if 'gold' in prompt_lower:
+                    for c in raw_df.columns:
+                        if 'gold' in c.lower() and ('misi' in c.lower() or 'mission' in c.lower() or 'gmv' in c.lower()):
+                            metric_requested = c
+                            break
+                elif 'misi' in prompt_lower or 'mission' in prompt_lower:
+                    for c in raw_df.columns:
+                        if 'misi' in c.lower() or 'mission' in c.lower():
+                            metric_requested = c
+                            break
 
             if not metric_requested:
                 for col in raw_df.columns:
@@ -196,8 +173,13 @@ try:
 
         target_row = None
         
-        # Kosongkan ignore_words supaya kata 'misi' dan kata penting lainnya aman terbaca
-        ignore_words = set()
+        # Kata-kata perintah chatbot yang akan dibuang dari prompt saat mencari nama outlet
+        command_words = {
+            'cek', 'data', 'id', 'berapa', 'total', 'jumlah', 'w1', 'w2', 'w3', 'w4', 
+            'transaksi', 'tolong', 'visit', 'kunjungan', 'misi', 'gold', 'mission',
+            'campaign', 'type', 'start', 'date', 'duration', 'target', 'level', 'gmv', 
+            'ppn', 'gap', 'hna'
+        }
 
         # 1. Cek berdasarkan ID jika ada angka 4-6 digit di prompt
         id_match_prompt = re.search(r'\b(\d{4,6})\b', prompt)
@@ -212,28 +194,27 @@ try:
                 if target_row is not None:
                     break
 
-        # 2. Cek berdasarkan pencarian kata nama outlet (mengandung semua kata kunci)
+        # 2. Cek Berdasarkan Nama Outlet Lengkap (Tanpa membuang kata 'apotek' atau 'toko')
         if target_row is None:
-            query_words = [w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in ignore_words]
-            if query_words:
+            # Ambil kata yang bukan command_words
+            outlet_query_words = [w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in command_words]
+            if outlet_query_words:
                 name_series = raw_df[name_col].fillna("").astype(str).str.lower()
-                match_mask = name_series.apply(lambda x: all(qw in x for qw in query_words))
+                
+                # Coba cari dengan mencocokkan seluruh kata kunci yang tersisa secara berurutan/lengkap
+                match_mask = name_series.apply(lambda x: all(qw in x for qw in outlet_query_words))
                 matches = raw_df[match_mask]
                 
                 if not matches.empty:
                     target_row = matches.iloc[0]
-
-        # 3. Cek menggunakan Fuzzy Matching (Toleransi Typo / Salah Eja Nama Outlet)
-        if target_row is None:
-            clean_prompt_str = " ".join([w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in ignore_words])
-            if clean_prompt_str.strip():
-                all_outlet_names = raw_df[name_col].fillna("").astype(str).tolist()
-                close_matches = difflib.get_close_matches(clean_prompt_str, all_outlet_names, n=1, cutoff=0.3)
-                if close_matches:
-                    matched_name = close_matches[0]
-                    matched_rows = raw_df[raw_df[name_col].astype(str).str.lower() == matched_name.lower()]
-                    if not matched_rows.empty:
-                        target_row = matched_rows.iloc[0]
+                else:
+                    # Jika tidak ketemu lengkap, coba cari baris yang mengandung minimal nama unik utama (misal: 'gebang')
+                    for qw in outlet_query_words:
+                        if len(qw) > 3: # Hanya kata yang panjangnya > 3 huruf agar spesifik
+                            sub_matches = raw_df[name_series.str.contains(qw)]
+                            if len(sub_matches) == 1:
+                                target_row = sub_matches.iloc[0]
+                                break
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Mengecek data..."):
