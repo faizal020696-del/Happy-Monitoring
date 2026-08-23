@@ -19,7 +19,7 @@ def convert_to_csv_url(url):
     sheet_id = sheet_id_match.group(1)
     gid_match = re.search(r'[#&?]gid=([0-9]+)', url)
     gid = gid_match.group(1) if gid_match else "0"
-    return f"https://docs.google.s/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}" # fixed inside the try block below safely
+    return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
 
 def parse_number_transaction(val):
     if pd.isna(val) or val is None:
@@ -76,16 +76,7 @@ def parse_number_general(val):
         return 0.0
 
 try:
-    def convert_to_csv_url_local(url):
-        sheet_id_match = re.search(r'/d/([a-zA-Z0-9-_]+)', url)
-        if not sheet_id_match: 
-            return None
-        sheet_id = sheet_id_match.group(1)
-        gid_match = re.search(r'[#&?]gid=([0-9]+)', url)
-        gid = gid_match.group(1) if gid_match else "0"
-        return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
-
-    csv_url = convert_to_csv_url_local(SHEET_URL)
+    csv_url = convert_to_csv_url(SHEET_URL)
     res = requests.get(csv_url)
     csv_text = res.text
     lines = csv_text.splitlines()
@@ -121,6 +112,7 @@ try:
         reps_cols = [c for c in raw_df.columns if 'sales' in c.lower() or 'reps' in c.lower() or 'pic' in c.lower()]
     reps_col = reps_cols[0] if reps_cols else None
 
+    # Deteksi kolom Daily GMV secara spesifik dari master sheet
     daily_gmv_col = next((c for c in raw_df.columns if 'daily gmv' in c.lower() or 'dayli gmv' in c.lower()), None)
 
     if "messages" not in st.session_state:
@@ -154,7 +146,7 @@ try:
         is_mission_query = any(k in prompt_lower for k in ['misi', 'gold', 'mission', 'campaign', 'pencapaian misi']) and not weeks_requested
         is_wtu_query = any(k in prompt_lower for k in ['wtu', 'visit', 'kunjungan']) and not weeks_requested
         
-        is_total_gmv_query = (any(k in prompt_lower for k in ['total', 'semua', 'all']) and ('gmv' in prompt_lower or 'dayli' in prompt_lower or 'daily' in prompt_lower)) or prompt_lower.strip() in ['dayli gmv total', 'daily gmv total', 'total gmv', 'total daily gmv']
+        is_total_gmv_query = (any(k in prompt_lower for k in ['total', 'semua', 'all']) and ('gmv' in prompt_lower or 'dayli' in prompt_lower or 'daily' in prompt_lower)) or prompt_lower.strip() in ['dayli gmv total', 'daily gmv total', 'total gmv', 'total daily gmv']:
 
         command_words = {
             'cek', 'data', 'id', 'berapa', 'total', 'jumlah', 'w1', 'w2', 'w3', 'w4', 
