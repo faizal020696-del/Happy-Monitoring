@@ -39,7 +39,7 @@ try:
 
         data_str = df.to_csv(index=False)
         system_prompt = f"""
-        Kamu adalah asisten monitoring pekerjaan/project tim yang cerdas dan ramah.
+        Kamu adalah asisten monitoring SPV Happy.
         Berikut adalah data pekerjaan terbaru dalam format CSV:
         {data_str}
         Tugasmu: Jawab pertanyaan user secara akurat HANYA berdasarkan data di atas dalam bahasa Indonesia.
