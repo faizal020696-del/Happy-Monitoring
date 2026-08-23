@@ -140,8 +140,11 @@ try:
 
         is_limit_query = any(k in prompt_lower for k in ['limit', 'plafond', 'sisa', 'ssisa', 'avaiability', 'availability', 'avail']) and not weeks_requested
 
+        # Deteksi General GMV (jika tanya "gmv" polos)
+        is_general_gmv_query = 'gmv' in prompt_lower and not weeks_requested and not is_limit_query and not any(k in prompt_lower for k in ['lalu', 'kemarin', 'peak', 'l3m', 'l2m', 'cm', 'lm', 'average', 'avg'])
+
         metric_requested = None
-        if not weeks_requested and not is_limit_query:
+        if not weeks_requested and not is_limit_query and not is_general_gmv_query:
             if re.search(r'\bl3m\b', prompt_lower) and not 'average' in prompt_lower:
                 for c in raw_df.columns:
                     if c.strip().lower() == 'l3m':
@@ -224,10 +227,7 @@ try:
                     calculated_metrics = []
 
                     if is_limit_query:
-                        # Cari kolom Total Limit & Kolom Sisa/Avaiability Limit dengan toleransi typo luas
                         total_limit_col = next((c for c in raw_df.columns if 'total' in c.lower() and 'limit' in c.lower()), None)
-                        
-                        # Diperluas pencariannya untuk menangkap "Avaiability Limit" atau kolom limit selain total
                         avail_limit_col = next((c for c in raw_df.columns if c != total_limit_col and ('limit' in c.lower() or 'sisa' in c.lower() or 'avail' in c.lower() or 'plafond' in c.lower())), None)
 
                         if total_limit_col:
@@ -239,6 +239,39 @@ try:
                         
                         if not calculated_metrics:
                             calculated_metrics.append("Data limit tidak ditemukan di kolom sheet.")
+
+                    elif is_general_gmv_query:
+                        # Rangkuman lengkap Bulanan (CM, LM, L2M, L3M, AVG) + Mingguan (W1, W2, W3, W4)
+                        cm_col = next((c for c in raw_df.columns if c.strip().lower() == 'cm'), None)
+                        lm_col = next((c for c in raw_df.columns if c.strip().lower() == 'lm'), None)
+                        l2m_col = next((c for c in raw_df.columns if c.strip().lower() == 'l2m'), None)
+                        l3m_col = next((c for c in raw_df.columns if c.strip().lower() == 'l3m'), None)
+                        avg_col = next((c for c in raw_df.columns if 'average' in c.lower() or 'avg' in c.lower()), None)
+
+                        calculated_metrics.append("**📊 Performa Bulanan:**")
+                        target_cols_gmv = [
+                            ("CM (Bulan Ini)", cm_col),
+                            ("LM (Bulan Lalu)", lm_col),
+                            ("L2M", l2m_col),
+                            ("L3M", l3m_col),
+                            ("Average / AVG L3M", avg_col)
+                        ]
+
+                        for label, col in target_cols_gmv:
+                            if col:
+                                val_parsed = parse_number_general(target_row.get(col, 0))
+                                calculated_metrics.append(f"• **{label}**: Rp {val_parsed:,.0f}".replace(",", "."))
+
+                        calculated_metrics.append("\n**📅 Performa Per Week (Mingguan):**")
+                        for w in ['W1', 'W2', 'W3', 'W4']:
+                            if w in week_cols_map:
+                                col_name = week_cols_map[w]
+                                val_raw = target_row.get(col_name, 0)
+                                val_parsed = parse_number_transaction(val_raw)
+                                calculated_metrics.append(f"• **{w}**: Rp {val_parsed:,.0f}".replace(",", "."))
+
+                        if not calculated_metrics:
+                            calculated_metrics.append("Data ringkasan GMV tidak ditemukan di kolom sheet.")
 
                     elif metric_requested:
                         val_raw = target_row.get(metric_requested, "Tidak tersedia")
