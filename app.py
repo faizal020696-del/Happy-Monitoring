@@ -99,22 +99,34 @@ try:
         name_cols = [c for c in raw_df.columns if any(k in c.lower() for k in ['name', 'nama', 'pharmacy', 'toko', 'apotek'])]
         name_col = name_cols[0] if name_cols else raw_df.columns[0]
 
+        id_cols = [c for c in raw_df.columns if 'swiperx' in c.lower() or 'id' in c.lower()]
+        
         target_row = None
-        name_series = raw_df[name_col].fillna("").astype(str).str.lower()
 
-        # Cari semua baris yang mengandung 'gebang' DAN 'farma'
-        matches = raw_df[name_series.str.contains('gebang', na=False) & name_series.str.contains('farma', na=False)]
+        # Jika user mengetik ID '12195' atau nama 'gebang farma'
+        for idx, row in raw_df.iterrows():
+            row_str = " ".join([str(val) for val in row.values if pd.notna(val)]).lower()
+            
+            # Cek apakah baris ini spesifik milik Apotek Gebang Farma (ID 12195 atau nama lengkapnya)
+            is_target_id = any(str(row.get(col, '')).strip() == '12195' for col in id_cols)
+            is_target_name = 'gebang farma' in str(row.get(name_col, '')).lower() and 'sangiang' in str(row.get(name_col, '')).lower()
+            
+            if is_target_id or is_target_name:
+                # Pastikan ini bukan baris rekap triliunan dengan mengecek nilai W1-nya (< 500 juta)
+                w1_test = parse_number_exact(str(row.get('W1', '0')))
+                if 0 < w1_test < 500_000_000:
+                    target_row = row
+                    break
 
-        # Saring baris yang nilai W1-nya masuk akal (< 500 juta rupiah) untuk membuang baris rekap triliunan
-        for idx, row in matches.iterrows():
-            w1_test = parse_number_exact(str(row.get('W1', '0')))
-            if 0 < w1_test < 500_000_000:
-                target_row = row
-                break
-
-        # Jika tetap tidak ketemu dengan filter < 500 juta, ambil baris pertama yang cocok
-        if target_row is None and not matches.empty:
-            target_row = matches.iloc[0]
+        # Fallback kalau belum ketemu juga, cari berdasarkan teks biasa tapi hindari angka triliunan
+        if target_row is None:
+            for idx, row in raw_df.iterrows():
+                row_str = " ".join([str(val) for val in row.values if pd.notna(val)]).lower()
+                if 'gebang' in row_str and 'farma' in row_str:
+                    w1_test = parse_number_exact(str(row.get('W1', '0')))
+                    if 0 < w1_test < 500_000_000:
+                        target_row = row
+                        break
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Mengecek data..."):
@@ -129,9 +141,9 @@ try:
                         val_parsed = parse_number_exact(val_raw)
                         calculated_metrics.append(f"• **{col}**: Rp {val_parsed:,.0f}".replace(",", "."))
 
-                    response_text = f"Data untuk **{str(display_name).title()}**:\n" + "\n".join(calculated_metrics)
+                    response_text = f"Data untuk **{str(display_name).title()}** (ID: 12195):\n" + "\n".join(calculated_metrics)
                 else:
-                    response_text = f"Data untuk apotek **Gebang Farma** tidak ditemukan di Google Sheet."
+                    response_text = f"Data untuk apotek **Gebang Farma** tidak ditemukan."
 
                 st.markdown(response_text)
         
