@@ -3,7 +3,6 @@ import pandas as pd
 from google import genai
 import re
 
-# Mengambil data dari Secrets aman Streamlit
 API_KEY = st.secrets["GEMINI_API_KEY"]
 SHEET_URL = st.secrets["SHEET_URL"]
 
@@ -13,7 +12,6 @@ st.set_page_config(
     layout="centered"
 )
 
-# Kustomisasi Tampilan Visual (CSS Aman)
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden !important;}
@@ -56,10 +54,10 @@ try:
     csv_url = convert_to_csv_url(SHEET_URL)
     df = pd.read_csv(csv_url)
 
-    # --- PEMBERSIHAN ANGKA YANG LEBIH AMAN ---
-    # Konversi kolom yang mengandung 'gmv' menjadi numerik secara paksa
+    # --- PEMBERSIHAN KOLOM ANGKA SECARA TOTAL ---
+    # Mengubah semua kolom yang ada kata 'gmv' atau 'sales' menjadi angka murni
     for col in df.columns:
-        if 'gmv' in col.lower():
+        if any(keyword in col.lower() for keyword in ['gmv', 'target', 'sales', 'value', 'amount']):
             df[col] = pd.to_numeric(
                 df[col].astype(str).str.replace(r'[^0-9\.-]', '', regex=True), 
                 errors='coerce'
@@ -80,18 +78,44 @@ try:
             st.markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
 
-        # Kirim nama-nama kolom ke sistem prompt agar AI tahu persis struktur tabelnya
-        columns_info = f"Daftar Kolom di Spreadsheet ini: {list(df.columns)}"
+        # --- LOGIKA PENCARIAN CERDAS (PYTHON-POWERED) ---
+        # Jika user menyebutkan nama sales atau kata kunci total, Python yang hitung duluan!
+        prompt_lower = prompt.lower()
+        python_calculated_context = ""
         
+        # Cari kolom nama sales / rep / spv secara otomatis
+        rep_column = next((col for col in df.columns if any(k in col.lower() for k in ['rep', 'sales', 'nama', 'spv', 'pic'])), None)
+        gmv_column = next((col for col in df.columns if 'gmv' in col.lower()), None)
+
+        if rep_column and gmv_column:
+            # Cek sales siapa yang dipanggil di chat (misal: Mulyanto, Gde, dll)
+            # Kita ambil unik nilai dari kolom rep untuk dicocokkan dengan pertanyaan user
+            unique_reps = df[rep_column].dropna().astype(str).unique()
+            for rep in unique_reps:
+                if rep.lower() in prompt_lower:
+                    # Filter dataframe khusus sales tersebut
+                    sub_df = df[df[rep_column].astype(str).str.lower() == rep.lower()]
+                    total_gmv_exact = sub_df[gmv_column].sum()
+                    python_calculated_context += f"\n[HASIL KALKULASI PYTHON RESMI UNTUK '{rep}']: Total baris data: {len(sub_df)} baris. Total GMV mutlak: {total_gmv_exact:,.0f}\n"
+
+        # Jika user minta total keseluruhan GMV
+        if "total" in prompt_lower and gmv_column and not python_calculated_context:
+            grand_total = df[gmv_column].sum()
+            python_calculated_context += f"\n[HASIL KALKULASI PYTHON RESMI KESELURUHAN]: Total GMV seluruh data adalah: {grand_total:,.0f}\n"
+
         data_str = df.to_csv(index=False)
         system_prompt = f"""
 Kamu adalah sistem database analitik yang sangat akurat. 
-{columns_info}
+ATURAN UTAMA: Jika ada blok [HASIL KALKULASI PYTHON RESMI] di bawah ini, KAMU WAJIB MEMAKAI ANGKA TERSEBUT SECARA MUTLAK. Dilarang menghitung ulang atau mengubah angka tersebut!
+
+Berikut adalah daftar kolom: {list(df.columns)}
+
+{python_calculated_context}
 
 Berikut adalah data keseluruhan dalam format CSV:
 {data_str}
 
-Tugasmu: Jawab pertanyaan user secara akurat berdasarkan data CSV di atas. Jika user menanyakan data sales tertentu (seperti Mulyanto) atau total GMV, cari baris yang mengandung nama tersebut di kolom yang relevan, hitung dengan teliti, dan jangan katakan data tidak ada jika datanya tertera di dalam CSV. Berikan angka yang presisi.
+Tugasmu: Jawab pertanyaan user secara akurat dan profesional berdasarkan data dan hasil kalkulasi Python di atas.
 """
 
         with st.chat_message("assistant", avatar="🤖"):
