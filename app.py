@@ -134,19 +134,19 @@ Struktur jawaban:
 
 ATURAN MUTLAK: Jangan mengubah angka atau nominal Rupiah yang ada di dalam data di atas sedikit pun!
 """
-                    # Mekanisme coba ulang otomatis (retry) jika server sedang sibuk/high demand
+                    # Menggunakan model rekomendasi terbaru gemini-3.6-flash
                     response_text = None
                     for attempt in range(3):
                         try:
                             response = client.models.generate_content(
-                                model='gemini-2.5-flash',
+                                model='gemini-3.6-flash',
                                 contents=formatting_prompt
                             )
                             response_text = response.text
                             break
                         except Exception as api_err:
-                            if "503" in str(api_err) and attempt < 2:
-                                time.sleep(1) # Tunggu 1 detik sebelum coba lagi
+                            if ("503" in str(api_err) or "404" in str(api_err)) and attempt < 2:
+                                time.sleep(1)
                                 continue
                             else:
                                 raise api_err
