@@ -112,7 +112,6 @@ try:
         reps_cols = [c for c in raw_df.columns if 'sales' in c.lower() or 'reps' in c.lower() or 'pic' in c.lower()]
     reps_col = reps_cols[0] if reps_cols else None
 
-    # Deteksi kolom Daily GMV dari master sheet
     daily_gmv_col = next((c for c in raw_df.columns if 'daily gmv' in c.lower() or 'dayli gmv' in c.lower()), None)
 
     if "messages" not in st.session_state:
@@ -146,8 +145,13 @@ try:
         is_mission_query = any(k in prompt_lower for k in ['misi', 'gold', 'mission', 'campaign', 'pencapaian misi']) and not weeks_requested
         is_wtu_query = any(k in prompt_lower for k in ['wtu', 'visit', 'kunjungan']) and not weeks_requested
         
-        # Perbaikan syntax (tanpa titik dua di akhir)
         is_total_gmv_query = (any(k in prompt_lower for k in ['total', 'semua', 'all']) and ('gmv' in prompt_lower or 'dayli' in prompt_lower or 'daily' in prompt_lower)) or prompt_lower.strip() in ['dayli gmv total', 'daily gmv total', 'total gmv', 'total daily gmv']
+        
+        # Deteksi apotek yang SUDAH transaksi
+        is_active_transaction_query = any(k in prompt_lower for k in ['sudah transaksi', 'ada transaksi', 'bertransaksi', 'transaksi hari ini', 'yang sudah']) and ('apotek' in prompt_lower or 'toko' in prompt_lower or 'mana' in prompt_lower)
+
+        # Deteksi apotek yang BELUM transaksi / kosong / 0 / zonk
+        is_zero_transaction_query = any(k in prompt_lower for k in ['belum', 'kosong', 'zonk', 'nol', '0', 'belum ada', 'belum transaksi', 'belum beruntung']) and ('transaksi' in prompt_lower or 'gmv' in prompt_lower or 'apotek' in prompt_lower or 'toko' in prompt_lower)
 
         command_words = {
             'cek', 'data', 'id', 'berapa', 'total', 'jumlah', 'w1', 'w2', 'w3', 'w4', 
@@ -155,7 +159,8 @@ try:
             'campaign', 'type', 'start', 'date', 'duration', 'target', 'level', 'gmv', 
             'ppn', 'gap', 'hna', 'pencapaian', 'kekurangan', 'info', 'apotek', 'toko', 'wtu',
             'sisa', 'limit', 'avg', 'l3m', 'reps', 'sales', 'pic', 'bulan', 'ini', 'dpd', 'plafond',
-            'dayli', 'daily', 'semua', 'list', 'dan', 'nya'
+            'dayli', 'daily', 'semua', 'list', 'dan', 'nya', 'sudah', 'hari', 'ini', 'mana',
+            'belum', 'kosong', 'zonk', 'nol'
         }
 
         target_row = None
@@ -164,7 +169,7 @@ try:
 
         is_sales_query = 'reps' in prompt_lower or 'sales' in prompt_lower or 'pic' in prompt_lower
         
-        if not is_sales_query and not is_total_gmv_query and reps_col:
+        if not is_sales_query and not is_total_gmv_query and not is_active_transaction_query and not is_zero_transaction_query and reps_col:
             unique_reps = raw_df[reps_col].dropna().astype(str).unique()
             for r in unique_reps:
                 r_clean = r.strip().lower()
@@ -189,7 +194,7 @@ try:
                         matched_reps_df = raw_df[raw_df[reps_col].astype(str).str.strip().str.lower() == r_clean]
                         break
 
-        if not is_total_gmv_query and (matched_reps_df is None or matched_reps_df.empty):
+        if not is_total_gmv_query and not is_active_transaction_query and not is_zero_transaction_query and (matched_reps_df is None or matched_reps_df.empty):
             id_match_prompt = re.search(r'\b(\d{4,6})\b', prompt)
             if id_match_prompt and id_cols:
                 search_id = id_match_prompt.group(1)
@@ -224,7 +229,42 @@ try:
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Mengecek data..."):
-                if is_total_gmv_query:
+                if is_zero_transaction_query:
+                    if not daily_gmv_col:
+                        response_text = "Maaf, kolom 'Daily GMV' tidak ditemukan di master Google Sheet."
+                    else:
+                        zero_outlets = []
+                        for idx, r in raw_df.iterrows():
+                            daily_val = parse_number_general(r.get(daily_gmv_col, 0))
+                            if daily_val == 0:
+                                out_name = r.get(name_col, f"Baris {idx+1}")
+                                zero_outlets.append(out_name)
+                        
+                        if zero_outlets:
+                            list_str = [f"• {name}" for name in zero_outlets]
+                            response_text = f"Berikut adalah **{len(zero_outlets)} apotek** yang belum ada transaksi (Daily GMV = 0) hari ini:\n\n" + "\n".join(list_str)
+                        else:
+                            response_text = "Mantap! Semua apotek sudah tercatat melakukan transaksi hari ini."
+
+                elif is_active_transaction_query:
+                    if not daily_gmv_col:
+                        response_text = "Maaf, kolom 'Daily GMV' tidak ditemukan di master Google Sheet."
+                    else:
+                        active_outlets = []
+                        for idx, r in raw_df.iterrows():
+                            daily_val = parse_number_general(r.get(daily_gmv_col, 0))
+                            if daily_val > 0:
+                                out_name = r.get(name_col, f"Baris {idx+1}")
+                                active_outlets.append((out_name, daily_val))
+                        
+                        if active_outlets:
+                            active_outlets.sort(key=lambda x: x[1], reverse=True)
+                            list_str = [f"• **{name}** (Daily GMV: Rp {val:,.0f})".replace(",", ".") for name, val in active_outlets]
+                            response_text = f"Berikut adalah **{len(active_outlets)} apotek** yang sudah ada transaksi (Daily GMV > 0) hari ini:\n\n" + "\n".join(list_str)
+                        else:
+                            response_text = "Belum ada apotek yang tercatat melakukan transaksi (Daily GMV = 0) hari ini."
+
+                elif is_total_gmv_query:
                     total_outlets = len(raw_df)
                     calculated_metrics = [f"• **Total Keseluruhan Outlet**: {total_outlets} outlet\n"]
                     
