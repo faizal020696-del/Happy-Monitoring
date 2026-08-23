@@ -12,7 +12,7 @@ st.set_page_config(
     layout="centered"
 )
 
-# Kustomisasi Tampilan Visual (Background Putih)
+# Kustomisasi Tampilan Visual
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden !important;}
@@ -20,10 +20,7 @@ st.markdown("""
     footer {visibility: hidden !important;}
     .stAppHeader {display: none !important;}
     [data-testid="stToolbar"] {display: none !important;}
-    
-    .stApp {
-        background-color: #ffffff !important;
-    }
+    .stApp { background-color: #ffffff !important; }
     
     .main-header {
         background: #0f172a;
@@ -34,17 +31,8 @@ st.markdown("""
         box-shadow: 0 10px 25px rgba(15, 23, 42, 0.15);
         margin-bottom: 2rem;
     }
-    .main-header h1 {
-        color: #60a5fa !important;
-        font-weight: 800;
-        font-size: 2.2rem;
-        margin-bottom: 0.8rem;
-    }
-    .main-header p {
-        color: #94a3b8 !important;
-        font-size: 1rem;
-        margin: 0;
-    }
+    .main-header h1 { color: #60a5fa !important; font-weight: 800; font-size: 2.2rem; margin-bottom: 0.8rem; }
+    .main-header p { color: #94a3b8 !important; font-size: 1rem; margin: 0; }
 
     .stChatMessage {
         background: #f8fafc !important;
@@ -54,12 +42,10 @@ st.markdown("""
         margin-bottom: 1rem !important;
         color: #0f172a !important;
     }
-    
     .stChatMessage[data-testid="stChatMessageUser"] {
         background: #eff6ff !important;
         border: 1px solid #bfdbfe !important;
     }
-
     .stChatInputContainer {
         border-radius: 16px !important;
         bottom: 25px !important;
@@ -67,14 +53,8 @@ st.markdown("""
         border: 1px solid #cbd5e1 !important;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05) !important;
     }
-    
-    .stChatInputContainer textarea {
-        color: #0f172a !important;
-    }
-    
-    .stSpinner i {
-        color: #2563eb !important;
-    }
+    .stChatInputContainer textarea { color: #0f172a !important; }
+    .stSpinner i { color: #2563eb !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -113,25 +93,41 @@ try:
             st.markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
 
-        # Mencegah Error 413: Batasi data ke 300 baris terbaru
-        df_limited = df.tail(300) 
-        data_str = df_limited.to_csv(index=False)
+        # SOLUSI TOKEN: Filter data yang relevan dengan keyword user
+        keywords = prompt.lower().split()
+        
+        # Cari baris yang mengandung kata kunci pertanyaan (jika ada)
+        mask = df.astype(str).apply(lambda row: row.str.lower().str.contains('|'.join(keywords)).any(), axis=1)
+        filtered_df = df[mask]
+
+        # Jika hasil filter terlalu sedikit atau tidak ada kata kunci cocok, ambil 30 baris sampel
+        if len(filtered_df) == 0 or len(filtered_df) > 50:
+            sample_data = df.head(30).to_csv(index=False)
+        else:
+            sample_data = filtered_df.to_csv(index=False)
+
+        # Ringkasan struktur data agar AI paham konteks tabel
+        data_summary = f"""
+        - Total Baris Data: {len(df)}
+        - Nama Kolom: {list(df.columns)}
+        - Sampel Data Relevan:
+        {sample_data}
+        """
 
         system_prompt = f"""
         Kamu adalah Asisten AI Profesional untuk SPV Happy. Tugasmu adalah menganalisis data Universe.
-        Jawablah pertanyaan user dengan sopan, akurat, dan ringkas HANYA berdasarkan data CSV berikut:
+        Berikut adalah informasi ringkas dan sampel data CSV dari sheet:
         
-        {data_str}
+        {data_summary}
         
-        Gunakan Bahasa Indonesia yang baik dan komunikatif. Jika data tidak ditemukan, sampaikan dengan jujur.
+        Jawablah pertanyaan user dengan sopan, akurat, dan ringkas berdasarkan struktur data di atas. Jika butuh detail spesifik yang tidak ada di sampel, jelaskan dengan jujur.
         """
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Menganalisis data universe..."):
                 try:
-                    # AUTO-DETECT MODEL AKTIF DARI API GROQ
+                    # Ambil model aktif di Groq
                     available_models = client.models.list()
-                    # Filter model yang aktif di akun
                     active_model_ids = [m.id for m in available_models.data if hasattr(m, 'id')]
 
                     if not active_model_ids:
@@ -140,7 +136,6 @@ try:
                         response_text = None
                         last_err = None
                         
-                        # Coba pakai model pertama yang tersedia otomatis
                         for model_id in active_model_ids:
                             try:
                                 chat_completion = client.chat.completions.create(
@@ -149,6 +144,7 @@ try:
                                         {"role": "user", "content": prompt}
                                     ],
                                     model=model_id,
+                                    max_tokens=1000
                                 )
                                 response_text = chat_completion.choices[0].message.content
                                 break
