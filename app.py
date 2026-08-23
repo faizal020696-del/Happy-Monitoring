@@ -12,7 +12,7 @@ st.set_page_config(
     layout="centered"
 )
 
-# Kustomisasi Tampilan Visual (CSS Aman)
+# Kustomisasi Tampilan Visual
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden !important;}
@@ -86,7 +86,6 @@ try:
         ignore_words = ['berapa', 'data', 'untuk', 'bulan', 'ini', 'kemarin', 'di', 'dan', 'yang', 'dari', 'tentang', 'pencapaian', 'capaian', 'misi', 'gold', 'gmv', 'total', 'totalin', 'tim', 'gw', 'saya', 'tolong', 'coba']
         search_tokens = [word for word in prompt_lower.split() if word not in ignore_words and len(word) > 2]
         
-        # Cari baris yang relevan dengan pertanyaan
         sub_df = pd.DataFrame()
         if search_tokens:
             row_combined = df_clean_text.apply(lambda row: " ".join(row.values).lower(), axis=1)
@@ -96,7 +95,6 @@ try:
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Gemini sedang menganalisis data..."):
                 if len(sub_df) > 0:
-                    # Menggunakan to_csv agar tidak perlu install tabulate
                     data_markdown = sub_df.to_csv(index=False)
                     
                     system_prompt = f"""
@@ -116,7 +114,7 @@ Instruksi Analisis:
 """
                     try:
                         completion = client.chat.completions.create(
-                            model="google/gemini-2.0-flash-exp:free",
+                            model="google/gemini-2.0-flash-lite-001:free",
                             messages=[
                                 {"role": "user", "content": system_prompt}
                             ]
@@ -125,7 +123,7 @@ Instruksi Analisis:
                     except Exception as e:
                         try:
                             completion = client.chat.completions.create(
-                                model="google/gemini-flash-1.5-exp:free",
+                                model="openrouter/free",
                                 messages=[{"role": "user", "content": system_prompt}]
                             )
                             response_text = completion.choices[0].message.content
