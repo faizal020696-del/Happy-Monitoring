@@ -168,7 +168,8 @@ try:
             'cek', 'data', 'id', 'berapa', 'total', 'jumlah', 'w1', 'w2', 'w3', 'w4', 
             'transaksi', 'tolong', 'visit', 'kunjungan', 'misi', 'gold', 'mission',
             'campaign', 'type', 'start', 'date', 'duration', 'target', 'level', 'gmv', 
-            'ppn', 'gap', 'hna', 'pencapaian', 'kekurangan', 'info', 'apotek', 'toko', 'wtu'
+            'ppn', 'gap', 'hna', 'pencapaian', 'kekurangan', 'info', 'apotek', 'toko', 'wtu',
+            'sisa', 'limit', 'avg', 'l3m'
         }
 
         # 1. Cek berdasarkan ID jika ada angka 4-6 digit di prompt
@@ -184,33 +185,32 @@ try:
                 if target_row is not None:
                     break
 
-        # 2. Cek Berdasarkan Nama Outlet secara Presisi (Handle Typo gabang -> gebang khusus)
+        # 2. Cek Berdasarkan Nama Outlet dengan Sistem Skor Akurasi Tinggi
         if target_row is None:
-            # Koreksi otomatis khusus typo gabang -> gebang jika user mengetik gabang
             corrected_prompt_lower = prompt_lower.replace('gabang', 'gebang')
             outlet_query_words = [w for w in re.findall(r'\b\w+\b', corrected_prompt_lower) if w not in command_words]
             
             if outlet_query_words:
                 name_series = raw_df[name_col].fillna("").astype(str).str.lower()
                 
-                # Cek apakah semua kata kunci spesifik ada di nama outlet
-                match_mask = name_series.apply(lambda x: all(qw in x for qw in outlet_query_words))
-                matches = raw_df[match_mask]
+                # Beri skor pada setiap baris berdasarkan jumlah kata kunci unik yang cocok
+                scores = []
+                for idx, name_val in name_series.items():
+                    score = sum(1 for qw in outlet_query_words if qw in name_val)
+                    # Beri bonus besar jika nama outlet mengandung kata kunci utama secara lengkap berurutan atau spesifik
+                    if all(qw in name_val for qw in outlet_query_words):
+                        score += 5
+                    # Penalti jika nama terlalu panjang melenceng (misal klinik/praktek padahal dicari apotek)
+                    if 'klinik' in name_val and 'klinik' not in corrected_prompt_lower:
+                        score -= 2
+                    scores.append((score, idx))
                 
-                if not matches.empty:
-                    target_row = matches.iloc[0]
-                else:
-                    # Cari kata kunci terpanjang yang spesifik (misal nama khas seperti "gebang")
-                    valid_qw = [qw for qw in outlet_query_words if len(qw) > 3]
-                    if valid_qw:
-                        for qw in valid_qw:
-                            sub_matches = raw_df[name_series.str.contains(qw)]
-                            if len(sub_matches) == 1:
-                                target_row = sub_matches.iloc[0]
-                                break
-                            elif len(sub_matches) > 1:
-                                target_row = sub_matches.iloc[0]
-                                break
+                # Urutkan dari skor tertinggi
+                scores.sort(key=lambda x: x[0], reverse=True)
+                best_score, best_idx = scores[0]
+                
+                if best_score > 0:
+                    target_row = raw_df.loc[best_idx]
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Mengecek data..."):
