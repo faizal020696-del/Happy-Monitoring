@@ -117,19 +117,20 @@ try:
             st.markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
 
-        # --- 1. AI EKSTRAKSI ENTITAS NAMA ---
+        # --- 1. AI EKSTRAKSI ENTITAS NAMA & METRIK SPESIFIK ---
         extraction_prompt = f"""
 Saring pertanyaan user dan kembalikan format JSON:
-{{"entity": "<nama entitas bersih>"}}
+{{"entity": "<nama entitas bersih>", "metric": "<nama metrik yang dicari>"}}
 
 Aturan:
-Ambil HANYA kata kunci utama nama subjek/objek (misal: "gebang farma", "rizki", "afrianto"). 
-Hapus kata metrik seperti "dpd", "limit", "misi", "reguler", "gold", "apotek", "reps", "sales", "gmv", "pencapaian", "bulan ini", dll.
+- "entity": Ambil HANYA kata kunci nama toko/reps/objek (misal: "gebang farma", "rizki", "afrianto").
+- "metric": Ambil HANYA jenis data/metrik yang ditanyakan (misal: "dpd", "limit", "gmv", "cm", "lm", "misi", "target", "all"). Jika menanyakan secara umum, isi dengan "all".
 
 Input: "{prompt}"
 JSON:"""
 
         extracted_entity = ""
+        extracted_metric = "all"
         try:
             ext_res = client.chat.completions.create(
                 model="google/gemini-2.0-flash-lite-001:free",
@@ -141,6 +142,7 @@ JSON:"""
             if json_match:
                 parsed_json = json.loads(json_match.group(0))
                 extracted_entity = parsed_json.get("entity", "").lower().strip()
+                extracted_metric = parsed_json.get("metric", "all").lower().strip()
         except Exception:
             extracted_entity = ""
 
@@ -153,7 +155,6 @@ JSON:"""
         sub_df = pd.DataFrame()
 
         if entity_tokens:
-            # --- 2. PENENTUAN SUBCATEGORY & PENGECUALIAN ALAMAT ---
             prompt_lower = prompt.lower()
             is_reps_query = any(k in prompt_lower for k in ['reps', 'sales', 'salesman', 'rep'])
             is_apotek_query = any(k in prompt_lower for k in ['apotek', 'apotik', 'toko', 'outlet', 'customer', 'pelanggan'])
@@ -170,7 +171,6 @@ JSON:"""
                 mask_reps = pd.Series(False, index=df.index)
                 for col in reps_cols:
                     mask_reps |= df_clean_text[col].str.lower().str.contains(pattern, regex=True, na=False)
-                
                 sub_df = df[mask_reps]
 
             elif is_apotek_query:
@@ -182,10 +182,8 @@ JSON:"""
                 mask_apotek = pd.Series(False, index=df.index)
                 for col in apotek_cols:
                     mask_apotek |= df_clean_text[col].str.lower().str.contains(pattern, regex=True, na=False)
-                
                 sub_df = df[mask_apotek]
 
-            # Fallback jika pertanyaan tidak memakai kata kunci "reps" atau "apotek" secara spesifik
             if len(sub_df) == 0:
                 series_clean = df_clean_text[searchable_cols].apply(lambda row: " ".join(row.values).lower(), axis=1)
                 pattern_fallback = r'\b' + r'\b.*\b'.join([re.escape(t) for t in entity_tokens]) + r'\b'
@@ -196,77 +194,71 @@ JSON:"""
                 if len(sub_df) > 0:
                     calculated_metrics = []
                     
-                    # --- 3. KALKULASI DINAMIS UNTUK SEMUA METRIK (DPD, LIMIT, MISI, GMV, DLL) ---
-                    # Menghapus pembatasan kolom, sekarang semua kolom numeric berharga terhitung secara otomatis
+                    # --- 2. PERHITUNGAN PENJARINGAN METRIK SPESIFIK ---
                     for col in sub_df.columns:
                         col_lower = col.lower()
-                        
-                        # Abaikan kolom ID, Kode, Telepon, Tanggal, atau Persentase
                         if any(ignore in col_lower for ignore in ['date', 'tanggal', 'id', 'code', 'zip', 'durasi', 'duration', 'telepon', 'phone', '%', 'pct']):
                             continue
                             
+                        # Jika user minta metrik spesifik (misal DPD), filter hanya kolom yang cocok
+                        if extracted_metric != "all" and extracted_metric not in col_lower:
+                            continue
+
                         num_series = sub_df[col].apply(parse_number_exact)
                         total_val = num_series.sum()
                         
-                        # Hanya ambil kolom yang berisi angka berharga (bukan nol semua)
-                        if total_val > 0:
-                            # Jika metriknya DPD, tanyakan rata-rata atau total baris
-                            if 'dpd' in col_lower:
-                                avg_dpd = num_series.mean()
-                                calculated_metrics.append(f"- **{col}**: {total_val:,.0f} (Rata-rata: {avg_dpd:.1f} hari)".replace(",", "."))
-                            elif any(k in col_lower for k in ['limit', 'gmv', 'cm', 'lm', 'sales', 'pencapaian', 'misi', 'reguler', 'gold', 'target', 'omset']):
-                                calculated_metrics.append(f"- **{col}**: Rp {total_val:,.0f}".replace(",", "."))
-                            else:
-                                calculated_metrics.append(f"- **{col}**: {total_val:,.0f}".replace(",", "."))
+                        if 'dpd' in col_lower:
+                            avg_dpd = num_series.mean()
+                            calculated_metrics.append(f"- **{col}**: {avg_dpd:.0f} hari")
+                        elif any(k in col_lower for k in ['limit', 'gmv', 'cm', 'lm', 'sales', 'pencapaian', 'misi', 'reguler', 'gold', 'target', 'omset']):
+                            calculated_metrics.append(f"- **{col}**: Rp {total_val:,.0f}".replace(",", "."))
+                        else:
+                            calculated_metrics.append(f"- **{col}**: {total_val:,.0f}".replace(",", "."))
 
-                    calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Tidak ada kolom angka nominal yang terdeteksi."
+                    # Fallback jika pencocokan nama metrik terlalu sempit: tampilkan semua kolom angka
+                    if not calculated_metrics:
+                        for col in sub_df.columns:
+                            col_lower = col.lower()
+                            if any(ignore in col_lower for ignore in ['date', 'tanggal', 'id', 'code', 'zip', 'durasi', 'duration', 'telepon', 'phone', '%', 'pct']):
+                                continue
+                            num_series = sub_df[col].apply(parse_number_exact)
+                            total_val = num_series.sum()
+                            if total_val > 0:
+                                if 'dpd' in col_lower:
+                                    calculated_metrics.append(f"- **{col}**: {num_series.mean():.0f} hari")
+                                else:
+                                    calculated_metrics.append(f"- **{col}**: Rp {total_val:,.0f}".replace(",", "."))
+
+                    calc_summary_str = "\n".join(calculated_metrics)
                     
-                    sub_df_sample = sub_df.dropna(how='all', axis=1).head(10)
-                    data_table_md = sub_df_sample.to_markdown(index=False)
-
                     system_prompt = f"""
-Kamu adalah Senior Data Analyst SPV yang sangat teliti.
+Kamu adalah Senior Data Analyst SPV yang sangat teliti dan langsung pada inti jawaban.
 
-DITEMUKAN **{len(sub_df)} BARIS DATA** UNTUK ENTITAS: '{extracted_entity}'.
+DITEMUKAN DATA UNTUK ENTITAS: '{extracted_entity}'.
+PERTANYAAN SPESIFIK USER: "{prompt}"
 
-HASIL KALKULASI PRESISI PYTHON DARI SELURUH KOLOM ANGKA DENGAN TOTAL **{len(sub_df)} BARIS DATA**:
+HASIL KALKULASI RELEVAN:
 {calc_summary_str}
 
-SAMPEL RINCIAN TABEL DARI GOOGLE SHEET (Max 10 baris):
-{data_table_md}
-
-Pertanyaan User: "{prompt}"
-
-Instruksi Sangat Penting:
-1. GUNAKAN HASIL KALKULASI PRESISI PYTHON DI ATAS UNTUK MENJAWAB PERTANYAAN USER (DPD, Limit, Misi, GMV, dll)!
-2. Jika user bertanya spesifik tentang metrik tertentu (misal DPD atau Limit), prioritaskan dan jawab angka metrik tersebut di kalimat pertama.
-3. Jawab secara to the point, padat, dan jelas.
-4. JANGAN PERNAH menampilkan rincian penjumlahan tambah-tambahan manual `(a + b + c)` yang dipotong-potong di jawaban.
+Instruksi Utama:
+1. Jawab LANGSUNG di kalimat pertama dengan jawaban singkat dan presisi (misal: "DPD Apotek Gebang Farma adalah **13 hari**.").
+2. JANGAN sebutkan angka/kolom lain yang tidak ditanyakan user!
+3. Jangan tampilkan daftar rincian jika user hanya menanyakan satu metrik spesifik.
 """
                     response_text = ""
-                    models_to_try = [
-                        "google/gemini-2.0-flash-lite-001:free",
-                        "google/gemini-2.0-flash-exp:free",
-                        "openrouter/free"
-                    ]
+                    try:
+                        completion = client.chat.completions.create(
+                            model="google/gemini-2.0-flash-lite-001:free",
+                            messages=[{"role": "user", "content": system_prompt}],
+                            temperature=0.0
+                        )
+                        if completion.choices and len(completion.choices) > 0:
+                            response_text = completion.choices[0].message.content.strip()
+                    except Exception:
+                        response_text = ""
 
-                    for model_id in models_to_try:
-                        try:
-                            completion = client.chat.completions.create(
-                                model=model_id,
-                                messages=[{"role": "user", "content": system_prompt}],
-                                temperature=0.0
-                            )
-                            if completion.choices and len(completion.choices) > 0:
-                                res = completion.choices[0].message.content
-                                if res and len(res.strip()) > 5:
-                                    response_text = res
-                                    break
-                        except Exception:
-                            continue
-
-                    if not response_text or len(response_text.strip()) < 5:
-                        response_text = f"Ditemukan **{len(sub_df)} baris data** untuk '{extracted_entity}'. Berikut rincian metrik angkanya:\n\n{calc_summary_str}"
+                    if not response_text:
+                        response_text = f"Data untuk **{extracted_entity.title()}**:\n\n{calc_summary_str}"
 
                 else:
                     response_text = f"Maaf bro, data untuk **'{extracted_entity}'** tidak ditemukan di Google Sheet."
