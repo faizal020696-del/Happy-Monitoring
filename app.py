@@ -59,7 +59,7 @@ try:
     df.columns = df.columns.str.strip()
     df_clean_text = df.fillna("").astype(str)
 
-    # Membersihkan kolom angka agar bisa dihitung totalnya
+    # Membersihkan kolom angka agar bisa dihitung totalnya secara presisi
     for col in df.columns:
         if any(keyword in col.lower() for keyword in ['gmv', 'target', 'sales', 'value', 'amount', 'cm', 'lm', 'l3m']):
             df[col] = pd.to_numeric(
@@ -91,25 +91,28 @@ try:
 
         prompt_lower = prompt.lower()
         
-        # PENCARIAN UNIVERSAL: Mendeteksi kata penting dari pertanyaan user (mengabaikan kata tanya umum)
-        stop_words = ['berapa', 'data', 'untuk', 'bulan', 'ini', 'kemarin', '1', '2', '3', 'di', 'dan', 'yang', 'dari', 'tentang']
-        keywords = [word for word in prompt_lower.split() if word not in stop_words and len(word) > 2]
+        # PENCARIAN PRESISI: Membersihkan kata tanya umum, mengambil frasa inti yang bermakna
+        stop_words = ['berapa', 'data', 'untuk', 'bulan', 'ini', 'kemarin', 'di', 'dan', 'yang', 'dari', 'tentang', 'pencapaian', 'capaian', 'misi', 'gold']
+        filtered_words = [word for word in prompt_lower.split() if word not in stop_words and len(word) > 2]
         
         python_summary_text = None
         sub_df = pd.DataFrame()
 
-        # Mencari baris di dataframe yang mengandung kata kunci dari user
-        if keywords:
-            mask = pd.Series([False] * len(df))
-            for kw in keywords:
-                mask = mask | df_clean_text.apply(lambda row: row.str.lower().str.contains(kw).any(), axis=1)
+        if filtered_words:
+            # Mencari baris yang mengandung frasa/kata kunci secara utuh (misal: "gebang", "farma")
+            mask = df_clean_text.apply(lambda row: row.str.lower().str.contains(" ".join(filtered_words)).any(), axis=1)
             sub_df = df[mask]
+            
+            # Kalau frasa gabungan tidak ketemu, coba cari kata terpenting yang paling spesifik (kata terakhir/nama entitas)
+            if len(sub_df) == 0 and len(filtered_words) > 0:
+                specific_word = filtered_words[-1] # Ambil kata paling belakang (biasanya nama tempat/sales)
+                mask = df_clean_text.apply(lambda row: row.str.lower().str.contains(specific_word).any(), axis=1)
+                sub_df = df[mask]
 
         if len(sub_df) > 0:
-            # Jika data ditemukan, hitung metrik angka yang relevan
             valid_metric_cols = [col for col in df.columns if any(k in col.lower() for k in ['gmv', 'cm', 'lm']) and not any(x in col.lower() for x in ['code', 'assignment'])]
             
-            summary_lines = [f"Ditemukan {len(sub_df)} baris data terkait kata kunci '{prompt}':"]
+            summary_lines = [f"Data valid ditemukan ({len(sub_df)} baris) untuk pertanyaan '{prompt}':"]
             
             for col in valid_metric_cols:
                 total_val = sub_df[col].sum()
@@ -123,15 +126,15 @@ try:
                 if python_summary_text:
                     formatting_prompt = f"""
 Kamu adalah asisten AI analitik yang ramah, profesional, dan to the point.
-Berikut adalah data angka valid yang sudah dihitung secara mutlak oleh sistem berdasarkan pencarian kata kunci user:
+Berikut adalah data angka valid yang sudah dihitung secara mutlak oleh sistem berdasarkan baris data yang cocok:
 
 {python_summary_text}
 
 Tugasmu: Jawab pertanyaan user ({prompt}) dengan gaya bahasa yang mengalir natural.
-Struktur jawaban yang diinginkan:
-1. Jawab langsung ke inti pertanyaan di kalimat pertama (sebutkan angka atau total yang ditanyakan user secara spesifik).
-2. Tambahkan **1-2 kalimat ringkasan (summary/analisis singkat)** di bawahnya untuk menyimpulkan data tersebut secara manusiawi.
-3. Jangan menampilkan rincian metrik lain yang tidak berhubungan agar tetap *clean*.
+Struktur jawaban:
+1. Jawab langsung ke inti pertanyaan di kalimat pertama (sebutkan angka atau total yang ditanyakan user secara spesifik dari data di atas).
+2. Tambahkan **1-2 kalimat ringkasan/analisis singkat** di bawahnya secara manusiawi.
+3. Jangan menampilkan metrik lain yang tidak berhubungan.
 
 ATURAN MUTLAK: Jangan mengubah angka atau nominal Rupiah yang ada di dalam data di atas sedikit pun!
 """
@@ -141,8 +144,7 @@ ATURAN MUTLAK: Jangan mengubah angka atau nominal Rupiah yang ada di dalam data 
                     )
                     response_text = response.text
                 else:
-                    # Jika data benar-benar tidak ada sama sekali di file CSV
-                    response_text = f"Maaf bro, setelah dicek di dalam database/spreadsheet, data untuk '{prompt}' tidak ditemukan atau tidak tercatat."
+                    response_text = f"Maaf bro, setelah dicek presisi ke dalam database, data untuk '{prompt}' tidak ditemukan."
 
                 st.markdown(response_text)
         
