@@ -84,44 +84,62 @@ try:
 
         prompt_lower = prompt.lower()
         
-        # Kata dasar pertanyaan sederhana yang dibuang agar fokus ke entitas & topik
-        stop_words = ['berapa', 'tolong', 'coba', 'data', 'untuk', 'yang', 'dari', 'tentang', 'gw', 'saya', 'dong', 'cek', 'di', 'dan']
-        tokens = [w for w in prompt_lower.split() if w not in stop_words and len(w) > 1]
+        # Kata-kata pertanyaan/metrik umum yang dibuang saat mencari nama toko/entitas
+        metric_words = [
+            'berapa', 'pencapaian', 'capaian', 'misi', 'reguler', 'gold', 'gmv', 'total', 
+            'totalin', 'target', 'data', 'untuk', 'bulan', 'ini', 'kemarin', 'di', 'dan', 
+            'yang', 'dari', 'tentang', 'tim', 'gw', 'saya', 'tolong', 'coba', 'apotek', 'apotik'
+        ]
         
+        # Ekstrak kata nama toko khusus (contoh: ['gebang', 'farma'])
+        store_tokens = [w for w in prompt_lower.split() if w not in metric_words and len(w) > 1]
+        
+        # Fallback jika kata nama toko kosong
+        if not store_tokens:
+            store_tokens = [w for w in prompt_lower.split() if len(w) > 2]
+
         sub_df = pd.DataFrame()
-        if tokens:
+        if store_tokens:
             row_combined = df_clean_text.apply(lambda row: " ".join(row.values).lower(), axis=1)
             
-            # 1. Cari baris yang mengandung semua token penting
-            mask_all = row_combined.apply(lambda x: all(t in x for t in tokens))
+            # Tingkat 1: Cari yang mengandung SEMUA kata toko (contoh: "gebang" DAN "farma")
+            mask_all = row_combined.apply(lambda x: all(t in x for t in store_tokens))
             sub_df = df[mask_all]
             
-            # 2. Jika tidak ada, cari berdasarkan token entitas utama (misal nama toko/sales)
+            # Tingkat 2: Jika 0 hasil, cari yang mengandung SALAH SATU kata nama unik (contoh: "gebang")
             if len(sub_df) == 0:
-                mask_any = row_combined.apply(lambda x: any(t in x for t in tokens))
-                sub_df = df[mask_any]
+                # Ambil kata yang paling unik (panjang > 3 karakter)
+                unique_tokens = [t for t in store_tokens if len(t) > 3]
+                for token in unique_tokens:
+                    mask_token = row_combined.apply(lambda x: token in x)
+                    sub_df = df[mask_token]
+                    if len(sub_df) > 0:
+                        break
 
         with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("Gemini sedang menganalisis data..."):
+            with st.spinner("Mencari dan menganalisis data..."):
                 if len(sub_df) > 0:
-                    # Ambil maksimal 15 baris data terfilter & hapus kolom yang kosong total
+                    # Ambil baris terfilter (max 15) dan buang kolom yang kosong total
                     sub_df_clean = sub_df.dropna(how='all', axis=1).head(15)
                     data_table_md = sub_df_clean.to_markdown(index=False)
+                    all_columns_list = ", ".join(list(df.columns))
 
                     system_prompt = f"""
-Kamu adalah Senior Data Analyst SPV yang cerdas, fleksibel, dan sangat teliti.
+Kamu adalah Senior Data Analyst SPV.
 
-BERIKUT ADALAH TABEL DATA RELEVAN DARI GOOGLE SHEET (Format Markdown Table):
+DAFTAR SELURUH KOLOM DI GOOGLE SHEET:
+[{all_columns_list}]
+
+BERIKUT ADALAH TABEL BARIS DATA TERFILTER DARI HASIL PENCARIAN USER ({len(sub_df_clean)} Baris Ditemukan):
 {data_table_md}
 
 Pertanyaan User: "{prompt}"
 
 Instruksi Menjawab:
-1. PERIKSA SELURUH NAMA KOLOM DAN ISI TABEL DI ATAS DENGAN TELITI.
-2. Temukan kolom dan baris yang SESUAI DENGAN TOPIK PERTANYAAN USER (misalnya: jika tanya GMV harian, jawab kolom GMV harian; jika tanya Visit, jawab kolom Visit; jika tanya Misi, jawab kolom Misi, dst).
-3. Jawab secara langsung di kalimat pertama dengan menyebutkan entitas (nama toko/sales/lokasi) beserta angka/informasi pasti yang dicari.
-4. Jangan terpaku pada satu jenis metrik saja, melainkan BERIKAN JAWABAN SESUAI DENGAN APA YANG DITANYAKAN USER.
-5. Sajikan rincian pendukung secara rapi dan singkat.
+1. Analisis tabel di atas. Perhatikan nama toko dan kolom yang berkaitan langsung dengan pertanyaan user.
+2. Cari kolom yang mewakili topik pertanyaan (misalnya: "GMV Misi Gold", "Target Gold", "GMV HNA Gold", dll).
+3. Sebutkan nama toko lengkap beserta angka nominal atau informasi spesifik yang ditemukan di sel tabel secara jelas dan akurat di kalimat pertama.
+4. Jika kolom yang diminta user nilainya 0 atau kosong (NaN) di tabel, jelaskan secara jujur sesuai data di tabel.
 """
                     response_text = ""
                     models_to_try = [
@@ -146,11 +164,11 @@ Instruksi Menjawab:
                             continue
 
                     if not response_text or len(response_text.strip()) < 5:
-                        response_text = f"Ditemukan {len(sub_df)} baris data. Berikut rincian tabelnya:\n\n```markdown\n{data_table_md}\n```"
+                        response_text = f"Ditemukan {len(sub_df)} baris data toko. Berikut rincian tabelnya:\n\n```markdown\n{data_table_md}\n```"
 
                 else:
-                    search_kw = ' '.join(tokens) if tokens else prompt
-                    response_text = f"Maaf bro, data untuk **'{search_kw}'** tidak ditemukan di Google Sheet."
+                    search_kw = ' '.join(store_tokens) if store_tokens else prompt
+                    response_text = f"Maaf bro, data untuk nama toko **'{search_kw}'** tidak ditemukan di Google Sheet."
 
                 st.markdown(response_text)
         
