@@ -52,10 +52,6 @@ def convert_to_csv_url(url):
     return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
 
 def parse_number_exact(val):
-    """
-    Konversi teks rupiah/angka dari Google Sheet ke float dengan presisi 100%.
-    Menangani format Rupiah Indonesia (1.234.567,89) maupun internasional (1,234,567.89).
-    """
     if pd.isna(val) or val is None:
         return 0.0
     val_str = str(val).strip()
@@ -123,7 +119,7 @@ try:
 
         prompt_lower = prompt.lower()
         
-        # Kata dasar pertanyaan yang dibuang untuk pencarian nama entitas
+        # Stopwords untuk isolasi pencarian
         stop_words = [
             'berapa', 'total', 'gmv', 'pencapaian', 'capaian', 'misi', 'reguler', 'gold', 
             'target', 'data', 'untuk', 'bulan', 'ini', 'kemarin', 'di', 'dan', 'yang', 
@@ -131,12 +127,11 @@ try:
         ]
         
         entity_tokens = [w for w in prompt_lower.split() if w not in stop_words and len(w) > 1]
-        if not entity_tokens:
-            entity_tokens = [w for w in prompt_lower.split() if len(w) > 2]
+        phrase_search = " ".join(entity_tokens)
 
         sub_df = pd.DataFrame()
         if entity_tokens:
-            # --- ISOLASI KOLOM SESUAI KONTEKS (PEMBATASAN APOTEK vs REPS) ---
+            # 1. Deteksi intent user (Mencari Reps vs Apotek)
             is_reps_query = any(k in prompt_lower for k in ['reps', 'sales', 'salesman', 'mr'])
             is_apotek_query = any(k in prompt_lower for k in ['apotek', 'apotik', 'toko', 'outlet', 'customer'])
 
@@ -145,41 +140,48 @@ try:
 
             search_df = df_clean_text.copy()
 
-            # Tentukan kolom mana yang akan discan agar tidak salah tarik nama toko
             if is_reps_query and reps_cols:
-                row_combined = search_df[reps_cols].apply(lambda row: " ".join(row.values).lower(), axis=1)
+                row_series = search_df[reps_cols].apply(lambda row: " ".join(row.values).lower(), axis=1)
             elif is_apotek_query and apotek_cols:
-                row_combined = search_df[apotek_cols].apply(lambda row: " ".join(row.values).lower(), axis=1)
+                row_series = search_df[apotek_cols].apply(lambda row: " ".join(row.values).lower(), axis=1)
             else:
-                row_combined = search_df.apply(lambda row: " ".join(row.values).lower(), axis=1)
+                row_series = search_df.apply(lambda row: " ".join(row.values).lower(), axis=1)
             
-            # Tingkat 1: Cari yang mengandung SEMUA kata kunci
-            mask_all = row_combined.apply(lambda x: all(t in x for t in entity_tokens))
-            sub_df = df[mask_all]
-            
-            # Tingkat 2: Fallback jika 0 hasil
+            # --- TINGKAT 1: PHRASE MATCHING EXACT (Paling Akurat untuk "gabang farma") ---
+            mask_phrase = row_series.str.contains(re.escape(phrase_search), regex=True, na=False)
+            sub_df = df[mask_phrase]
+
+            # --- TINGKAT 2: TOKEN MATCHING (Semua kata harus ada) ---
             if len(sub_df) == 0:
-                mask_any = row_combined.apply(lambda x: any(t in x for t in entity_tokens))
-                sub_df = df[mask_any]
+                mask_all = row_series.apply(lambda x: all(t in x for t in entity_tokens))
+                sub_df = df[mask_all]
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Menghitung data dengan presisi 100%..."):
                 if len(sub_df) > 0:
-                    # PROSES PENJUMLAHAN MURNI VIA PYTHON DENGAN PARSER PRESISI
                     calculated_metrics = []
+                    
+                    # Logika Penentuan Kolom Akurat:
+                    # Cari kolom yang paling spesifik (CM / Current Month / Total GMV)
+                    valid_cols = []
                     for col in sub_df.columns:
                         col_lower = col.lower()
-                        # Hanya hitung kolom nominal metrik utama (Exclude Target agar tidak double hitung)
                         if any(k in col_lower for k in ['gmv', 'cm', 'lm', 'sales', 'pencapaian']):
                             if not any(ignore in col_lower for ignore in ['target', '%', 'pct', 'date', 'tanggal', 'id', 'code', 'durasi', 'duration']):
-                                num_series = sub_df[col].apply(parse_number_exact)
-                                total_val = num_series.sum()
-                                if total_val > 0:
-                                    calculated_metrics.append(f"- **{col}**: Rp {total_val:,.0f}".replace(",", "."))
+                                valid_cols.append(col)
+
+                    # Jika ada kolom "Total" / "CM", utamakan itu agar tidak double count penjumlahan sub-kolom
+                    cm_cols = [c for c in valid_cols if any(k in c.lower() for k in ['cm', 'current', 'bulan ini', 'total'])]
+                    target_calculation_cols = cm_cols if cm_cols else valid_cols
+
+                    for col in target_calculation_cols:
+                        num_series = sub_df[col].apply(parse_number_exact)
+                        total_val = num_series.sum()
+                        if total_val > 0:
+                            calculated_metrics.append(f"- **{col}**: Rp {total_val:,.0f}".replace(",", "."))
 
                     calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Tidak ada kolom angka nominal yang dapat terhitung."
                     
-                    # Sampel data untuk diserahkan ke Gemini
                     sub_df_sample = sub_df.dropna(how='all', axis=1).head(10)
                     data_table_md = sub_df_sample.to_markdown(index=False)
 
