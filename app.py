@@ -146,8 +146,10 @@ try:
         is_gold_mission_query = 'gold' in prompt_lower and ('misi' in prompt_lower or 'mission' in prompt_lower)
         is_regular_mission_query = ('misi' in prompt_lower or 'mission' in prompt_lower) and not is_gold_mission_query
 
+        # Deteksi pencarian metrik spesifik via teks prompt (misal: "avg l3m", "total limit", dll)
         metric_requested = None
         if not weeks_requested and not is_limit_query and not is_general_gmv_query and not is_visit_query and not is_gold_mission_query and not is_regular_mission_query:
+            # Cek kecocokan nama kolom di dataframe dengan teks yang diketik user
             for c in raw_df.columns:
                 c_low = c.strip().lower()
                 if c_low in prompt_lower:
@@ -155,11 +157,15 @@ try:
                     break
 
             if not metric_requested:
+                # Cek potongan kata penting di kolom
                 for col in raw_df.columns:
                     col_lower = col.lower()
-                    if col != name_col and col not in id_cols and col_lower in prompt_lower:
-                        metric_requested = col
-                        break
+                    if col != name_col and col not in id_cols:
+                        # Jika user ngetik "avg l3m" atau "l3m" atau "limit"
+                        keywords_col = [kw for kw in col_lower.split() if len(kw) > 2]
+                        if keywords_col and all(kw in prompt_lower for kw in keywords_col):
+                            metric_requested = col
+                            break
 
         target_row = None
         
@@ -167,9 +173,10 @@ try:
             'cek', 'data', 'id', 'berapa', 'total', 'jumlah', 'w1', 'w2', 'w3', 'w4', 
             'transaksi', 'tolong', 'visit', 'kunjungan', 'misi', 'gold', 'mission',
             'campaign', 'type', 'start', 'date', 'duration', 'target', 'level', 'gmv', 
-            'ppn', 'gap', 'hna', 'pencapaian', 'kekurangan', 'info'
+            'ppn', 'gap', 'hna', 'pencapaian', 'kekurangan', 'info', 'sisa', 'limit', 'avg', 'l3m'
         }
 
+        # 1. Cek berdasarkan ID jika ada angka 4-6 digit di prompt
         id_match_prompt = re.search(r'\b(\d{4,6})\b', prompt)
         if id_match_prompt and id_cols:
             search_id = id_match_prompt.group(1)
@@ -182,6 +189,7 @@ try:
                 if target_row is not None:
                     break
 
+        # 2. Cek Berdasarkan Nama Outlet Lengkap / Toleransi Typo (difflib / substring)
         if target_row is None:
             outlet_query_words = [w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in command_words]
             if outlet_query_words:
@@ -192,12 +200,27 @@ try:
                 if not matches.empty:
                     target_row = matches.iloc[0]
                 else:
+                    # Coba cari pakai substring kata per kata (misal: "gebang" atau "farma")
                     for qw in outlet_query_words:
                         if len(qw) > 3:
                             sub_matches = raw_df[name_series.str.contains(qw)]
                             if len(sub_matches) == 1:
                                 target_row = sub_matches.iloc[0]
                                 break
+                            elif len(sub_matches) > 1:
+                                target_row = sub_matches.iloc[0]
+                                break
+                    
+                    # Kalau masih kosong, pakai difflib untuk mendeteksi typo tipis (misal gabang -> gebang)
+                    if target_row is None:
+                        clean_prompt_name = " ".join(outlet_query_words)
+                        if clean_prompt_name:
+                            all_names = name_series.tolist()
+                            closest = difflib.get_close_matches(clean_prompt_name, all_names, n=1, cutoff=0.4)
+                            if closest:
+                                matched_rows = raw_df[name_series == closest[0]]
+                                if not matched_rows.empty:
+                                    target_row = matched_rows.iloc[0]
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Mengecek data..."):
@@ -211,7 +234,6 @@ try:
                         for c in gold_cols:
                             val_raw = str(target_row.get(c, "")).strip()
                             c_lower = c.lower()
-                            # Cek apakah kolom berisi angka/nominal uang
                             if any(k in c_lower for k in ['target', 'gmv', 'gap']):
                                 val_parsed = parse_number_general(val_raw)
                                 val_str = f"Rp {val_parsed:,.0f}".replace(",", ".") if val_parsed > 0 else (val_raw if val_raw else "0")
@@ -228,12 +250,10 @@ try:
                         for c in misi_cols:
                             val_raw = str(target_row.get(c, "")).strip()
                             c_lower = c.lower()
-                            # Hanya format ke Rupiah jika kolomnya berupa Target, GMV, atau Gap
                             if any(k in c_lower for k in ['target', 'gmv', 'gap']):
                                 val_parsed = parse_number_general(val_raw)
                                 val_str = f"Rp {val_parsed:,.0f}".replace(",", ".") if val_parsed > 0 else (val_raw if val_raw else "0")
                             else:
-                                # Untuk Campaign Type, Start Date, End Date, Duration, dll tampilkan sebagai teks asli
                                 val_str = val_raw if val_raw and val_raw.lower() not in ['nan', 'none', ''] else "-"
                             calculated_metrics.append(f"• **{c}**: {val_str}")
                         
@@ -313,11 +333,8 @@ try:
                     elif metric_requested:
                         val_raw = target_row.get(metric_requested, "Tidak tersedia")
                         val_parsed = parse_number_general(val_raw)
-                        if isinstance(val_parsed, float):
-                            if 'dpd' in metric_requested.lower():
-                                val_str = f"{val_parsed:.0f}"
-                            else:
-                                val_str = f"Rp {val_parsed:,.0f}".replace(",", ".")
+                        if isinstance(val_parsed, float) and val_parsed > 0 and not any(k in metric_requested.lower() for k in ['dpd', 'date', 'tanggal', 'type', 'duration']):
+                            val_str = f"Rp {val_parsed:,.0f}".replace(",", ".")
                         else:
                             val_str = str(val_raw)
                         calculated_metrics.append(f"• **{metric_requested}**: {val_str}")
