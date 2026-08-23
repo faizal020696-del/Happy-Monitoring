@@ -100,7 +100,7 @@ st.markdown("""
 st.markdown("""
     <div class="main-header">
         <h1>🌌 Chatbot Universe SPV Happy</h1>
-        <p>Asisten AI cerdas untuk analisis data universe, sales, dan transaksi Anda.</p>
+        <p>Asisten AI cerdas untuk analisis data universe kalian.</p>
     </div>
 """, unsafe_allow_html=True)
 
