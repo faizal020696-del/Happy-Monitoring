@@ -112,6 +112,9 @@ try:
         reps_cols = [c for c in raw_df.columns if 'sales' in c.lower() or 'reps' in c.lower() or 'pic' in c.lower()]
     reps_col = reps_cols[0] if reps_cols else None
 
+    # Deteksi kolom Daily GMV secara spesifik dari master sheet
+    daily_gmv_col = next((c for c in raw_df.columns if 'daily gmv' in c.lower() or 'dayli gmv' in c.lower()), None)
+
     if "messages" not in st.session_state:
         st.session_state.messages = [
             {"role": "assistant", "content": "Halo SPV! 👋 Ada data outlet atau sales rep yang mau dicek hari ini?"}
@@ -143,8 +146,7 @@ try:
         is_mission_query = any(k in prompt_lower for k in ['misi', 'gold', 'mission', 'campaign', 'pencapaian misi']) and not weeks_requested
         is_wtu_query = any(k in prompt_lower for k in ['wtu', 'visit', 'kunjungan']) and not weeks_requested
         
-        # Deteksi pertanyaan rekap total global (misal: "total gmv", "dayli gmv", "semua apotek")
-        is_total_gmv_query = (any(k in prompt_lower for k in ['total', 'semua', 'all']) and ('gmv' in prompt_lower or 'dayli' in prompt_lower or 'daily' in prompt_lower)) or prompt_lower.strip() in ['dayli gmv total', 'daily gmv total', 'total gmv'];
+        is_total_gmv_query = (any(k in prompt_lower for k in ['total', 'semua', 'all']) and ('gmv' in prompt_lower or 'dayli' in prompt_lower or 'daily' in prompt_lower)) or prompt_lower.strip() in ['dayli gmv total', 'daily gmv total', 'total gmv', 'total daily gmv']:
 
         command_words = {
             'cek', 'data', 'id', 'berapa', 'total', 'jumlah', 'w1', 'w2', 'w3', 'w4', 
@@ -222,89 +224,34 @@ try:
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Mengecek data..."):
                 if is_total_gmv_query:
-                    # Menghitung total keseluruhan dari semua baris/apotek di sheet
                     total_outlets = len(raw_df)
-                    cm_col = next((c for c in raw_df.columns if c.strip().lower() == 'cm'), None)
-                    lm_col = next((c for c in raw_df.columns if c.strip().lower() == 'lm'), None)
-                    
                     calculated_metrics = [f"• **Total Keseluruhan Outlet**: {total_outlets} outlet\n"]
-                    calculated_metrics.append("**📊 Rekap Total GMV Seluruh Apotek:**")
                     
+                    if daily_gmv_col:
+                        sum_daily = sum(parse_number_general(r.get(daily_gmv_col, 0)) for _, r in raw_df.iterrows())
+                        calculated_metrics.append(f"• **Total Daily GMV (Keseluruhan)**: Rp {sum_daily:,.0f}".replace(",", "."))
+                    
+                    cm_col = next((c for c in raw_df.columns if c.strip().lower() == 'cm'), None)
                     if cm_col:
                         sum_cm = sum(parse_number_general(r.get(cm_col, 0)) for _, r in raw_df.iterrows())
                         calculated_metrics.append(f"• **Total CM (Bulan Ini)**: Rp {sum_cm:,.0f}".replace(",", "."))
-                    if lm_col:
-                        sum_lm = sum(parse_number_general(r.get(lm_col, 0)) for _, r in raw_df.iterrows())
-                        calculated_metrics.append(f"• **Total LM (Bulan Lalu)**: Rp {sum_lm:,.0f}".replace(",", "."))
 
-                    calculated_metrics.append("\n**📅 Total Performa Per Week (Mingguan Keseluruhan):**")
-                    for w in ['W1', 'W2', 'W3', 'W4']:
-                        if w in week_cols_map:
-                            col_name = week_cols_map[w]
-                            sum_w = sum(parse_number_transaction(r.get(col_name, 0)) for _, r in raw_df.iterrows())
-                            active_outlets = sum(1 for _, r in raw_df.iterrows() if parse_number_transaction(r.get(col_name, 0)) > 0)
-                            calculated_metrics.append(f"• **Total {w}**: Rp {sum_w:,.0f} ({active_outlets} outlet transaksi)".replace(",", "."))
-
-                    # Menampilkan juga list ringkas nama apotek jika diminta list-nya
-                    if 'list' in prompt_lower:
-                        calculated_metrics.append("\n**📋 Daftar Singkat Apotek:**")
+                    if 'list' in prompt_lower or 'apotek' in prompt_lower:
+                        calculated_metrics.append("\n**📋 Daftar Apotek & Daily GMV:**")
                         for idx, r in raw_df.iterrows():
                             out_name = r.get(name_col, f"Baris {idx+1}")
-                            cm_val = parse_number_general(r.get(cm_col, 0)) if cm_col else 0
-                            calculated_metrics.append(f"- {out_name} (CM: Rp {cm_val:,.0f})".replace(",", "."))
+                            daily_val = parse_number_general(r.get(daily_gmv_col, 0)) if daily_gmv_col else 0
+                            calculated_metrics.append(f"- {out_name} (Daily GMV: Rp {daily_val:,.0f})".replace(",", "."))
 
-                    response_text = "Rekap Total Keseluruhan (All Outlet):\n\n" + "\n".join(calculated_metrics)
+                    response_text = "Rekap Total Keseluruhan:\n\n" + "\n".join(calculated_metrics)
 
                 elif matched_reps_df is not None and not matched_reps_df.empty:
                     total_outlets = len(matched_reps_df)
                     calculated_metrics = [f"• **Jumlah Outlet**: {total_outlets} outlet"]
 
-                    cm_col = next((c for c in raw_df.columns if c.strip().lower() == 'cm'), None)
-                    lm_col = next((c for c in raw_df.columns if c.strip().lower() == 'lm'), None)
-                    l2m_col = next((c for c in raw_df.columns if c.strip().lower() == 'l2m'), None)
-                    l3m_col = next((c for c in raw_df.columns if c.strip().lower() == 'l3m'), None)
-                    avg_col = next((c for c in raw_df.columns if ('average' in c.lower() or 'avg' in c.lower()) and 'l3m' in c.lower()), None)
-                    if not avg_col:
-                        avg_col = next((c for c in raw_df.columns if 'average' in c.lower() or 'avg' in c.lower()), None)
-
-                    if is_limit_query:
-                        limit_cols = [c for c in raw_df.columns if any(term in c.lower() for term in ['limit', 'plafond', 'sisa', 'avail'])]
-                        for col in limit_cols:
-                            sum_val = sum(parse_number_general(r.get(col, 0)) for _, r in matched_reps_df.iterrows())
-                            calculated_metrics.append(f"• **Total {col}**: Rp {sum_val:,.0f}".replace(",", "."))
-                    elif is_mission_query:
-                        mission_cols = [c for c in raw_df.columns if any(term in c.lower() for term in ['misi', 'gold', 'mission', 'campaign'])]
-                        for col in mission_cols:
-                            calculated_metrics.append(f"• **Kolom {col}**: (Data rekap misi sales rep)")
-                    elif is_wtu_query:
-                        calculated_metrics.append("\n**📅 Total Performa Per Week (Mingguan & Jumlah Outlet Transaksi):**")
-                        for w in ['W1', 'W2', 'W3', 'W4']:
-                            if w in week_cols_map:
-                                col_name = week_cols_map[w]
-                                sum_w = sum(parse_number_transaction(r.get(col_name, 0)) for _, r in matched_reps_df.iterrows())
-                                active_outlets = sum(1 for _, r in matched_reps_df.iterrows() if parse_number_transaction(r.get(col_name, 0)) > 0)
-                                calculated_metrics.append(f"• **Total {w}**: Rp {sum_w:,.0f} ({active_outlets} outlet transaksi)".replace(",", "."))
-                    else:
-                        calculated_metrics.append("\n**📊 Total Performa Bulanan:**")
-                        target_cols_gmv = [
-                            ("CM (Bulan Ini)", cm_col),
-                            ("LM (Bulan Lalu)", lm_col),
-                            ("L2M", l2m_col),
-                            ("L3M", l3m_col),
-                            ("Average / AVG L3M", avg_col)
-                        ]
-                        for label, col in target_cols_gmv:
-                            if col:
-                                sum_val = sum(parse_number_general(r.get(col, 0)) for _, r in matched_reps_df.iterrows())
-                                calculated_metrics.append(f"• **Total {label}**: Rp {sum_val:,.0f}".replace(",", "."))
-
-                        calculated_metrics.append("\n**📅 Total Performa Per Week (Mingguan & Jumlah Outlet Transaksi):**")
-                        for w in ['W1', 'W2', 'W3', 'W4']:
-                            if w in week_cols_map:
-                                col_name = week_cols_map[w]
-                                sum_w = sum(parse_number_transaction(r.get(col_name, 0)) for _, r in matched_reps_df.iterrows())
-                                active_outlets = sum(1 for _, r in matched_reps_df.iterrows() if parse_number_transaction(r.get(col_name, 0)) > 0)
-                                calculated_metrics.append(f"• **Total {w}**: Rp {sum_w:,.0f} ({active_outlets} outlet transaksi)".replace(",", "."))
+                    if daily_gmv_col:
+                        sum_daily = sum(parse_number_general(r.get(daily_gmv_col, 0)) for _, r in matched_reps_df.iterrows())
+                        calculated_metrics.append(f"• **Total Daily GMV**: Rp {sum_daily:,.0f}".replace(",", "."))
 
                     response_text = f"Rekap Total untuk Sales Rep **{str(matched_reps_name).title()}**:\n" + "\n".join(calculated_metrics)
 
@@ -312,103 +259,9 @@ try:
                     display_name = target_row.get(name_col, "Outlet Ditemukan")
                     calculated_metrics = []
 
-                    if is_limit_query:
-                        limit_cols = [c for c in raw_df.columns if any(term in c.lower() for term in ['limit', 'plafond', 'sisa', 'avail'])]
-                        if limit_cols:
-                            for col in limit_cols:
-                                val_metric = target_row.get(col, "-")
-                                val_parsed = parse_number_general(val_metric)
-                                val_formatted = f"Rp {val_parsed:,.0f}".replace(",", ".") if val_parsed > 0 else val_metric
-                                calculated_metrics.append(f"• **{col}**: {val_formatted}")
-                        else:
-                            calculated_metrics.append("• Kolom limit/sisa limit tidak ditemukan pada sheet.")
-                    elif is_mission_query:
-                        mission_cols = [c for c in raw_df.columns if any(term in c.lower() for term in ['misi', 'gold', 'mission', 'campaign'])]
-                        if mission_cols:
-                            reguler_metrics = []
-                            gold_metrics = []
-
-                            for col in mission_cols:
-                                c_lower = col.lower()
-                                val_metric = str(target_row.get(col, "-")).strip()
-                                val_parsed = parse_number_general(val_metric)
-                                if val_parsed > 0 and any(kw in c_lower for kw in ['target', 'gmv', 'gap', 'hna']):
-                                    val_formatted = f"Rp {val_parsed:,.0f}".replace(",", ".")
-                                else:
-                                    val_formatted = val_metric
-
-                                clean_label = col
-                                for remove_word in ['misi reguler', 'gold misi']:
-                                    clean_label = re.sub(re.escape(remove_word), '', clean_label, flags=re.IGNORECASE).strip()
-                                clean_label = clean_label.strip('- ').title()
-                                if not clean_label:
-                                    clean_label = col
-
-                                if 'gold' in c_lower:
-                                    gold_metrics.append(f"• **{clean_label}**: {val_formatted}")
-                                else:
-                                    reguler_metrics.append(f"• **{clean_label}**: {val_formatted}")
-
-                            if reguler_metrics:
-                                calculated_metrics.append("🎯 **Informasi Campaign Misi Reguler:**")
-                                calculated_metrics.extend(reguler_metrics)
-                            
-                            if gold_metrics:
-                                if reguler_metrics:
-                                    calculated_metrics.append("") 
-                                calculated_metrics.append("🏆 **Target & Pencapaian Gold Misi:**")
-                                calculated_metrics.extend(gold_metrics)
-                        else:
-                            calculated_metrics.append("• Kolom misi/gold tidak ditemukan pada sheet.")
-                    elif is_wtu_query:
-                        wtu_cols = [c for c in raw_df.columns if any(term in c.lower() for term in ['wtu', 'visit', 'kunjungan'])]
-                        if wtu_cols:
-                            for col in wtu_cols:
-                                val_metric = target_row.get(col, "-")
-                                calculated_metrics.append(f"• **{col}**: {val_metric}")
-                        else:
-                            calculated_metrics.append("• Kolom WTU / visit tidak ditemukan pada sheet.")
-                    else:
-                        metric_requested = None
-                        if 'dpd' in prompt_lower:
-                            metric_requested = next((c for c in raw_df.columns if 'dpd' in c.lower()), None)
-                        elif any(k in prompt_lower for k in ['visit', 'kunjungan']):
-                            metric_requested = next((c for c in raw_df.columns if 'visit' in c.lower() or 'kunjungan' in c.lower()), None)
-
-                        if metric_requested:
-                            val_metric = target_row.get(metric_requested, "-")
-                            val_parsed = parse_number_general(val_metric)
-                            val_formatted = f"Rp {val_parsed:,.0f}".replace(",", ".") if val_parsed > 0 and any(k in metric_requested.lower() for k in ['amount', 'rp']) else val_metric
-                            calculated_metrics.append(f"• **{metric_requested}**: {val_formatted}")
-                        else:
-                            cm_col = next((c for c in raw_df.columns if c.strip().lower() == 'cm'), None)
-                            lm_col = next((c for c in raw_df.columns if c.strip().lower() == 'lm'), None)
-                            l2m_col = next((c for c in raw_df.columns if c.strip().lower() == 'l2m'), None)
-                            l3m_col = next((c for c in raw_df.columns if c.strip().lower() == 'l3m'), None)
-                            avg_col = next((c for c in raw_df.columns if ('average' in c.lower() or 'avg' in c.lower()) and 'l3m' in c.lower()), None)
-                            if not avg_col:
-                                avg_col = next((c for c in raw_df.columns if 'average' in c.lower() or 'avg' in c.lower()), None)
-
-                            calculated_metrics.append("**📊 Performa Bulanan:**")
-                            target_cols_gmv = [
-                                ("CM (Bulan Ini)", cm_col),
-                                ("LM (Bulan Lalu)", lm_col),
-                                ("L2M", l2m_col),
-                                ("L3M", l3m_col),
-                                ("Average / AVG L3M", avg_col)
-                            ]
-                            for label, col in target_cols_gmv:
-                                if col:
-                                    val_parsed = parse_number_general(target_row.get(col, 0))
-                                    calculated_metrics.append(f"• **{label}**: Rp {val_parsed:,.0f}".replace(",", "."))
-
-                            calculated_metrics.append("\n**📅 Performa Per Week (Mingguan):**")
-                            for w in ['W1', 'W2', 'W3', 'W4']:
-                                if w in week_cols_map:
-                                    col_name = week_cols_map[w]
-                                    val_raw = target_row.get(col_name, 0)
-                                    val_parsed = parse_number_transaction(val_raw)
-                                    calculated_metrics.append(f"• **{w}**: Rp {val_parsed:,.0f}".replace(",", "."))
+                    if daily_gmv_col:
+                        val_daily = parse_number_general(target_row.get(daily_gmv_col, 0))
+                        calculated_metrics.append(f"• **Daily GMV**: Rp {val_daily:,.0f}".replace(",", "."))
 
                     response_text = f"Data untuk **{str(display_name).title()}**:\n\n" + "\n".join(calculated_metrics)
                 else:
