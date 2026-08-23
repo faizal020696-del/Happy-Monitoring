@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-from openai import OpenAI
 import re
 import io
 import requests
@@ -69,7 +68,7 @@ try:
             
     raw_df = pd.read_csv(io.StringIO(csv_text), skiprows=header_idx, dtype=str)
     
-    # Normalisasi nama kolom agar persis W1, W2, W3, W4 tanpa angka di belakangnya
+    # Normalisasi nama kolom agar bersih menjadi W1, W2, W3, W4
     new_cols = []
     for c in raw_df.columns:
         c_clean = str(c).strip()
@@ -79,11 +78,6 @@ try:
         else:
             new_cols.append(c_clean)
     raw_df.columns = new_cols
-
-    client = OpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=OPENROUTER_API_KEY,
-    )
 
     if "messages" not in st.session_state:
         st.session_state.messages = [
@@ -102,10 +96,10 @@ try:
 
         prompt_lower = prompt.lower()
         
-        # 1. Deteksi minggu apa saja yang diminta secara eksplisit
+        # 1. Deteksi minggu yang diminta
         weeks_requested = [w for w in ['W1', 'W2', 'W3', 'W4'] if re.search(r'\b' + w.lower() + r'\b', prompt_lower)]
 
-        # 2. Buang kata kunci sampah dari prompt untuk murni mengambil nama toko/reps
+        # 2. Bersihkan prompt dari kata-kata umum untuk mendapatkan nama toko/reps
         clean_prompt = prompt_lower
         clean_prompt = re.sub(r'\bdi([a-z]+)', r'\1', clean_prompt)
 
@@ -135,7 +129,6 @@ try:
         entity_tokens = extracted_entity.split()
 
         if entity_tokens:
-            # Hanya cari di kolom teks seperti 'Pharmacy Name' atau kolom nama/assignment agar aman
             name_cols = [c for c in raw_df.columns if any(k in c.lower() for k in ['name', 'nama', 'pharmacy', 'toko', 'apotek', 'assignment', 'reps'])]
             if not name_cols:
                 name_cols = raw_df.columns
@@ -150,7 +143,6 @@ try:
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Mengecek data..."):
                 if len(sub_df) > 0:
-                    # 3. Tentukan kolom target secara presisi
                     target_columns = []
                     if weeks_requested:
                         target_columns = [w for w in weeks_requested if w in sub_df.columns]
@@ -182,29 +174,9 @@ try:
                             calculated_metrics.append(f"• **{col}**: Rp 0")
 
                     calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Data tidak ditemukan."
-
-                    system_prompt = f"""
-Kamu adalah Assistant Data SPV.
-DATA UNTUK: '{extracted_entity.title()}'.
-PERTANYAAN USER: "{prompt}"
-HASIL KALKULASI:
-{calc_summary_str}
-Jawab langsung ke inti metrik yang diminta user secara rapi dan akurat berdasarkan hasil kalkulasi di atas.
-"""
-                    response_text = ""
-                    try:
-                        completion = client.chat.completions.create(
-                            model="google/gemini-2.0-flash-lite-001:free",
-                            messages=[{"role": "user", "content": system_prompt}],
-                            temperature=0.0
-                        )
-                        if completion.choices and len(completion.choices) > 0:
-                            response_text = completion.choices[0].message.content.strip()
-                    except Exception:
-                        response_text = ""
-
-                    if not response_text:
-                        response_text = f"Data **{extracted_entity.title()}**:\n{calc_summary_str}"
+                    
+                    # Langsung tampilkan teks hasil kalkulasi asli tanpa lewat AI agar angka tidak berubah/halusinasi
+                    response_text = f"Data untuk **{extracted_entity.title()}**:\n{calc_summary_str}"
 
                 else:
                     searched_name = extracted_entity.title() if extracted_entity else prompt
