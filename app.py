@@ -56,13 +56,16 @@ try:
     csv_url = convert_to_csv_url(SHEET_URL)
     df = pd.read_csv(csv_url)
 
-    # --- PEMBERSIHAN KOLOM ANGKA (MENCEGAH SALAH HITUNG) ---
-    # Membersihkan karakter selain angka pada kolom yang berpotensi angka (misal GMV)
+    # --- PEMBERSIHAN KOLOM ANGKA YANG AMAN ---
     for col in df.columns:
         if 'gmv' in col.lower() or 'target' in col.lower() or 'sales' in col.lower():
-            if df[col].dtype == object:
-                df[col] = df[col].astype(str).str.replace(r'[^0-9\-]', '', regex=True)
-                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+            # Ubah dulu jadi string, buang karakter non-digit (seperti titik, koma, huruf, atau simbol mata uang)
+            df[col] = (
+                df[col].astype(str)
+                .str.replace(r'[^0-9]', '', regex=True)
+            )
+            # Kosongkan string kosong, lalu ubah ke tipe angka (Numeric)
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
     client = genai.Client(api_key=API_KEY)
 
@@ -80,16 +83,13 @@ try:
         st.session_state.messages.append({"role": "user", "content": prompt})
 
         # --- LOGIKA PENCARIAN & KALKULASI PYTHON SPESIFIK ---
-        # Jika user menanyakan nama sales tertentu (misal Mulyanto), kita filter langsung datanya via Python
         filtered_context = ""
         prompt_lower = prompt.lower()
         
-        # Deteksi nama sales di prompt
         sales_names = ["sulistiana", "gde", "rizki", "mulyanto", "afrianto"]
         matched_sales = [name for name in sales_names if name in prompt_lower]
         
         if matched_sales:
-            # Cari kolom yang merepresentasikan nama sales/rep
             rep_col = next((col for col in df.columns if 'rep' in col.lower() or 'sales' in col.lower() or 'nama' in col.lower()), None)
             gmv_col = next((col for col in df.columns if 'gmv' in col.lower()), None)
             
@@ -97,7 +97,7 @@ try:
                 for name in matched_sales:
                     sub_df = df[df[rep_col].astype(str).str.lower().str.contains(name)]
                     exact_sum = sub_df[gmv_col].sum()
-                    filtered_context += f"\n[DATA VALID PYTHON UNTUK {name.upper()}]: Total baris ditemukan: {len(sub_df)} baris. Total GMV pasti: {exact_sum:,.0f}\n"
+                    filtered_context += f"\n[DATA VALID PYTHON UNTUK {name.upper()}]: Total baris ditemukan: {len(sub_df)} baris. Total GMV pasti: {int(exact_sum):,}\n"
 
         data_str = df.to_csv(index=False)
         system_prompt = f"""
