@@ -69,7 +69,7 @@ try:
             
     raw_df = pd.read_csv(io.StringIO(csv_text), skiprows=header_idx, dtype=str)
     
-    # PERBAIKAN UTAMA: Bersihkan nama kolom agar W1: 241, W2: 248 terbaca murni sebagai W1, W2, W3, W4
+    # Normalisasi nama kolom agar persis W1, W2, W3, W4 tanpa angka di belakangnya
     new_cols = []
     for c in raw_df.columns:
         c_clean = str(c).strip()
@@ -101,8 +101,11 @@ try:
         st.session_state.messages.append({"role": "user", "content": prompt})
 
         prompt_lower = prompt.lower()
-        weeks_requested = [w for w in ['w1', 'w2', 'w3', 'w4'] if re.search(r'\b' + w + r'\b', prompt_lower)]
+        
+        # 1. Deteksi minggu apa saja yang diminta secara eksplisit
+        weeks_requested = [w for w in ['W1', 'W2', 'W3', 'W4'] if re.search(r'\b' + w.lower() + r'\b', prompt_lower)]
 
+        # 2. Buang kata kunci sampah dari prompt untuk murni mengambil nama toko/reps
         clean_prompt = prompt_lower
         clean_prompt = re.sub(r'\bdi([a-z]+)', r'\1', clean_prompt)
 
@@ -132,11 +135,13 @@ try:
         entity_tokens = extracted_entity.split()
 
         if entity_tokens:
-            ignored_cols = [c for c in raw_df.columns if any(k in c.lower() for k in ['alamat', 'address', 'jalan', 'kota'])]
-            searchable_cols = [c for c in raw_df.columns if c not in ignored_cols]
+            # Hanya cari di kolom teks seperti 'Pharmacy Name' atau kolom nama/assignment agar aman
+            name_cols = [c for c in raw_df.columns if any(k in c.lower() for k in ['name', 'nama', 'pharmacy', 'toko', 'apotek', 'assignment', 'reps'])]
+            if not name_cols:
+                name_cols = raw_df.columns
 
-            for idx, row in raw_df[searchable_cols].iterrows():
-                row_text = " ".join([str(val) for val in row.values]).lower()
+            for idx, row in raw_df[name_cols].iterrows():
+                row_text = " ".join([str(val) for val in row.values if pd.notna(val)]).lower()
                 if all(token in row_text for token in entity_tokens):
                     matched_indices.append(idx)
             
@@ -145,21 +150,21 @@ try:
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Mengecek data..."):
                 if len(sub_df) > 0:
+                    # 3. Tentukan kolom target secara presisi
                     target_columns = []
                     if weeks_requested:
-                        for w in weeks_requested:
-                            target_columns.extend([c for c in sub_df.columns if c.upper() == w.upper()])
+                        target_columns = [w for w in weeks_requested if w in sub_df.columns]
                     
                     if not target_columns:
-                        important_keys = ['gmv', 'cm', 'lm', 'l2m', 'l3m', 'sales', 'limit', 'dpd', 'misi', 'visit', 'avg', 'average', 'trx', 'date', 'W1', 'W2', 'W3', 'W4']
-                        target_columns = [c for c in sub_df.columns if any(k in c for k in important_keys)]
+                        important_keys = ['GMV', 'CM', 'LM', 'L2M', 'L3M', 'Sales', 'Limit', 'DPD', 'Misi', 'Visit', 'Avg', 'Trx', 'W1', 'W2', 'W3', 'W4']
+                        target_columns = [c for c in sub_df.columns if any(k.upper() == c.upper() for k in important_keys)]
 
                     target_columns = list(dict.fromkeys(target_columns))
 
                     calculated_metrics = []
                     for col in target_columns:
-                        col_lower = col.lower()
-                        if any(ignore in col_lower for ignore in ['id', 'code', 'telepon', '%', 'nama', 'toko', 'apotek', 'address', 'sales rep', 'reps', 'salesman', 'unnamed']):
+                        col_upper = col.upper()
+                        if any(ignore in col_upper for ignore in ['ID', 'CODE', 'TELEPON', '%', 'NAMA', 'TOKO', 'APOTEK', 'ADDRESS', 'REPS', 'SALESMAN', 'UNNAMED']):
                             continue
 
                         series_vals = sub_df[col].dropna()
@@ -167,7 +172,7 @@ try:
                             val_raw = str(series_vals.iloc[-1]).strip()
                             if val_raw and val_raw.lower() not in ['nan', 'none', '']:
                                 val_parsed = parse_number_exact(val_raw)
-                                if val_parsed > 0 or any(w in col_lower for w in ['w1', 'w2', 'w3', 'w4', 'gmv', 'sales', 'limit']):
+                                if val_parsed > 0 or col_upper in ['W1', 'W2', 'W3', 'W4', 'GMV', 'SALES', 'LIMIT']:
                                     calculated_metrics.append(f"• **{col}**: Rp {val_parsed:,.0f}".replace(",", "."))
                                 else:
                                     calculated_metrics.append(f"• **{col}**: {val_raw}")
@@ -184,7 +189,7 @@ DATA UNTUK: '{extracted_entity.title()}'.
 PERTANYAAN USER: "{prompt}"
 HASIL KALKULASI:
 {calc_summary_str}
-Jawab langsung ke inti metrik yang diminta user secara rapi dan akurat berdasarkan hasil kalkulasi.
+Jawab langsung ke inti metrik yang diminta user secara rapi dan akurat berdasarkan hasil kalkulasi di atas.
 """
                     response_text = ""
                     try:
