@@ -121,61 +121,59 @@ try:
 
         prompt_lower = prompt.lower()
         
-        # Cari nama Reps utama
-        target_reps = None
-        for name in ['sulistiana', 'afrianto', 'rizki', 'gde', 'mulyanto']:
-            if name in prompt_lower:
-                target_reps = name
-                break
+        # Ekstrak kata kunci pencarian
+        stop_words = [
+            'berapa', 'total', 'gmv', 'pencapaian', 'capaian', 'misi', 'reguler', 'gold', 
+            'target', 'data', 'untuk', 'bulan', 'ini', 'kemarin', 'di', 'dan', 'yang', 
+            'dari', 'tentang', 'tim', 'gw', 'saya', 'tolong', 'coba', 'apotek', 'apotik'
+        ]
+        
+        tokens = [w for w in prompt_lower.split() if w not in stop_words and len(w) > 1]
+        if not tokens:
+            tokens = [w for w in prompt_lower.split() if len(w) > 2]
 
-        # Identifikasi kolom khusus Reps/Sales & GMV
-        reps_cols = [c for c in df.columns if any(k in c.lower() for k in ['reps', 'sales', 'nama reps'])]
-        gmv_cols = [c for c in df.columns if any(k in c.lower() for k in ['gmv', 'ach', 'total harga', 'nominal', 'sales'])]
-        status_cols = [c for c in df.columns if 'status' in c.lower()]
-
-        filtered_df = df.copy()
-
-        # 1. Filter Status (Abaikan canceled/failed jika kolom status ada)
-        if status_cols:
-            s_col = status_cols[0]
-            filtered_df = filtered_df[~filtered_df[s_col].astype(str).str.lower().isin(['canceled', 'cancel', 'failed', 'batal'])]
-
-        # 2. Filter hanya pada kolom khusus Reps
-        if target_reps and reps_cols:
-            r_col = reps_cols[0]
-            filtered_df = filtered_df[filtered_df[r_col].astype(str).str.lower().str.contains(target_reps)]
-        elif not target_reps:
-            # Jika tanya Total Team / Happy
-            stop_words = ['berapa', 'total', 'gmv', 'pencapaian', 'capaian', 'data', 'untuk', 'bulan', 'ini', 'di', 'dan', 'yang', 'dari', 'gw', 'saya']
-            tokens = [w for w in prompt_lower.split() if w not in stop_words and len(w) > 1]
-            if tokens:
-                row_combined = df_clean_text.apply(lambda row: " ".join(row.values).lower(), axis=1)
-                filtered_df = df[row_combined.apply(lambda x: any(t in x for t in tokens))]
+        sub_df = pd.DataFrame()
+        if tokens:
+            row_combined = df_clean_text.apply(lambda row: " ".join(row.values).lower(), axis=1)
+            # Match jika kata kunci ada di baris data
+            mask_any = row_combined.apply(lambda x: any(t in x for t in tokens))
+            sub_df = df[mask_any]
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Kalkulasi data presisi..."):
-                if len(filtered_df) > 0 and gmv_cols:
+                if len(sub_df) > 0:
                     calculated_metrics = []
-                    for g_col in gmv_cols:
-                        if not any(ignore in g_col.lower() for ignore in ['date', 'tanggal', 'id', 'code', 'durasi']):
-                            total_val = filtered_df[g_col].apply(parse_number_exact).sum()
-                            if total_val > 0:
-                                calculated_metrics.append(f"- **{g_col}**: Rp {total_val:,.0f}".replace(",", "."))
-
-                    calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Tidak ada kolom angka yang terhitung."
                     
+                    # Hitung kolom yang berisi nilai nominal/angka
+                    for col in sub_df.columns:
+                        col_lower = col.lower()
+                        # Abaikan kolom ID, Tanggal, atau Kode
+                        if not any(ignore in col_lower for ignore in ['date', 'tanggal', 'id', 'code', 'durasi', 'no', 'phone']):
+                            num_series = sub_df[col].apply(parse_number_exact)
+                            total_val = num_series.sum()
+                            if total_val > 0:
+                                calculated_metrics.append(f"- **{col}**: Rp {total_val:,.0f}".replace(",", "."))
+
+                    calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Tidak ada kolom angka nominal terhitung."
+                    
+                    sub_df_sample = sub_df.dropna(how='all', axis=1).head(10)
+                    data_table_md = sub_df_sample.to_markdown(index=False)
+
                     system_prompt = f"""
 Kamu adalah Senior Data Analyst SPV.
 
-DITEMUKAN HASIL KALKULASI PRESISI PYTHON:
+DITEMUKAN {len(sub_df)} BARIS DATA. HASIL KALKULASI PRESISI PYTHON:
 {calc_summary_str}
+
+SAMPEL TABEL DATA:
+{data_table_md}
 
 Pertanyaan User: "{prompt}"
 
-Instruksi:
-1. GUNAKAN ANGKA DARI LIST DI ATAS UNTUK MENJAWAB TOTAL GMV/PENCAPAIAN.
-2. Jawab secara langsung di kalimat pertama.
-3. DILARANG MELAKUKAN PENJUMLAHAN MANUAL DENGAN RUMUS LAIN.
+Instruksi Menjawab:
+1. GUNAKAN ANGKA HASIL KALKULASI PYTHON DI ATAS UNTUK MENJAWAB AKURAT.
+2. Jawab langsung di kalimat pertama dengan menyebutkan entitas dan angkanya.
+3. DILARANG MELAKUKAN PENJUMLAHAN MANUAL ULANG.
 """
                     response_text = ""
                     models_to_try = [
@@ -203,7 +201,8 @@ Instruksi:
                         response_text = f"Berikut total angkanya:\n\n{calc_summary_str}"
 
                 else:
-                    response_text = "Maaf bro, data untuk pencarian tersebut tidak ditemukan di Google Sheet."
+                    search_kw = ' '.join(tokens) if tokens else prompt
+                    response_text = f"Maaf bro, data untuk **'{search_kw}'** tidak ditemukan di Google Sheet."
 
                 st.markdown(response_text)
         
