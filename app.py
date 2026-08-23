@@ -16,17 +16,10 @@ st.set_page_config(
 # Kustomisasi Tampilan Visual (CSS Aman)
 st.markdown("""
     <style>
-    /* Sembunyikan elemen internal Streamlit yang bisa disembunyikan */
     #MainMenu {visibility: hidden !important;}
     header {visibility: hidden !important;}
     footer {visibility: hidden !important;}
-    
-    /* Background Utama */
-    .stApp {
-        background-color: #f8fafc;
-    }
-    
-    /* Header Container dengan Gradient */
+    .stApp { background-color: #f8fafc; }
     .main-header {
         background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
         padding: 2.5rem 2rem;
@@ -36,35 +29,13 @@ st.markdown("""
         box-shadow: 0 10px 25px -5px rgba(79, 70, 229, 0.2);
         margin-bottom: 2rem;
     }
-    .main-header h1 {
-        color: white !important;
-        font-weight: 800;
-        font-size: 2.2rem;
-        margin-bottom: 0.5rem;
-    }
-    .main-header p {
-        color: #e0e7ff !important;
-        font-size: 1rem;
-        margin: 0;
-    }
-
-    /* Kustomisasi Gelembung Chat */
-    .stChatMessage {
-        border-radius: 16px !important;
-        padding: 1rem 1.2rem !important;
-        margin-bottom: 0.8rem !important;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.03) !important;
-    }
-    
-    /* Input Chat di Bawah Diberi Space Agar Tidak Tertutup Badge */
-    .stChatInputContainer {
-        border-radius: 15px !important;
-        bottom: 20px !important;
-    }
+    .main-header h1 { color: white !important; font-weight: 800; font-size: 2.2rem; margin-bottom: 0.5rem; }
+    .main-header p { color: #e0e7ff !important; font-size: 1rem; margin: 0; }
+    .stChatMessage { border-radius: 16px !important; padding: 1rem 1.2rem !important; margin-bottom: 0.8rem !important; box-shadow: 0 2px 5px rgba(0,0,0,0.03) !important; }
+    .stChatInputContainer { border-radius: 15px !important; bottom: 20px !important; }
     </style>
 """, unsafe_allow_html=True)
 
-# Tampilan Header
 st.markdown("""
     <div class="main-header">
         <h1>🤖 Chatbot Universe SPV Happy</h1>
@@ -85,6 +56,14 @@ try:
     csv_url = convert_to_csv_url(SHEET_URL)
     df = pd.read_csv(csv_url)
 
+    # --- PEMBERSIHAN KOLOM ANGKA (MENCEGAH SALAH HITUNG) ---
+    # Membersihkan karakter selain angka pada kolom yang berpotensi angka (misal GMV)
+    for col in df.columns:
+        if 'gmv' in col.lower() or 'target' in col.lower() or 'sales' in col.lower():
+            if df[col].dtype == object:
+                df[col] = df[col].astype(str).str.replace(r'[^0-9\-]', '', regex=True)
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+
     client = genai.Client(api_key=API_KEY)
 
     if "messages" not in st.session_state:
@@ -100,38 +79,43 @@ try:
             st.markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
 
-        # --- OPTIMASI ANGKA (MENGHINDARI HALUSINASI AI) ---
-        # Mencari tahu kolom mana yang berupa angka untuk dibantu hitung via Pandas
-        numeric_summary = ""
+        # --- LOGIKA PENCARIAN & KALKULASI PYTHON SPESIFIK ---
+        # Jika user menanyakan nama sales tertentu (misal Mulyanto), kita filter langsung datanya via Python
+        filtered_context = ""
         prompt_lower = prompt.lower()
         
-        if any(keyword in prompt_lower for keyword in ["total", "jumlah", "rata-rata", "sum", "average", "gmv"]):
-            # Coba cari kolom numerik secara otomatis
-            numeric_cols = df.select_dtypes(include=['number']).columns
-            if len(numeric_cols) > 0:
-                calc_results = []
-                for col in numeric_cols:
-                    total_val = df[col].sum()
-                    mean_val = df[col].mean()
-                    calc_results.append(f"- Kolom '{col} -> Total: {total_val:,.2f}, Rata-rata: {mean_val:,.2f}")
-                numeric_summary = "\n[HASIL PERHITUNGAN PYTHON RESMI - GUNAKAN ANGKA INI JIKA DITANYAKAN TOTAL/RATA-RATA]:\n" + "\n".join(calc_results)
+        # Deteksi nama sales di prompt
+        sales_names = ["sulistiana", "gde", "rizki", "mulyanto", "afrianto"]
+        matched_sales = [name for name in sales_names if name in prompt_lower]
+        
+        if matched_sales:
+            # Cari kolom yang merepresentasikan nama sales/rep
+            rep_col = next((col for col in df.columns if 'rep' in col.lower() or 'sales' in col.lower() or 'nama' in col.lower()), None)
+            gmv_col = next((col for col in df.columns if 'gmv' in col.lower()), None)
+            
+            if rep_col and gmv_col:
+                for name in matched_sales:
+                    sub_df = df[df[rep_col].astype(str).str.lower().str.contains(name)]
+                    exact_sum = sub_df[gmv_col].sum()
+                    filtered_context += f"\n[DATA VALID PYTHON UNTUK {name.upper()}]: Total baris ditemukan: {len(sub_df)} baris. Total GMV pasti: {exact_sum:,.0f}\n"
 
         data_str = df.to_csv(index=False)
         system_prompt = f"""
-Kamu adalah sistem database analitik yang presisi tinggi. Saat user meminta detail atau total angka, dilarang melakukan estimasi atau tebakan matematis sendiri. Tarik datanya secara mentah dari baris yang sesuai atau gunakan hasil kalkulasi Python yang sudah disediakan di bawah jika relevan.
+Kamu adalah sistem database analitik yang sangat akurat. Dilarang menebak angka. 
+Jika ada bagian [DATA VALID PYTHON] di bawah ini, KAMU WAJIB MENGGUNAKAN ANGKA TERSEBUT SECARA MUTLAK untuk menjawab pertanyaan user.
 
-Berikut adalah data terbaru dalam format CSV:
+Berikut adalah data keseluruhan dalam format CSV:
 {data_str}
 
-{numeric_summary}
+{filtered_context}
 
-Tugasmu: Jawab pertanyaan user secara akurat HANYA berdasarkan data dan kalkulasi di atas dalam bahasa Indonesia yang rapi, profesional, dan komunikatif.
+Tugasmu: Jawab pertanyaan user secara akurat berdasarkan data dan hasil kalkulasi Python di atas dalam bahasa Indonesia yang rapi dan profesional.
 """
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Menganalisis data..."):
                 response = client.models.generate_content(
-                    model='gemini-3.6-flash',  # Menggunakan versi model flash yang stabil
+                    model='gemini-2.5-flash',
                     contents=f"{system_prompt}\n\nPertanyaan User: {prompt}"
                 )
                 st.markdown(response.text)
