@@ -13,10 +13,10 @@ st.set_page_config(
     layout="centered"
 )
 
-# Kustomisasi Tampilan Visual (CSS) & Sembunyikan Menu Bawaan
+# Kustomisasi Tampilan Visual (CSS) & Sembunyikan Seluruh Element Bawaan Streamlit
 st.markdown("""
     <style>
-    /* Sembunyikan Header, Footer, Toolbar, Ikon GitHub, dan Fork */
+    /* Sembunyikan Header, Footer, Status, Toolbar, dan Badge Streamlit */
     #MainMenu {visibility: hidden;}
     header {visibility: hidden;}
     footer {visibility: hidden;}
@@ -25,6 +25,12 @@ st.markdown("""
     [data-testid="stDecoration"] {display: none !important;}
     [data-testid="stStatusWidget"] {display: none !important;}
     button[title="View source"] {display: none !important;}
+    
+    /* Sembunyikan Footer 'Created by' dan tombol merah 'Hosted with Streamlit' */
+    div[class*="viewerBadge"] {display: none !important;}
+    [data-testid="stFooter"] {display: none !important;}
+    .styles_stateContainer__2mB3_ {display: none !important;}
+    iframe[title="streamlit_badge"] {display: none !important;}
     
     /* Background Utama */
     .stApp {
