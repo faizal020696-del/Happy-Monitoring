@@ -44,44 +44,34 @@ def parse_number_general(val):
     if not val_str or val_str.lower() in ['nan', 'null', 'none', '', '-', ' - ']:
         return 0.0
     
-    # Jika format di sheet mengandung format mata uang atau desimal desimal (misal 39,841.00 atau 39.841)
-    # Kita bersihkan karakter selain angka, titik, dan koma
     cleaned = re.sub(r'[^0-9\,\.]', '', val_str)
     if not cleaned:
         return 0.0
     
     try:
-        # Jika ada titik dan koma (format luar/lokal campuran)
         if '.' in cleaned and ',' in cleaned:
             if cleaned.rfind('.') < cleaned.rfind(','):
-                # Format koma sebagai desimal (contoh: 39.841,50)
                 cleaned = cleaned.replace('.', '').replace(',', '.')
             else:
-                # Format titik sebagai desimal (contoh: 39,841.50)
                 cleaned = cleaned.replace(',', '')
         elif '.' in cleaned:
             parts = cleaned.split('.')
-            # Jika titik lebih dari satu, asumsikan itu pemisah ribuan (contoh: 39.841.200)
             if len(parts) > 2:
                 cleaned = "".join(parts)
             elif len(parts) == 2 and len(parts[1]) == 3:
-                # Titik di belakang 3 digit seringkali adalah pemisah ribuan di format Indonesia (misal: 39.841)
                 cleaned = "".join(parts)
         elif ',' in cleaned:
             parts = cleaned.split(',')
             if len(parts) > 2:
                 cleaned = "".join(parts)
             elif len(parts) == 2 and len(parts[1]) <= 2:
-                # Koma sebagai desimal (contoh: 39841,5)
                 cleaned = cleaned.replace(',', '.')
             else:
-                # Koma sebagai pemisah ribuan
                 cleaned = cleaned.replace(',', '')
         
         val_float = float(cleaned)
         return val_float
     except Exception:
-        # Fallback terakhir: ambil semua digit murninya saja jika gagal parsing
         digits_only = re.sub(r'[^0-9]', '', val_str)
         if digits_only:
             return float(digits_only)
@@ -149,7 +139,7 @@ try:
             weeks_requested.append('W4')
 
         if ('wtu' in prompt_lower or 'transaksi' in prompt_lower) and not weeks_requested:
-            if not any(k in prompt_lower for k in ['w1', 'w2', 'w3', 'w4', 'week', 'minggu', 'gmv', 'total', 'cm', 'lm', 'l2m', 'l3m']):
+            if not any(k in prompt_lower for k in ['w1', 'w2', 'w3', 'w4', 'week', 'minggu', 'gmv', 'total', 'cm', 'lm', 'l2m', 'l3m', 'lalu', 'kemarin']):
                 weeks_requested = ['W1', 'W2', 'W3', 'W4']
 
         # Deteksi pencarian metrik khusus (CM, LM, L2M, L3M, Average, DPD, dll)
@@ -165,7 +155,7 @@ try:
                     if c.strip().lower() == 'l2m':
                         metric_requested = c
                         break
-            elif re.search(r'\blm\b', prompt_lower):
+            elif re.search(r'\blm\b', prompt_lower) or 'lalu' in prompt_lower or 'kemarin' in prompt_lower:
                 for c in raw_df.columns:
                     if c.strip().lower() == 'lm':
                         metric_requested = c
