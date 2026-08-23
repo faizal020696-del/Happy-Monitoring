@@ -97,7 +97,6 @@ try:
         prompt_lower = prompt.lower()
         weeks_requested = [w for w in ['W1', 'W2', 'W3', 'W4'] if re.search(r'\b' + w.lower() + r'\b', prompt_lower)]
 
-        # Bersihkan prompt untuk mendapatkan nama toko/entity
         clean_prompt = prompt_lower
         junk_words = [
             r'\bberapa\b', r'\btotal\b', r'\bjumlah\b', r'\byang\b', r'\btersedia\b', r'\bada\b', 
@@ -120,24 +119,36 @@ try:
             extracted_entity = prompt
 
         matched_indices = []
-        
-        # Fokuskan pencarian khusus pada kolom nama toko/farmasi saja agar tidak nyasar ke kolom lain
         name_cols = [c for c in raw_df.columns if any(k in c.lower() for k in ['name', 'nama', 'pharmacy', 'toko', 'apotek'])]
         if not name_cols:
             name_cols = raw_df.columns
 
-        # Pecah kata kunci menjadi token yang wajib ada (misal: "gebang" dan "farma")
         search_tokens = [t for t in extracted_entity.split() if len(t) > 2]
         if not search_tokens:
             search_tokens = extracted_entity.split()
 
         for idx, row in raw_df[name_cols].iterrows():
             row_text = " ".join([str(val) for val in row.values if pd.notna(val)]).lower()
-            # Baris dianggap cocok JIKA KATA UTAMA (misal 'gebang' atau 'farma') benar-benar ada di dalam teks kolom nama toko
             if search_tokens and all(token in row_text for token in search_tokens):
+                # Validasi tambahan: abaikan baris yang terindikasi sebagai total/summary wilayah besar jika ada baris outlet detailnya
                 matched_indices.append(idx)
 
-        sub_df = raw_df.loc[matched_indices] if matched_indices else pd.DataFrame(columns=raw_df.columns)
+        # Filter baris: Jika ada banyak baris yang cocok, buang baris yang nilai W1-nya tidak masuk akal (diatas 1 miliar misal, atau baris pertama jika itu rekap)
+        valid_indices = []
+        for idx in matched_indices:
+            row_data = raw_df.loc[idx]
+            # Cek nilai W1 untuk memastikan ini bukan baris rekap triliunan
+            w1_val = parse_number_exact(row_data.get('W1', 0))
+            if w1_val < 1_000_000_000: # Asumsi transaksi mingguan toko normal di bawah 1 miliar
+                valid_indices.append(idx)
+        
+        # Jika semua terfilter habis (atau memang angkanya besar), ambil baris terakhir dari hasil pencocokan (biasanya baris detail ada di bawah rekap)
+        if not valid_indices and matched_indices:
+            valid_indices = [matched_indices[-1]]
+        elif not valid_indices:
+            valid_indices = matched_indices
+
+        sub_df = raw_df.loc[valid_indices] if valid_indices else pd.DataFrame(columns=raw_df.columns)
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Mengecek data..."):
@@ -152,10 +163,7 @@ try:
                     target_columns = [c for c in target_columns if c in sub_df.columns]
 
                     calculated_metrics = []
-                    # Ambil baris pertama yang benar-benar cocok namanya
                     target_row = sub_df.iloc[0]
-
-                    # Ambil nama asli toko dari baris tersebut untuk kepastian informasi
                     display_name = target_row.get(name_cols[0], extracted_entity.title())
 
                     for col in target_columns:
@@ -167,7 +175,7 @@ try:
                     response_text = f"Data untuk **{str(display_name).title()}**:\n{calc_summary_str}"
 
                 else:
-                    response_text = f"Waduh, data untuk **'{extracted_entity.title()}'** tidak ditemukan di kolom nama toko Google Sheet."
+                    response_text = f"Waduh, data untuk **'{extracted_entity.title()}'** tidak ditemukan di Google Sheet."
 
                 st.markdown(response_text)
         
