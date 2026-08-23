@@ -79,7 +79,7 @@ try:
             
     raw_df = pd.read_csv(io.StringIO(csv_text), skiprows=header_idx, dtype=str)
     
-    # Clean nama kolom
+    # Clean nama kolom dengan aman
     new_cols = []
     for c in raw_df.columns:
         c_clean = str(c).strip()
@@ -172,20 +172,20 @@ try:
         clean_prompt = re.sub(r'[^\w\s]', ' ', clean_prompt)
         extracted_entity = " ".join(clean_prompt.split()).strip()
 
-        # --- 3. MATCHING NAMA PURE LOOP (BEBAS ERROR .str) ---
+        # --- 3. PENCARIAN AMAN TANPA METODE .str PADA DATAFRAME UTUH ---
         entity_tokens = extracted_entity.split()
-        matched_rows = []
+        matched_indices = []
 
         if entity_tokens:
             ignored_cols = [c for c in raw_df.columns if any(k in c.lower() for k in ['alamat', 'address', 'jalan', 'kota'])]
             searchable_cols = [c for c in raw_df.columns if c not in ignored_cols]
 
-            for _, r_item in raw_df[searchable_cols].fillna("").astype(str).iterrows():
-                row_str = " ".join(r_item.values).lower()
-                if all(t in row_str for t in entity_tokens):
-                    matched_rows.append(r_item.name)
+            for idx, row in raw_df[searchable_cols].iterrows():
+                row_text = " ".join([str(val) for val in row.values]).lower()
+                if all(token in row_text for token in entity_tokens):
+                    matched_indices.append(idx)
             
-        sub_df = raw_df.loc[matched_rows] if matched_rows else pd.DataFrame(columns=raw_df.columns)
+        sub_df = raw_df.loc[matched_indices] if matched_indices else pd.DataFrame(columns=raw_df.columns)
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Mengecek data..."):
