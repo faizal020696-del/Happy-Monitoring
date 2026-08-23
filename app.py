@@ -137,11 +137,12 @@ try:
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Menganalisis data universe..."):
-                # Daftar ID model Groq aktif resmi terbaru
+                # Model produksi resmi aktif di Groq
                 models_to_try = [
-                    "llama-3.3-70b-specdec",
-                    "deepseek-r1-distill-llama-70b",
-                    "qwen-2.5-32b"
+                    "openai/gpt-oss-120b",
+                    "openai/gpt-oss-20b",
+                    "qwen/qwen3.6-27b",
+                    "groq/compound"
                 ]
                 
                 response_text = None
