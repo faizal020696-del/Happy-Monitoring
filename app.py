@@ -98,21 +98,31 @@ try:
 
         prompt_lower = prompt.lower()
         
-        ignore_words = ['berapa', 'data', 'untuk', 'bulan', 'ini', 'kemarin', 'di', 'dan', 'yang', 'dari', 'tentang', 'pencapaian', 'capaian', 'misi', 'gold', 'gmv']
+        # Kata-kata umum yang diabaikan agar fokus ke nama tim/orang & nama apotek
+        ignore_words = ['berapa', 'data', 'untuk', 'bulan', 'ini', 'kemarin', 'di', 'dan', 'yang', 'dari', 'tentang', 'pencapaian', 'capaian', 'misi', 'gold', 'gmv', 'total', 'totalin', 'tim', 'gw', 'saya', 'tolong', 'coba']
         filtered_words = [word for word in prompt_lower.split() if word not in ignore_words and len(word) > 2]
         
         python_summary_text = None
         sub_df = pd.DataFrame()
 
         if filtered_words:
-            target_keyword = filtered_words[-1] if len(filtered_words) > 0 else filtered_words[0]
-            mask = df_clean_text.apply(lambda row: row.str.lower().str.contains(target_keyword).any(), axis=1)
+            # PENCARIAN CERDAS: Mencari baris yang mengandung SEMUA atau SEBAGIAN besar kata kunci penting (misal: nama tim & nama apotek)
+            def match_row(row_text):
+                # Hitung berapa banyak kata kunci penting yang cocok dalam satu baris yang sama
+                matches = sum(1 for w in filtered_words if w in row_text)
+                return matches > 0
+
+            # Gabungkan teks seluruh kolom dalam 1 baris untuk dicek
+            row_combined = df_clean_text.apply(lambda row: " ".join(row.values).lower(), axis=1)
+            
+            # Filter baris yang minimal mengandung kata kunci penting
+            mask = row_combined.apply(match_row)
             sub_df = df[mask]
 
         if len(sub_df) > 0:
             valid_metric_cols = [col for col in df.columns if any(k in col.lower() for k in ['gmv', 'cm', 'lm', 'misi', 'gold']) and not any(x in col.lower() for x in ['code', 'assignment'])]
             
-            summary_lines = [f"Data akurat ditemukan ({len(sub_df)} baris) untuk kata kunci '{target_keyword}':"]
+            summary_lines = [f"Data akurat ditemukan ({len(sub_df)} baris) berdasarkan kata kunci '{', '.join(filtered_words)}':"]
             
             for col in valid_metric_cols:
                 total_val = sub_df[col].sum()
@@ -126,22 +136,21 @@ try:
                 if python_summary_text:
                     formatting_prompt = f"""
 Kamu adalah asisten AI analitik yang teliti, profesional, dan to the point.
-Berikut adalah data angka valid yang sudah dihitung secara mutlak oleh sistem:
+Berikut adalah data angka valid yang sudah dihitung secara mutlak oleh sistem berdasarkan baris data yang cocok:
 
 {python_summary_text}
 
 Tugasmu: Jawab pertanyaan user ({prompt}) dengan akurat berdasarkan data di atas.
 Struktur jawaban:
-1. Jawab langsung ke inti pertanyaan di kalimat pertama (ambil nominal angka dari kolom yang paling relevan dengan pertanyaan user).
+1. Jawab langsung ke inti pertanyaan di kalimat pertama (ambil nominal angka dari kolom GMV/metrik yang relevan).
 2. Tambahkan **1-2 kalimat ringkasan/analisis singkat** di bawahnya secara natural.
-3. Jangan menampilkan angka dari kolom lain yang tidak ditanyakan agar tidak membingungkan.
+3. Jangan menampilkan angka dari kolom lain yang tidak ditanyakan.
 
 ATURAN MUTLAK: Jangan mengubah angka atau nominal Rupiah yang ada di dalam data di atas sedikit pun!
 """
                     response_text = None
                     for attempt in range(3):
                         try:
-                            # Menggunakan router otomatis gratis OpenRouter
                             completion = client.chat.completions.create(
                                 model="openrouter/free",
                                 messages=[
@@ -157,7 +166,7 @@ ATURAN MUTLAK: Jangan mengubah angka atau nominal Rupiah yang ada di dalam data 
                             else:
                                 raise api_err
                 else:
-                    response_text = f"Maaf bro, data untuk '{prompt}' tidak ditemukan di dalam sistem."
+                    response_text = f"Maaf bro, data spesifik untuk kata kunci tersebut tidak ditemukan di dalam sistem spreadsheet."
 
                 st.markdown(response_text)
         
