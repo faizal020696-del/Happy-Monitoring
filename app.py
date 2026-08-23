@@ -67,7 +67,7 @@ try:
             
     raw_df = pd.read_csv(io.StringIO(csv_text), skiprows=header_idx, dtype=str)
     
-    # Normalisasi nama kolom W1 - W4 (mencocokkan kolom yang berawalan W1, W2, dst)
+    # Normalisasi nama kolom W1 - W4
     new_cols = []
     for c in raw_df.columns:
         c_clean = str(c).strip()
@@ -102,8 +102,8 @@ try:
         target_row = None
         name_series = raw_df[name_col].fillna("").astype(str).str.lower()
 
-        # Langsung cari baris yang mengandung kata "gebang" pada kolom nama toko
-        matches = raw_df[name_series.str.contains('gebang', na=False)]
+        # KUNCI UTAMA: Wajib mengandung kata "gebang" DAN "farma" secara bersamaan agar tidak nyasar ke klinik lain
+        matches = raw_df[name_series.str.contains('gebang', na=False) & name_series.str.contains('farma', na=False)]
 
         if not matches.empty:
             target_row = matches.iloc[0]
@@ -111,7 +111,7 @@ try:
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Mengecek data..."):
                 if target_row is not None:
-                    display_name = target_row.get(name_col, "Apotek Gebang Farma")
+                    display_name = target_row.get(name_col, "Apotek Gebang Farma Sangiang Jaya Periuk")
                     target_columns = weeks_requested if weeks_requested else ['W1', 'W2', 'W3', 'W4']
                     target_columns = [c for c in target_columns if c in raw_df.columns]
 
