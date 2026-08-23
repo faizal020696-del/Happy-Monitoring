@@ -65,7 +65,6 @@ try:
     # Membersihkan kolom angka agar benar-benar murni numerik
     for col in df.columns:
         if any(keyword in col.lower() for keyword in ['gmv', 'target', 'sales', 'value', 'amount', 'cm', 'l3m', 'lm']):
-            # Hapus koma/titik ribuan jika dibaca teks, lalu ubah ke float
             df[col] = pd.to_numeric(
                 df[col].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).str.replace(r'[^0-9\.-]', '', regex=True), 
                 errors='coerce'
@@ -94,7 +93,7 @@ try:
             st.markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
 
-        # --- PENCARIAN & FILTERING EXTREME PYTHON ---
+        # --- PENCARIAN & FILTERING SALES ---
         prompt_lower = prompt.lower()
         target_names = ["mulyanto", "sulistiana", "gde", "rizki", "afrianto"]
         
@@ -102,21 +101,20 @@ try:
         
         for name in target_names:
             if name in prompt_lower:
-                # Filter baris yang benar-benar ada nama sales tersebut
                 mask = df_clean_text.apply(lambda row: row.str.lower().str.contains(name).any(), axis=1)
                 sub_df = df[mask]
                 
                 if len(sub_df) > 0:
-                    # Cari kolom GMV / CM yang nilainya paling masuk akal (mencari kolom angka terbesar agar tidak salah comot kolom kecil)
-                    metric_cols = [col for col in df.columns if any(k in col.lower() for k in ['gmv', 'cm', 'sales', 'value'])]
+                    # HANYA AMBIL KOLOM UTAMA YANG RELEVAN DENGAN GMV/TARGET (ABAIKAN KOLOM KODE/ID)
+                    valid_metric_cols = [col for col in df.columns if any(k in col.lower() for k in ['gmv', 'cm']) and not any(x in col.lower() for x in ['code', 'assignment'])]
                     
-                    calc_text = f"📊 **Hasil Kalkulasi Mutlak untuk Sales: {name.upper()}**\n"
-                    calc_text += f"- Total Baris Data: {len(sub_df)} baris\n"
+                    calc_text = f"📊 **Ringkasan Performa Sales: {name.upper()}**\n\n"
+                    calc_text += f"• **Total Baris Data Terkait**: {len(sub_df)} baris\n"
                     
-                    for col in metric_cols:
+                    for col in valid_metric_cols:
                         total_val = sub_df[col].sum()
-                        # Format angka ke Rupiah / Pemisah ribuan standar Indonesia
-                        calc_text += f"- **{col}**: Rp {total_val:,.0f}\n"
+                        if total_val > 0:  # Hanya tampilkan jika ada angkanya
+                            calc_text += f"• **{col}**: Rp {total_val:,.0f}\n"
                     
                     direct_answer = calc_text
                     break
@@ -124,10 +122,8 @@ try:
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Menganalisis data..."):
                 if direct_answer:
-                    # JIKA MENYEBUT NAMA SALES, PYTHON LANGSUNG JAWAB SENDIRI TANPA LIBATIN AI (100% AKURAT)
-                    response_text = direct_answer + "\n\n*(Angka di atas dihitung secara presisi langsung oleh sistem database Python tanpa estimasi AI).* "
+                    response_text = direct_answer + "\n*(Data dihitung secara presisi langsung oleh sistem Python).* "
                 else:
-                    # JIKA PERTANYAAN UMUM, BARU LEMPAR KE GEMINI
                     data_str = df.head(50).to_csv(index=False)
                     system_prompt = f"Kamu adalah asisten data. Jawab pertanyaan berikut berdasarkan data ini:\n{data_str}"
                     response = client.models.generate_content(
