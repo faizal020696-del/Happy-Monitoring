@@ -6,11 +6,46 @@ import re
 OPENROUTER_API_KEY = st.secrets["OPENROUTER_API_KEY"]
 SHEET_URL = st.secrets["SHEET_URL"]
 
-st.set_page_config(page_title="Chatbot Universe SPV Happy", page_icon="🤖", layout="centered")
+st.set_page_config(
+    page_title="Chatbot Universe SPV Happy", 
+    page_icon="🤖", 
+    layout="centered"
+)
+
+# Kustomisasi Tampilan Visual (CSS Aman)
+st.markdown("""
+    <style>
+    #MainMenu {visibility: hidden !important;}
+    header {visibility: hidden !important;}
+    footer {visibility: hidden !important;}
+    .stApp { background-color: #f8fafc; }
+    .main-header {
+        background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+        padding: 2.5rem 2rem;
+        border-radius: 20px;
+        color: white;
+        text-align: center;
+        box-shadow: 0 10px 25px -5px rgba(79, 70, 229, 0.2);
+        margin-bottom: 2rem;
+    }
+    .main-header h1 { color: white !important; font-weight: 800; font-size: 2.2rem; margin-bottom: 0.5rem; }
+    .main-header p { color: #e0e7ff !important; font-size: 1rem; margin: 0; }
+    .stChatMessage { border-radius: 16px !important; padding: 1rem 1.2rem !important; margin-bottom: 0.8rem !important; box-shadow: 0 2px 5px rgba(0,0,0,0.03) !important; }
+    .stChatInputContainer { border-radius: 15px !important; bottom: 20px !important; }
+    </style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+    <div class="main-header">
+        <h1>🤖 Chatbot Universe SPV Happy</h1>
+        <p>Tanyakan apa saja terkait data universe kalian.</p>
+    </div>
+""", unsafe_allow_html=True)
 
 def convert_to_csv_url(url):
     sheet_id_match = re.search(r'/d/([a-zA-Z0-9-_]+)', url)
-    if not sheet_id_match: return None
+    if not sheet_id_match: 
+        return None
     sheet_id = sheet_id_match.group(1)
     gid_match = re.search(r'[#&?]gid=([0-9]+)', url)
     gid = gid_match.group(1) if gid_match else "0"
@@ -26,6 +61,13 @@ try:
         base_url="https://openrouter.ai/api/v1",
         api_key=OPENROUTER_API_KEY,
     )
+
+    with st.sidebar:
+        st.write("### 📊 Status Data")
+        st.write(f"Total Baris: {len(df)}")
+        st.write(f"Total Kolom: {len(df.columns)}")
+        with st.expander("Lihat Daftar Kolom"):
+            st.write(list(df.columns))
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
@@ -54,19 +96,19 @@ try:
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Gemini sedang menganalisis data..."):
                 if len(sub_df) > 0:
-                    # Konversi baris data yang ditemukan menjadi Markdown Table agar Gemini paham struktur kolomnya
-                    data_markdown = sub_df.to_markdown(index=False)
+                    # Menggunakan to_csv agar tidak perlu install tabulate
+                    data_markdown = sub_df.to_csv(index=False)
                     
                     system_prompt = f"""
 Kamu adalah asisten analitik SPV yang cerdas, teliti, dan komunikatif.
-Berikut adalah data mentah dari Google Sheet yang relevan dengan pertanyaan user:
+Berikut adalah data mentah dari Google Sheet yang relevan dengan pertanyaan user (format CSV):
 
 {data_markdown}
 
 Pertanyaan User: "{prompt}"
 
 Instruksi Analisis:
-1. Pahami nama-nama kolom pada tabel di atas (misal: GMV CM = Bulan ini, GMV LM = Bulan lalu, Target, dll).
+1. Pahami nama-nama kolom pada data di atas (misal: GMV CM = Bulan ini, GMV LM = Bulan lalu, Target, dll).
 2. Lakukan kalkulasi/penjumlahan secara akurat dari baris data yang ada jika user meminta total.
 3. Jawab pertanyaan user secara langsung di kalimat pertama dengan angka Rupiah yang benar.
 4. Berikan analisis singkat yang logis (misal: perbandingan GMV terhadap Target, apakah sudah mencapai target atau belum, dan berapa gap pastinya jika ada).
@@ -74,14 +116,13 @@ Instruksi Analisis:
 """
                     try:
                         completion = client.chat.completions.create(
-                            model="google/gemini-2.0-flash-exp:free", # Menggunakan Gemini Flash di OpenRouter
+                            model="google/gemini-2.0-flash-exp:free",
                             messages=[
                                 {"role": "user", "content": system_prompt}
                             ]
                         )
                         response_text = completion.choices[0].message.content
                     except Exception as e:
-                        # Fallback jika model 2.0 busy, pakai Gemini 1.5 Flash
                         try:
                             completion = client.chat.completions.create(
                                 model="google/gemini-flash-1.5-exp:free",
