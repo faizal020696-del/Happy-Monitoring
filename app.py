@@ -81,7 +81,7 @@ try:
 
     if "messages" not in st.session_state:
         st.session_state.messages = [
-            {"role": "assistant", "content": "Halo SPV! 👋 Mode Debug Aktif. Kirim pertanyaan toko kamu."}
+            {"role": "assistant", "content": "Halo SPV! 👋 Ada data outlet atau reps yang mau dicek hari ini?"}
         ]
 
     for message in st.session_state.messages:
@@ -97,7 +97,7 @@ try:
         prompt_lower = prompt.lower()
         weeks_requested = [w for w in ['W1', 'W2', 'W3', 'W4'] if re.search(r'\b' + w.lower() + r'\b', prompt_lower)]
 
-        # Ekstraksi nama toko secara longgar (ambil semua kata selain perintah umum)
+        # Bersihkan prompt untuk mendapatkan nama toko
         clean_prompt = prompt_lower
         junk_words = [
             r'\bberapa\b', r'\btotal\b', r'\bjumlah\b', r'\byang\b', r'\btersedia\b', r'\bada\b', 
@@ -120,43 +120,53 @@ try:
             extracted_entity = prompt
 
         matched_indices = []
-        entity_tokens = extracted_entity.split()
+        entity_tokens = [t for t in extracted_entity.split() if len(t) > 2]
+        if not entity_tokens:
+            entity_tokens = extracted_entity.split()
 
-        # Cari di seluruh sel DataFrame untuk melihat baris mana saja yang mengandung token tersebut
+        # Cari baris yang mengandung token nama toko
         for idx, row in raw_df.iterrows():
             row_text = " ".join([str(val) for val in row.values if pd.notna(val)]).lower()
-            # Cukup cocokkan salah satu token unik (misal: "gebang") agar tidak terlalu ketat
-            if any(token in row_text for token in entity_tokens if len(token) > 3):
+            # Pastikan minimal kata kunci utama (seperti "gebang" atau "farma") cocok
+            if any(token in row_text for token in entity_tokens):
                 matched_indices.append(idx)
+
+        # Buang baris pertama (index 0) jika itu baris total/rekap nasional
+        if matched_indices and matched_indices[0] == 0 and len(matched_indices) > 1:
+            matched_indices = matched_indices[1:]
 
         sub_df = raw_df.loc[matched_indices] if matched_indices else pd.DataFrame(columns=raw_df.columns)
 
         with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("Menganalisis baris data..."):
-                debug_info = f"**Query Mentah:** `{prompt}`\n"
-                debug_info += f"**Entity Dicari:** `{extracted_entity}`\n"
-                debug_info += f"**Token:** `{entity_tokens}`\n"
-                debug_info += f"**Baris Ditemukan:** {len(sub_df)} baris\n\n"
-
+            with st.spinner("Mengecek data..."):
                 if len(sub_df) > 0:
-                    # Ambil baris pertama yang cocok untuk dicek kolom namanya
-                    first_row = sub_df.iloc[0]
-                    debug_info += "**Contoh Baris Pertama yang Cocok:**\n"
-                    for col in raw_df.columns[:5]: # Tampilkan 5 kolom pertama
-                        debug_info += f"- {col}: {first_row.get(col, '-')}\n"
+                    target_columns = []
+                    if weeks_requested:
+                        target_columns = [w for w in weeks_requested if w in sub_df.columns]
                     
-                    # Ambil nilai W1-W4 di baris tersebut
-                    debug_info += "\n**Nilai W1-W4 di Baris Ini:**\n"
-                    for w in ['W1', 'W2', 'W3', 'W4']:
-                        if w in sub_df.columns:
-                            val = first_row.get(w, '0')
-                            debug_info += f"- {w}: {val} (Parsed: {parse_number_exact(val):,.0f})\n"
-                else:
-                    debug_info += "❌ Tidak ada baris yang cocok sama sekali di CSV!"
+                    if not target_columns:
+                        target_columns = ['W1', 'W2', 'W3', 'W4']
 
-                st.markdown(debug_info)
+                    target_columns = [c for c in target_columns if c in sub_df.columns]
+
+                    calculated_metrics = []
+                    # Ambil baris data yang spesifik (baris pertama dari hasil filter yang bukan rekap)
+                    target_row = sub_df.iloc[0]
+
+                    for col in target_columns:
+                        val_raw = str(target_row.get(col, '')).strip()
+                        val_parsed = parse_number_exact(val_raw)
+                        calculated_metrics.append(f"• **{col}**: Rp {val_parsed:,.0f}".replace(",", "."))
+
+                    calc_summary_str = "\n".join(calculated_metrics)
+                    response_text = f"Data untuk **{extracted_entity.title()}**:\n{calc_summary_str}"
+
+                else:
+                    response_text = f"Waduh, data untuk **'{extracted_entity.title()}'** tidak ditemukan di Google Sheet."
+
+                st.markdown(response_text)
         
-        st.session_state.messages.append({"role": "assistant", "content": debug_info})
+        st.session_state.messages.append({"role": "assistant", "content": response_text})
 
 except Exception as e:
     st.error(f"Gagal memuat data: {e}")
