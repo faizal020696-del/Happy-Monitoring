@@ -7,9 +7,9 @@ import re
 API_KEY = st.secrets["GEMINI_API_KEY"]
 SHEET_URL = st.secrets["SHEET_URL"]
 
-st.set_page_config(page_title="Chatbot Monitoring Pekerjaan", page_icon="📊", layout="centered")
-st.title("📊 Chatbot Monitoring Pekerjaan")
-st.caption("Tanyakan apa saja terkait status pekerjaan/project tim berdasarkan data Google Sheets.")
+st.set_page_config(page_title="Chatbot Monitoring", page_icon="📊", layout="centered")
+st.title("📊 Chatbot Universe SPV Happy")
+st.caption("Tanyakan apa saja yang ada dalam data universe.")
 
 def convert_to_csv_url(url):
     sheet_id_match = re.search(r'/d/([a-zA-Z0-9-_]+)', url)
