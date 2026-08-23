@@ -116,7 +116,7 @@ try:
             st.markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
 
-        # --- 1. AI EKSTRAKSI NAMABERSIH & KATEGORI ---
+        # --- 1. AI EKSTRAKSI NAMA BERSIH & KATEGORI ---
         extraction_prompt = f"""
 Saring pertanyaan user dan kembalikan format JSON:
 {{"entity": "<nama entitas bersih>", "category": "<REPS|APOTEK|GENERAL>"}}
@@ -155,28 +155,39 @@ JSON:"""
         sub_df = pd.DataFrame()
 
         if entity_tokens:
-            # --- 2. PENENTUAN KOLOM SPESIFIK & PENGABAIAN KOLOM ALAMAT ---
-            
-            # Daftar kolom yang TIDAK BOLEH dicari (supaya nama jalan/alamat tidak memicu false match)
-            ignored_search_cols = [c for c in df.columns if any(k in c.lower() for k in ['alamat', 'address', 'jalan', 'street', 'kota', 'city', 'kecamatan', 'kelurahan', 'keterangan', 'remark'])]
-            
-            # Kolom pencarian bersih (tanpa kolom alamat)
-            clean_search_df_cols = [c for c in df.columns if c not in ignored_search_cols]
+            # Kolom non-pencarian (alamat dll)
+            ignored_cols = [c for c in df.columns if any(k in c.lower() for k in ['alamat', 'address', 'jalan', 'street', 'kota', 'city', 'keterangan'])]
+            clean_search_cols = [c for c in df.columns if c not in ignored_cols]
 
-            target_cols = []
-            if category == "APOTEK":
-                target_cols = [c for c in df.columns if any(k in c.lower() for k in ['nama toko', 'nama apotek', 'nama outlet', 'nama customer', 'customer', 'pelanggan', 'outlet', 'apotek', 'toko']) and c not in ignored_search_cols]
-            elif category == "REPS":
-                target_cols = [c for c in df.columns if any(k in c.lower() for k in ['reps', 'sales', 'salesman', 'nama reps', 'nama sales']) and c not in ignored_search_cols]
+            if category == "REPS":
+                reps_cols = [c for c in df.columns if any(k in c.lower() for k in ['reps', 'sales', 'salesman', 'nama reps', 'nama sales']) and c not in ignored_cols]
+                
+                if reps_cols:
+                    # 1. Coba Exact Match dulu (misal: isi sel persis "rizki")
+                    exact_mask = pd.Series(False, index=df.index)
+                    for c in reps_cols:
+                        exact_mask |= df_clean_text[c].str.lower().str.strip() == extracted_entity
+                    
+                    sub_df = df[exact_mask]
 
-            # Uji Prioritas 1: Search HANYA di kolom Nama Apotek/Reps yang spesifik
-            if target_cols:
-                series_target = df_clean_text[target_cols].apply(lambda row: " ".join(row.values).lower(), axis=1)
-                sub_df = df[series_target.apply(lambda x: all(t in x for t in entity_tokens))]
+                    # 2. Jika tidak ada yang exact, gunakan Word Boundary Regex (\brizki\b) agar 'Rizki' terpisah
+                    if len(sub_df) == 0:
+                        regex_pattern = r'\b' + r'\b.*\b'.join([re.escape(t) for t in entity_tokens]) + r'\b'
+                        boundary_mask = pd.Series(False, index=df.index)
+                        for c in reps_cols:
+                            boundary_mask |= df_clean_text[c].str.lower().str.contains(regex_pattern, regex=True, na=False)
+                        sub_df = df[boundary_mask]
 
-            # Uji Prioritas 2: Jika target_cols tidak spesifik/kosong, cari di seluruh kolom KECUALI Kolom Alamat
+            elif category == "APOTEK":
+                apotek_cols = [c for c in df.columns if any(k in c.lower() for k in ['nama toko', 'nama apotek', 'nama outlet', 'nama customer', 'customer', 'pelanggan', 'outlet', 'apotek', 'toko']) and c not in ignored_cols]
+                
+                if apotek_cols:
+                    series_target = df_clean_text[apotek_cols].apply(lambda row: " ".join(row.values).lower(), axis=1)
+                    sub_df = df[series_target.apply(lambda x: all(t in x for t in entity_tokens))]
+
+            # Fallback jika sub_df masih kosong
             if len(sub_df) == 0:
-                series_clean = df_clean_text[clean_search_df_cols].apply(lambda row: " ".join(row.values).lower(), axis=1)
+                series_clean = df_clean_text[clean_search_cols].apply(lambda row: " ".join(row.values).lower(), axis=1)
                 sub_df = df[series_clean.apply(lambda x: all(t in x for t in entity_tokens))]
 
         with st.chat_message("assistant", avatar="🤖"):
@@ -184,17 +195,15 @@ JSON:"""
                 if len(sub_df) > 0:
                     calculated_metrics = []
                     
-                    # Filter Kolom Penjumlahan (HANYA Nilai GMV/Sales/Rupiah)
+                    # Filter Kolom Penjumlahan GMV/Sales
                     valid_cols = []
                     for col in sub_df.columns:
                         col_lower = col.lower()
-                        # Abaikan kolom non-nominal / count / visit / target
                         if any(ignore in col_lower for ignore in ['count', 'visit', 'target', '%', 'pct', 'date', 'tanggal', 'id', 'code', 'durasi', 'duration', 'telepon', 'phone']):
                             continue
                         if any(k in col_lower for k in ['gmv', 'cm', 'lm', 'sales', 'pencapaian']):
                             valid_cols.append(col)
 
-                    # Prioritaskan kolom CM / Current Month jika ada
                     cm_cols = [c for c in valid_cols if any(k in c.lower() for k in ['cm', 'current', 'bulan ini', 'total'])]
                     target_calculation_cols = cm_cols if cm_cols else valid_cols
 
@@ -254,7 +263,7 @@ Instruksi Sangat Penting:
                         response_text = f"Ditemukan **{len(sub_df)} baris data** untuk {category.lower()} '{extracted_entity}'. Berikut rincian total angkanya:\n\n{calc_summary_str}"
 
                 else:
-                    response_text = f"Maaf bro, data untuk **'{extracted_entity}'** tidak ditemukan pada kolom nama {category.lower()} di Google Sheet."
+                    response_text = f"Maaf bro, data untuk **'{extracted_entity}'** tidak ditemukan pada kolom {category.lower()} di Google Sheet."
 
                 st.markdown(response_text)
         
