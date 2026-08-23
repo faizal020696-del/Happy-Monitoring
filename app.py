@@ -143,7 +143,6 @@ try:
         is_general_gmv_query = 'gmv' in prompt_lower and not weeks_requested and not is_limit_query and not any(k in prompt_lower for k in ['lalu', 'kemarin', 'peak', 'l3m', 'l2m', 'cm', 'lm', 'average', 'avg']) and not 'gold' in prompt_lower and not 'misi' in prompt_lower
         is_visit_query = any(k in prompt_lower for k in ['target visit', 'visit count', 'visit', 'kunjungan', 'last visit', 'terakhir']) and not weeks_requested
 
-        # Deteksi apakah user menanyakan tentang Gold Misi atau Misi Reguler secara spesifik (paket lengkap)
         is_gold_mission_query = 'gold' in prompt_lower and ('misi' in prompt_lower or 'mission' in prompt_lower)
         is_regular_mission_query = ('misi' in prompt_lower or 'mission' in prompt_lower) and not is_gold_mission_query
 
@@ -171,7 +170,6 @@ try:
             'ppn', 'gap', 'hna', 'pencapaian', 'kekurangan', 'info'
         }
 
-        # 1. Cek berdasarkan ID jika ada angka 4-6 digit di prompt
         id_match_prompt = re.search(r'\b(\d{4,6})\b', prompt)
         if id_match_prompt and id_cols:
             search_id = id_match_prompt.group(1)
@@ -184,7 +182,6 @@ try:
                 if target_row is not None:
                     break
 
-        # 2. Cek Berdasarkan Nama Outlet Lengkap
         if target_row is None:
             outlet_query_words = [w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in command_words]
             if outlet_query_words:
@@ -212,9 +209,14 @@ try:
                         calculated_metrics.append("**⭐ Performa Gold Misi:**")
                         gold_cols = [c for c in raw_df.columns if 'gold' in c.lower()]
                         for c in gold_cols:
-                            val_raw = target_row.get(c, 0)
-                            val_parsed = parse_number_general(val_raw)
-                            val_str = f"Rp {val_parsed:,.0f}".replace(",", ".") if val_parsed > 0 else str(val_raw)
+                            val_raw = str(target_row.get(c, "")).strip()
+                            c_lower = c.lower()
+                            # Cek apakah kolom berisi angka/nominal uang
+                            if any(k in c_lower for k in ['target', 'gmv', 'gap']):
+                                val_parsed = parse_number_general(val_raw)
+                                val_str = f"Rp {val_parsed:,.0f}".replace(",", ".") if val_parsed > 0 else (val_raw if val_raw else "0")
+                            else:
+                                val_str = val_raw if val_raw and val_raw.lower() not in ['nan', 'none', ''] else "-"
                             calculated_metrics.append(f"• **{c}**: {val_str}")
                         
                         if not gold_cols:
@@ -224,9 +226,15 @@ try:
                         calculated_metrics.append("**🎯 Performa Misi Reguler:**")
                         misi_cols = [c for c in raw_df.columns if 'misi' in c.lower() and 'gold' not in c.lower()]
                         for c in misi_cols:
-                            val_raw = target_row.get(c, 0)
-                            val_parsed = parse_number_general(val_raw)
-                            val_str = f"Rp {val_parsed:,.0f}".replace(",", ".") if val_parsed > 0 else str(val_raw)
+                            val_raw = str(target_row.get(c, "")).strip()
+                            c_lower = c.lower()
+                            # Hanya format ke Rupiah jika kolomnya berupa Target, GMV, atau Gap
+                            if any(k in c_lower for k in ['target', 'gmv', 'gap']):
+                                val_parsed = parse_number_general(val_raw)
+                                val_str = f"Rp {val_parsed:,.0f}".replace(",", ".") if val_parsed > 0 else (val_raw if val_raw else "0")
+                            else:
+                                # Untuk Campaign Type, Start Date, End Date, Duration, dll tampilkan sebagai teks asli
+                                val_str = val_raw if val_raw and val_raw.lower() not in ['nan', 'none', ''] else "-"
                             calculated_metrics.append(f"• **{c}**: {val_str}")
                         
                         if not misi_cols:
