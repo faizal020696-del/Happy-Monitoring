@@ -23,17 +23,11 @@ def convert_to_csv_url(url):
     gid = gid_match.group(1) if gid_match else "0"
     return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
 
-def parse_number_exact(val, is_dpd=False):
+def parse_number_exact(val):
     if pd.isna(val) or val is None:
         return 0.0
     val_str = str(val).strip()
     if not val_str or val_str.lower() in ['nan', 'null', 'none', '', '-', ' - ']:
-        return 0.0
-
-    if is_dpd:
-        match = re.search(r'(-?\d+(?:\.\d+)?)', val_str.replace(',', '.'))
-        if match:
-            return float(match.group(1))
         return 0.0
 
     cleaned = re.sub(r'[^0-9\,\.-]', '', val_str)
@@ -66,7 +60,6 @@ def parse_number_exact(val, is_dpd=False):
 
 try:
     csv_url = convert_to_csv_url(SHEET_URL)
-    
     res = requests.get(csv_url)
     csv_text = res.text
     lines = csv_text.splitlines()
@@ -111,41 +104,10 @@ try:
 
         prompt_lower = prompt.lower()
 
-        # --- 1. DETEKSI METRIK / INTENT ---
-        detected_intents = []
-        
+        # Deteksi Minggu W1-W4
         weeks_requested = [w for w in ['w1', 'w2', 'w3', 'w4'] if re.search(r'\b' + w + r'\b', prompt_lower)]
-        if weeks_requested:
-            detected_intents.append('weekly')
 
-        if any(k in prompt_lower for k in ['1st', 'awal', 'pertama']):
-            detected_intents.append('first_trx')
-        if any(k in prompt_lower for k in ['last', 'terakhir', 'terbaru', 'paling baru']):
-            detected_intents.append('last_trx')
-        if 'l3m' in prompt_lower:
-            detected_intents.append('l3m')
-        if 'l2m' in prompt_lower:
-            detected_intents.append('l2m')
-        if any(k in prompt_lower for k in ['average', 'avg', 'rata-rata', '3 bulan', '3 bln']):
-            detected_intents.append('average')
-        if any(k in prompt_lower for k in ['bulan ini', 'cm', 'current month', 'bln ini']):
-            detected_intents.append('cm')
-        if any(k in prompt_lower for k in ['bulan lalu', 'lm', 'last month', 'bln lalu', 'kemarin', 'kemaren']):
-            detected_intents.append('lm')
-        if any(k in prompt_lower for k in ['target visit', 'target kunjungan']):
-            detected_intents.append('target_visit')
-        elif any(k in prompt_lower for k in ['visit', 'kunjungan']):
-            detected_intents.append('visit')
-        if any(k in prompt_lower for k in ['misi', 'mission', 'reguler', 'gold']):
-            detected_intents.append('misi')
-        if 'dpd' in prompt_lower:
-            detected_intents.append('dpd')
-        if any(k in prompt_lower for k in ['limit', 'plafon', 'kredit', 'availability', 'avaibility']):
-            detected_intents.append('limit')
-        if any(k in prompt_lower for k in ['gmv', 'omset', 'sales', 'penjualan', 'pencapaian', 'capaian', 'total gmv']):
-            detected_intents.append('gmv')
-
-        # --- 2. EXTRACTION NAMA (JANGAN HAPUS W1-W4 DI SINI) ---
+        # Bersihkan teks prompt untuk mengambil nama tokonya saja
         clean_prompt = prompt_lower
         clean_prompt = re.sub(r'\bdi([a-z]+)', r'\1', clean_prompt)
 
@@ -157,7 +119,7 @@ try:
             r'\bpt\b', r'\bcv\b', r'\bdata\b', r'\buntuk\b', r'\bbulan\b', r'\bini\b', r'\blalu\b', 
             r'\bni\b', r'\binih\b', r'\bkah\b', r'\bdong\b', r'\bcek\b', r'\binfo\b', r'\bpencapaian\b', 
             r'\bcapaian\b', r'\bperforma\b', r'\bhasil\b', r'\barea\b', r'\bmana\b', r'\byg\b', 
-            r'\bsudah\b', r'\btransaksi\b',
+            r'\bsudah\b', r'\btransaksi\b', r'\bw1\b', r'\bw2\b', r'\bw3\b', r'\bw4\b',
             r'\baverage\b', r'\bavg\b', r'\brata-rata\b', r'\bratarata\b', r'\b3\b', r'\bbln\b',
             r'\bl3m\b', r'\bl2m\b', r'\blm\b', r'\bcm\b', r'\bdan\b', r'\bdan2\b',
             r'\bkemarin\b', r'\bkemaren\b', r'\bkemarin2\b', r'\bkemaren2\b',
@@ -169,11 +131,11 @@ try:
             clean_prompt = re.sub(junk, ' ', clean_prompt)
 
         clean_prompt = re.sub(r'[^\w\s]', ' ', clean_prompt)
-        extracted_entity = " ".join([t for t in clean_prompt.split() if t not in ['w1', 'w2', 'w3', 'w4']]).strip()
+        extracted_entity = " ".join(clean_prompt.split()).strip()
 
-        # --- 3. PENCARIAN AMAN ---
-        entity_tokens = extracted_entity.split()
+        # Pencarian Data Aman Tanpa Error .str
         matched_indices = []
+        entity_tokens = extracted_entity.split()
 
         if entity_tokens:
             ignored_cols = [c for c in raw_df.columns if any(k in c.lower() for k in ['alamat', 'address', 'jalan', 'kota'])]
@@ -190,14 +152,12 @@ try:
             with st.spinner("Mengecek data..."):
                 if len(sub_df) > 0:
                     target_columns = []
-
-                    if 'weekly' in detected_intents:
+                    if weeks_requested:
                         for w in weeks_requested:
                             target_columns.extend([c for c in sub_df.columns if re.search(r'\b' + w + r'\b', c.lower())])
-
+                    
                     if not target_columns:
-                        important_keys = ['gmv', 'cm', 'lm', 'l2m', 'l3m', 'sales', 'limit', 'dpd', 'misi', 'visit', 'avg', 'average', 'trx', 'date', 'w1', 'w2', 'w3', 'w4']
-                        target_columns = [c for c in sub_df.columns if any(k in c.lower() for k in important_keys)]
+                        target_columns = [c for c in sub_df.columns if any(k in c.lower() for k in ['w1', 'w2', 'w3', 'w4', 'gmv', 'sales'])]
 
                     target_columns = list(dict.fromkeys(target_columns))
 
@@ -207,48 +167,22 @@ try:
                         if any(ignore in col_lower for ignore in ['id', 'code', 'telepon', '%', 'nama', 'toko', 'apotek', 'address', 'sales rep', 'reps', 'salesman', 'unnamed']):
                             continue
 
-                        # Murni pakai .astype(str) tanpa mengakses .str bawaan dataframe langsung yang rawan konflik versi pandas
-                        valid_rows = sub_df[sub_df[col].notna() & (sub_df[col].astype(str).str.strip() != '')]
+                        # Ekstraksi nilai per baris secara aman menggunakan list comprehension murni
+                        valid_values = [str(val).strip() for val in sub_df[col].tolist() if pd.notna(val) and str(val).strip() not in ['', 'nan', 'None']]
                         
-                        if any(k in col_lower for k in ['w1', 'w2', 'w3', 'w4', 'limit', 'plafon', 'avg', 'average', 'l3m', 'l2m', 'lm', 'cm']):
-                            if not valid_rows.empty:
-                                val_raw = valid_rows[col].iloc[-1]
-                                val_parsed = parse_number_exact(val_raw, is_dpd=False)
+                        if valid_values:
+                            val_raw = valid_values[-1]
+                            val_parsed = parse_number_exact(val_raw)
+                            if val_parsed > 0 or any(w in col_lower for w in ['w1', 'w2', 'w3', 'w4', 'gmv', 'sales']):
                                 calculated_metrics.append(f"• **{col}**: Rp {val_parsed:,.0f}".replace(",", "."))
                             else:
-                                calculated_metrics.append(f"• **{col}**: Rp 0")
+                                calculated_metrics.append(f"• **{col}**: {val_raw}")
                         else:
-                            if not valid_rows.empty:
-                                val_raw = valid_rows[col].iloc[-1]
-                                calculated_metrics.append(f"• **{col}**: {str(val_raw).strip()}")
-                            else:
-                                calculated_metrics.append(f"• **{col}**: -")
+                            calculated_metrics.append(f"• **{col}**: Rp 0")
 
-                    calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Metrik tidak terdeteksi di sheet."
+                    calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Data transaksi tidak ditemukan."
 
-                    system_prompt = f"""
-Kamu adalah Assistant Data SPV.
-DATA UNTUK: '{extracted_entity.title()}'.
-PERTANYAAN USER: "{prompt}"
-HASIL KALKULASI:
-{calc_summary_str}
-Jawab langsung ke inti metrik transaksi W1-W4 yang diminta.
-"""
-                    response_text = ""
-                    try:
-                        completion = client.chat.completions.create(
-                            model="google/gemini-2.0-flash-lite-001:free",
-                            messages=[{"role": "user", "content": system_prompt}],
-                            temperature=0.0
-                        )
-                        if completion.choices and len(completion.choices) > 0:
-                            response_text = completion.choices[0].message.content.strip()
-                    except Exception:
-                        response_text = ""
-
-                    if not response_text:
-                        response_text = f"Data **{extracted_entity.title()}**:\n{calc_summary_str}"
-
+                    response_text = f"Data transaksi **{extracted_entity.title()}**:\n{calc_summary_str}"
                 else:
                     searched_name = extracted_entity.title() if extracted_entity else prompt
                     response_text = f"Waduh, data untuk **'{searched_name}'** tidak ditemukan di Google Sheet. Cek ejaan nama toko/reps ya bro."
