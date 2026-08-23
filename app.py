@@ -143,9 +143,6 @@ try:
         is_general_gmv_query = 'gmv' in prompt_lower and not weeks_requested and not is_limit_query and not any(k in prompt_lower for k in ['lalu', 'kemarin', 'peak', 'l3m', 'l2m', 'cm', 'lm', 'average', 'avg']) and not 'gold' in prompt_lower and not 'misi' in prompt_lower
         is_visit_query = any(k in prompt_lower for k in ['target visit', 'visit count', 'visit', 'kunjungan', 'last visit', 'terakhir']) and not weeks_requested
 
-        is_gold_mission_query = 'gold' in prompt_lower and ('misi' in prompt_lower or 'mission' in prompt_lower)
-        is_regular_mission_query = ('misi' in prompt_lower or 'mission' in prompt_lower) and not is_gold_mission_query
-
         command_words = {
             'cek', 'data', 'id', 'berapa', 'total', 'jumlah', 'w1', 'w2', 'w3', 'w4', 
             'transaksi', 'tolong', 'visit', 'kunjungan', 'misi', 'gold', 'mission',
@@ -158,53 +155,83 @@ try:
         matched_reps_df = None
         matched_reps_name = None
 
-        # 1. PRIORITAS PERTAMA: Cek pencarian berdasarkan ID atau Nama Outlet (Apotek/Toko)
-        id_match_prompt = re.search(r'\b(\d{4,6})\b', prompt)
-        if id_match_prompt and id_cols:
-            search_id = id_match_prompt.group(1)
-            for idx, row in raw_df.iterrows():
-                for col in id_cols:
-                    val_id = str(row.get(col, '')).strip()
-                    if val_id == search_id:
-                        target_row = row
-                        break
-                if target_row is not None:
-                    break
-
-        if target_row is None:
-            outlet_query_words = [w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in command_words]
-            if outlet_query_words:
-                name_series = raw_df[name_col].fillna("").astype(str).str.lower()
-                scores = []
-                for idx, name_val in name_series.items():
-                    score = sum(1 for qw in outlet_query_words if qw in name_val)
-                    if all(qw in name_val for qw in outlet_query_words):
-                        score += 10
-                    scores.append((score, idx))
-                scores.sort(key=lambda x: x[0], reverse=True)
-                best_score, best_idx = scores[0]
-                # Pastikan kecocokan nama outlet cukup kuat agar tidak keliru dengan nama sales
-                if best_score >= len(outlet_query_words) or best_score >= 2:
-                    target_row = raw_df.loc[best_idx]
-
-        # 2. PRIORITAS KEDUA: Jika bukan outlet, cek apakah itu pencarian Sales Rep
-        if target_row is None and reps_col:
+        # CEK APAKAH INI PERINTAH REKAP SALES REP (Mengandung kata "reps", "sales", atau nama sales yang jelas)
+        is_sales_query = 'reps' in prompt_lower or 'sales' in prompt_lower or 'pic' in prompt_lower
+        
+        if not is_sales_query and reps_col:
             unique_reps = raw_df[reps_col].dropna().astype(str).unique()
             for r in unique_reps:
                 r_clean = r.strip().lower()
-                if r_clean and len(r_clean) > 2 and r_clean in prompt_lower:
+                # Jika nama sales diketik lengkap di prompt (misal: "rizki" atau "afrianto")
+                if r_clean and len(r_clean) > 2 and r_clean in prompt_lower and not any(kw in prompt_lower for kw in ['apotek', 'toko']):
+                    is_sales_query = True
+                    break
+
+        if is_sales_query and reps_col:
+            unique_reps = raw_df[reps_col].dropna().astype(str).unique()
+            for r in unique_reps:
+                r_clean = r.strip().lower()
+                if r_clean and r_clean in prompt_lower:
                     matched_reps_name = r
                     matched_reps_df = raw_df[raw_df[reps_col].astype(str).str.strip().str.lower() == r_clean]
                     break
+            
+            # Jika nama sales ada di prompt tapi tidak match sempurna, cari substring-nya
+            if matched_reps_df is None or matched_reps_df.empty:
+                for r in unique_reps:
+                    r_clean = r.strip().lower()
+                    if r_clean and len(r_clean) > 2 and r_clean in prompt_lower:
+                        matched_reps_name = r
+                        matched_reps_df = raw_df[raw_df[reps_col].astype(str).str.strip().str.lower() == r_clean]
+                        break
 
-        # Deteksi kolom spesifik jika diminta (misal DPD atau kolom lain)
+        # JIKA BUKAN SALES QUERY, BERARTI PENCARIAN OUTLET (APOTEK/TOKO)
+        if matched_reps_df is None or matched_reps_df.empty:
+            id_match_prompt = re.search(r'\b(\d{4,6})\b', prompt)
+            if id_match_prompt and id_cols:
+                search_id = id_match_prompt.group(1)
+                for idx, row in raw_df.iterrows():
+                    for col in id_cols:
+                        val_id = str(row.get(col, '')).strip()
+                        if val_id == search_id:
+                            target_row = row
+                            break
+                    if target_row is not None:
+                        break
+
+            if target_row is None:
+                outlet_query_words = [w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in command_words]
+                if outlet_query_words:
+                    name_series = raw_df[name_col].fillna("").astype(str).str.lower()
+                    scores = []
+                    for idx, name_val in name_series.items():
+                        score = sum(1 for qw in outlet_query_words if qw in name_val)
+                        if all(qw in name_val for qw in outlet_query_words):
+                            score += 10
+                        scores.append((score, idx))
+                    scores.sort(key=lambda x: x[0], reverse=True)
+                    best_score, best_idx = scores[0]
+                    if best_score > 0:
+                        target_row = raw_df.loc[best_idx]
+
+        # Deteksi kolom spesifik untuk outlet (misal: DPD, Limit, Visit, dll)
         metric_requested = None
         if target_row is not None and not weeks_requested and not is_limit_query and not is_general_gmv_query and not is_visit_query:
+            # Cek apakah user nulis keyword kolom secara spesifik
             for c in raw_df.columns:
                 c_low = c.strip().lower()
-                if c_low in prompt_lower or any(kw in c_low for kw in prompt_lower.split() if len(kw) > 3 and kw not in command_words):
+                if c_low in prompt_lower:
                     metric_requested = c
                     break
+            
+            # Mapping manual kata umum ke nama kolom di sheet jika tidak ketemu exact match
+            if not metric_requested:
+                if 'dpd' in prompt_lower:
+                    metric_requested = next((c for c in raw_df.columns if 'dpd' in c.lower()), None)
+                elif 'limit' in prompt_lower or 'plafond' in prompt_lower:
+                    metric_requested = next((c for c in raw_df.columns if 'limit' in c.lower() or 'plafond' in c.lower()), None)
+                elif 'visit' in prompt_lower or 'kunjungan' in prompt_lower:
+                    metric_requested = next((c for c in raw_df.columns if 'visit' in c.lower() or 'kunjungan' in c.lower()), None)
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Mengecek data..."):
@@ -258,12 +285,12 @@ try:
                     display_name = target_row.get(name_col, "Outlet Ditemukan")
                     calculated_metrics = []
 
-                    # Jika user menanyakan kolom spesifik seperti DPD atau visit
+                    # Jika user meminta kolom spesifik (seperti DPD, Limit, Visit)
                     if metric_requested:
                         val_metric = target_row.get(metric_requested, "-")
                         calculated_metrics.append(f"• **{metric_requested}**: {val_metric}")
                     else:
-                        # Default tampilkan performa bulanan & mingguan outlet
+                        # Tampilkan performa bulanan & mingguan standar outlet
                         cm_col = next((c for c in raw_df.columns if c.strip().lower() == 'cm'), None)
                         lm_col = next((c for c in raw_df.columns if c.strip().lower() == 'lm'), None)
                         l2m_col = next((c for c in raw_df.columns if c.strip().lower() == 'l2m'), None)
