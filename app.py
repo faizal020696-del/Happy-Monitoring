@@ -137,11 +137,11 @@ try:
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Menganalisis data universe..."):
-                # Daftar nama model Groq untuk dicoba berurutan
+                # Daftar ID model Groq aktif resmi terbaru
                 models_to_try = [
-                    "llama-3.3-70b-versatile",
-                    "mixtral-8x7b-32768",
-                    "meta-llama/llama-4-scout-17b-16e-instruct"
+                    "llama-3.3-70b-specdec",
+                    "deepseek-r1-distill-llama-70b",
+                    "qwen-2.5-32b"
                 ]
                 
                 response_text = None
@@ -157,7 +157,7 @@ try:
                             model=model_name,
                         )
                         response_text = chat_completion.choices[0].message.content
-                        break  # Berhasil dapat respon, keluar dari loop
+                        break
                     except Exception as err:
                         last_error = err
                         continue
