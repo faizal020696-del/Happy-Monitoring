@@ -99,26 +99,21 @@ try:
         name_cols = [c for c in raw_df.columns if any(k in c.lower() for k in ['name', 'nama', 'pharmacy', 'toko', 'apotek'])]
         name_col = name_cols[0] if name_cols else raw_df.columns[0]
 
-        ignore_words = {'transaksi', 'w1', 'w2', 'w3', 'w4', 'berapa', 'total', 'jumlah', 'apotek', 'apotik', 'toko', 'cek', 'data'}
-        words = [w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in ignore_words]
-        
         target_row = None
+        name_series = raw_df[name_col].fillna("").astype(str).str.lower()
 
-        if words:
-            name_series = raw_df[name_col].fillna("").astype(str).str.lower()
-            
-            # Filter buang baris yang mengandung kata wilayah rekap (sangiang, periuk, total, dll)
-            not_summary_filter = ~name_series.str.contains('sangiang|periuk|total|region|all area', regex=True)
-            
-            # Cari baris yang mengandung SEMUA kata kunci dan bukan baris rekap
-            matches = raw_df[name_series.apply(lambda x: all(w in x for w in words)) & not_summary_filter]
-            if not matches.empty:
-                target_row = matches.iloc[0]
-            else:
-                # Cari baris yang mengandung SETIDAKNYA satu kata kunci dan bukan baris rekap
-                matches = raw_df[name_series.apply(lambda x: any(w in x for w in words)) & not_summary_filter]
-                if not matches.empty:
-                    target_row = matches.iloc[0]
+        # 1. Cari baris yang secara mutlak mengandung kata "gebang" DAN "farma", TAPI PANJANG KARAKTERNYA MASUK AKAL (bukan baris rekap panjang yang ada Sangiang/Periuk)
+        valid_mask = name_series.str.contains('gebang') & name_series.str.contains('farma') & (name_series.str.len() < 35)
+        matches = raw_df[valid_mask]
+
+        if not matches.empty:
+            target_row = matches.iloc[0]
+        else:
+            # 2. Kalau baris pendek tidak ketemu, coba cari baris yang mengandung kata "gebang" saja dengan panjang wajar
+            valid_mask_fallback = name_series.str.contains('gebang') & (name_series.str.len() < 35)
+            matches_fallback = raw_df[valid_mask_fallback]
+            if not matches_fallback.empty:
+                target_row = matches_fallback.iloc[0]
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Mengecek data..."):
@@ -135,7 +130,7 @@ try:
 
                     response_text = f"Data untuk **{str(display_name).title()}**:\n" + "\n".join(calculated_metrics)
                 else:
-                    response_text = f"Data untuk pencarian **'{prompt}'** tidak ditemukan di Google Sheet."
+                    response_text = f"Data untuk apotek **Gebang Farma** benar-benar tidak ditemukan pada baris detail Google Sheet."
 
                 st.markdown(response_text)
         
