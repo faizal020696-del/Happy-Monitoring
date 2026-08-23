@@ -93,7 +93,7 @@ try:
         # --- 1. DETEKSI METRIK / INTENT ---
         detected_intents = []
         
-        # Deteksi Mingguan (W1, W2, W3, W4)
+        # Tangkap dulu intent mingguan sebelum kata w1-w4 dibersihkan
         weeks_requested = [w for w in ['w1', 'w2', 'w3', 'w4'] if re.search(r'\b' + w + r'\b', prompt_lower)]
         if weeks_requested:
             detected_intents.append('weekly')
@@ -129,6 +129,7 @@ try:
         clean_prompt = prompt_lower
         clean_prompt = re.sub(r'\bdi([a-z]+)', r'\1', clean_prompt)
 
+        # W1-W4 dimasukkan kembali ke junk_words agar tidak mengotori nama outlet
         junk_words = [
             r'\bberapa\b', r'\btotal\b', r'\bjumlah\b', r'\byang\b', r'\btersedia\b', r'\bada\b', 
             r'\btarget\b', r'\bvisit\b', r'\bkunjungan\b', r'\breps\b', r'\bsales\b', r'\bsalesman\b', 
@@ -137,7 +138,7 @@ try:
             r'\bpt\b', r'\bcv\b', r'\bdata\b', r'\buntuk\b', r'\bbulan\b', r'\bini\b', r'\blalu\b', 
             r'\bni\b', r'\binih\b', r'\bkah\b', r'\bdong\b', r'\bcek\b', r'\binfo\b', r'\bpencapaian\b', 
             r'\bcapaian\b', r'\bperforma\b', r'\bhasil\b', r'\barea\b', r'\bmana\b', r'\byg\b', 
-            r'\bsudah\b', r'\btransaksi\b',
+            r'\bsudah\b', r'\btransaksi\b', r'\bw1\b', r'\bw2\b', r'\bw3\b', r'\bw4\b',
             r'\baverage\b', r'\bavg\b', r'\brata-rata\b', r'\bratarata\b', r'\b3\b', r'\bbln\b',
             r'\bl3m\b', r'\bl2m\b', r'\blm\b', r'\bcm\b', r'\bdan\b', r'\bdan2\b',
             r'\bkemarin\b', r'\bkemaren\b', r'\bkemarin2\b', r'\bkemaren2\b',
@@ -159,7 +160,7 @@ try:
             ignored_cols = [c for c in df.columns if any(k in c.lower() for k in ['alamat', 'address', 'jalan', 'kota'])]
             searchable_cols = [c for c in df.columns if c not in ignored_cols]
 
-            pattern = r'(?=.*' + r')(?=.*'.join([re.escape(t) for t in entity_tokens]) + r')'
+            pattern = r'(?=.*\b' + r'\b)(?=.*\b'.join([re.escape(t) for t in entity_tokens]) + r'\b)'
             series_clean = df_clean_text[searchable_cols].apply(lambda row: " ".join(row.values).lower(), axis=1)
             sub_df = df[series_clean.str.contains(pattern, regex=True, na=False)]
 
@@ -258,7 +259,7 @@ try:
                             total_val = num_series.sum()
                             calculated_metrics.append(f"• **{col}**: {total_val:,.0f} kali".replace(",", "."))
 
-                        # Kolom Angka Umum / Sum (Termasuk W1-W4)
+                        # Kolom Angka Umum / Sum (Termasuk W1, W2, W3, W4)
                         else:
                             num_series = sub_df[col].apply(lambda x: parse_number_exact(x, is_dpd=False))
                             total_val = num_series.sum()
