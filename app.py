@@ -36,7 +36,7 @@ def parse_number_transaction(val):
     except Exception:
         return 0.0
 
-# Parser untuk kolom umum (DPD, Limit, GMV, Total, dll) yang lebih toleran
+# Parser untuk kolom umum (DPD, Limit, GMV, Total, dll)
 def parse_number_general(val):
     if pd.isna(val) or val is None:
         return 0.0
@@ -44,7 +44,6 @@ def parse_number_general(val):
     if not val_str or val_str.lower() in ['nan', 'null', 'none', '', '-', ' - ']:
         return 0.0
     
-    # Ambil semua angka yang ada
     cleaned = re.sub(r'[^0-9\,\.]', '', val_str)
     if not cleaned:
         return val_str
@@ -65,11 +64,9 @@ def parse_number_general(val):
             else:
                 cleaned = cleaned.replace(',', '')
         
-        # Jika hasil parse berupa float, kembalikan
         val_float = float(cleaned)
         return val_float
     except Exception:
-        # Jika gagal float tapi ada angka murninya, ekstrak pakai regex angka saja
         digits_only = re.sub(r'[^0-9]', '', val_str)
         if digits_only:
             return float(digits_only)
@@ -136,16 +133,16 @@ try:
         if re.search(r'\b(w4|week\s*4|week4|minggu\s*4|minggu4)\b', prompt_lower):
             weeks_requested.append('W4')
 
-        # Jika user mengetik "WTU" atau "transaksi" secara umum tanpa spesifik minggu, tampilkan W1-W4 sekaligus
         if ('wtu' in prompt_lower or 'transaksi' in prompt_lower) and not weeks_requested:
             if not any(k in prompt_lower for k in ['w1', 'w2', 'w3', 'w4', 'week', 'minggu', 'gmv', 'total']):
                 weeks_requested = ['W1', 'W2', 'W3', 'W4']
 
-        # Deteksi pencarian metrik khusus (misal: GMV, Total, DPD, Limit, dll dari teks prompt)
+        # Deteksi pencarian metrik khusus (GMV, Total, DPD, Limit, dll) dengan toleransi tinggi terhadap 'cm', 'bulan ini', dll
         metric_requested = None
         if not weeks_requested:
             for c in raw_df.columns:
                 c_lower = c.lower()
+                # Jika user mencari GMV (mendukung kata gmv, total gmv, atau ada kata gmv di kolom)
                 if 'gmv' in prompt_lower and 'gmv' in c_lower:
                     metric_requested = c
                     break
@@ -158,6 +155,13 @@ try:
                 elif 'limit' in prompt_lower and 'limit' in c_lower:
                     metric_requested = c
                     break
+
+            # Jika user ngetik "GMV" tapi di kolom sheet namanya cuma "GMV" atau ada variasi lain
+            if not metric_requested and 'gmv' in prompt_lower:
+                for c in raw_df.columns:
+                    if 'gmv' in c.lower():
+                        metric_requested = c
+                        break
 
             if not metric_requested:
                 for col in raw_df.columns:
@@ -181,13 +185,13 @@ try:
                 if target_row is not None:
                     break
 
-        # 2. Cari berdasarkan nama toko
+        # 2. Cari berdasarkan nama outlet (mengabaikan kata perintah, waktu, dan istilah gaul seperti 'cm')
         if target_row is None:
             ignore_words = {
                 'transaksi', 'wtu', 'w1', 'w2', 'w3', 'w4', 'week', 'week1', 'week2', 'week3', 'week4', 
                 'minggu', 'minggu1', 'minggu2', 'minggu3', 'minggu4', '1', '2', '3', '4', 
                 'berapa', 'total', 'jumlah', 'apotek', 'apotik', 'toko', 'cek', 'data', 'id', 'dpd', 'limit',
-                'bulan', 'ini', 'kemarin', 'lalu', 'gmv', 'penjualan', 'omset'
+                'bulan', 'ini', 'kemarin', 'lalu', 'gmv', 'penjualan', 'omset', 'cm'
             }
             query_words = [w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in ignore_words]
             
