@@ -274,9 +274,26 @@ try:
                     elif is_mission_query:
                         mission_cols = [c for c in raw_df.columns if any(term in c.lower() for term in ['misi', 'gold', 'mission', 'campaign'])]
                         if mission_cols:
+                            # Mengelompokkan tampilan misi agar lebih rapi berbentuk sub-kategori
+                            calculated_metrics.append("**🎯 Informasi Campaign Misi:**")
                             for col in mission_cols:
-                                val_metric = target_row.get(col, "-")
-                                calculated_metrics.append(f"• **{col}**: {val_metric}")
+                                c_lower = col.lower()
+                                val_metric = str(target_row.get(col, "-")).strip()
+                                
+                                # Format angka jika berupa nominal uang
+                                val_parsed = parse_number_general(val_metric)
+                                if val_parsed > 0 and any(kw in c_lower for kw in ['target', 'gmv', 'gap', 'hna']):
+                                    val_formatted = f"Rp {val_parsed:,.0f}".replace(",", ".")
+                                else:
+                                    val_formatted = val_metric
+
+                                # Buat sub-section agar rapi berjarak
+                                if 'gold' in c_lower and len(calculated_metrics) > 0 and "**🏆 Target & Pencapaian Gold Misi:**" not in calculated_metrics:
+                                    calculated_metrics.append("\n**🏆 Target & Pencapaian Gold Misi:**")
+                                elif not any('gold' in x.lower() for x in mission_cols[:mission_cols.index(col)]) and 'gold' not in c_lower and len(calculated_metrics) == 1:
+                                    pass # Header pertama sudah di atas
+
+                                calculated_metrics.append(f"• **{col}**: {val_formatted}")
                         else:
                             calculated_metrics.append("• Kolom misi/gold tidak ditemukan pada sheet.")
                     else:
@@ -305,7 +322,7 @@ try:
                                 ("CM (Bulan Ini)", cm_col),
                                 ("LM (Bulan Lalu)", lm_col),
                                 ("L2M", l2m_col),
-                                ("L3M", l3m_col),
+                            ("L3M", l3m_col),
                                 ("Average / AVG L3M", avg_col)
                             ]
                             for label, col in target_cols_gmv:
