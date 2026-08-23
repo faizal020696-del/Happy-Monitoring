@@ -9,9 +9,10 @@ SHEET_URL = st.secrets["SHEET_URL"]
 st.set_page_config(
     page_title="Chatbot Universe SPV Happy", 
     page_icon="🤖", 
-    layout="wide"
+    layout="centered"
 )
 
+# Kustomisasi Tampilan Visual Streamlit
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden !important;}
@@ -24,9 +25,13 @@ st.markdown("""
         border-radius: 20px;
         color: white;
         text-align: center;
+        box-shadow: 0 10px 25px -5px rgba(79, 70, 229, 0.2);
         margin-bottom: 2rem;
     }
     .main-header h1 { color: white !important; font-weight: 800; font-size: 2.2rem; margin-bottom: 0.5rem; }
+    .main-header p { color: #e0e7ff !important; font-size: 1rem; margin: 0; }
+    .stChatMessage { border-radius: 16px !important; padding: 1rem 1.2rem !important; margin-bottom: 0.8rem !important; box-shadow: 0 2px 5px rgba(0,0,0,0.03) !important; }
+    .stChatInputContainer { border-radius: 15px !important; bottom: 20px !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -47,37 +52,31 @@ def convert_to_csv_url(url):
     return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
 
 def parse_number_exact(val):
+    """
+    Parser angka ultra-presisi untuk format Rupiah Indonesia (misal: 585.409.626 atau Rp 585.409.626,00)
+    """
     if pd.isna(val) or val is None:
         return 0.0
     val_str = str(val).strip()
     if not val_str or val_str.lower() in ['nan', 'null', 'none', '-', '']:
         return 0.0
 
+    # Ambil angka, titik, koma, minus
     cleaned = re.sub(r'[^0-9\,\.-]', '', val_str)
     if not cleaned:
         return 0.0
 
     try:
-        if '.' in cleaned and ',' in cleaned:
-            if cleaned.rfind('.') < cleaned.rfind(','):
-                cleaned = cleaned.replace('.', '').replace(',', '.')
-            else:
-                cleaned = cleaned.replace(',', '')
-        elif ',' in cleaned and '.' not in cleaned:
+        # Jika ada desimal koma di akhir (misal: ,00), buang desimalnya
+        if ',' in cleaned:
             parts = cleaned.split(',')
-            if len(parts) == 2 and len(parts[1]) <= 2:
-                cleaned = cleaned.replace(',', '.')
+            if len(parts[-1]) <= 2: # Asumsi desimal sen/koma 2 digit
+                cleaned = "".join(parts[:-1])
             else:
                 cleaned = cleaned.replace(',', '')
-        elif '.' in cleaned and ',' not in cleaned:
-            parts = cleaned.split('.')
-            if len(parts) > 2:
-                cleaned = cleaned.replace('.', '')
-            elif len(parts) == 2:
-                if len(parts[1]) == 3:
-                    cleaned = cleaned.replace('.', '')
-                elif len(parts[1]) != 2:
-                    cleaned = cleaned.replace('.', '')
+
+        # Hapus seluruh titik ribuan
+        cleaned = cleaned.replace('.', '')
 
         return float(cleaned)
     except Exception:
@@ -95,11 +94,11 @@ try:
     )
 
     with st.sidebar:
-        st.write("### 📊 Panel Kontrol Data")
+        st.write("### 📊 Status Data")
         st.write(f"Total Baris: {len(df)}")
         st.write(f"Total Kolom: {len(df.columns)}")
-        st.write("**Daftar Kolom:**")
-        st.write(list(df.columns))
+        with st.expander("Lihat Daftar Kolom"):
+            st.write(list(df.columns))
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
@@ -115,82 +114,108 @@ try:
         st.session_state.messages.append({"role": "user", "content": prompt})
 
         prompt_lower = prompt.lower()
+        
+        # 1. IDENTIFIKASI REPS / TIM SPESIFIK
+        reps_list = ['sulistiana', 'afrianto', 'rizki', 'gde', 'mulyanto']
+        target_reps = next((name for name in reps_list if name in prompt_lower), None)
 
-        # Deteksi Nama Reps Utama
-        target_name = None
-        for name in ['sulistiana', 'afrianto', 'rizki', 'gde', 'mulyanto', 'happy']:
-            if name in prompt_lower:
-                target_name = name
-                break
-
-        # Cari Kolom
-        reps_cols = [c for c in df.columns if any(k in c.lower() for k in ['reps', 'sales', 'nama', 'spv'])]
-        gmv_cols = [c for c in df.columns if any(k in c.lower() for k in ['gmv', 'ach', 'total', 'nominal', 'sales', 'pencapaian'])]
-
-        # Filter DataFrame
+        # Cari Kolom Reps & GMV
+        reps_cols = [c for c in df.columns if any(k in c.lower() for k in ['reps', 'sales', 'nama reps', 'spv'])]
+        
         sub_df = pd.DataFrame()
-        if target_name and target_name != 'happy':
-            if reps_cols:
-                # Filter tepat di kolom Reps
-                r_col = reps_cols[0]
-                sub_df = df[df[r_col].fillna("").astype(str).str.lower().str.contains(target_name)]
-            else:
-                # Fallback ke seluruh teks
-                row_combined = df_clean_text.apply(lambda row: " ".join(row.values).lower(), axis=1)
-                sub_df = df[row_combined.str.contains(target_name)]
+        
+        # Filter Baris Presisi
+        if target_reps and reps_cols:
+            r_col = reps_cols[0]
+            # Filter KHUSUS di kolom nama Reps saja
+            sub_df = df[df[r_col].astype(str).str.lower().str.contains(target_reps)]
         else:
-            # Jika 'happy' atau tanya total team
-            sub_df = df.copy()
+            # Fallback jika tidak sebut nama reps khusus
+            stop_words = ['berapa', 'total', 'gmv', 'pencapaian', 'capaian', 'data', 'untuk', 'bulan', 'ini', 'di', 'dan', 'yang', 'dari', 'gw', 'saya']
+            tokens = [w for w in prompt_lower.split() if w not in stop_words and len(w) > 1]
+            if tokens:
+                row_combined = df_clean_text.apply(lambda row: " ".join(row.values).lower(), axis=1)
+                sub_df = df[row_combined.apply(lambda x: any(t in x for t in tokens))]
 
         with st.chat_message("assistant", avatar="🤖"):
-            # Fitur Debugging: Tampilkan Baris & Kolom Terfilter di Expander
-            with st.expander("🔍 Lihat Hasil Filter Data (Debug)"):
-                st.write(f"Entitas Dicari: **{target_name}**")
-                st.write(f"Jumlah Baris Ditemukan: **{len(sub_df)}**")
-                st.dataframe(sub_df.head(20))
+            with st.spinner("Menghitung data dengan presisi 100%..."):
+                if len(sub_df) > 0:
+                    calculated_metrics = []
+                    
+                    # 2. FILTER KOLOM NOMINAL (Gunakan kolom CM / GMV ACH utama saja)
+                    for col in sub_df.columns:
+                        col_lower = col.lower()
+                        # Hanya ambil kolom GMV/Pencapaian utama, abaikan target/status/id
+                        if any(k in col_lower for k in ['gmv ach', 'pencapaian', 'gmv cm', 'total gmv', 'ach gmv']):
+                            if not any(ignore in col_lower for ignore in ['target', 'date', 'tanggal', 'id', 'code', '%', 'pct', 'status']):
+                                num_series = sub_df[col].apply(parse_number_exact)
+                                total_val = num_series.sum()
+                                if total_val > 0:
+                                    calculated_metrics.append(f"- **{col}**: Rp {total_val:,.0f}".replace(",", "."))
 
-            if len(sub_df) > 0:
-                calculated_metrics = []
-                for g_col in gmv_cols:
-                    if not any(ignore in g_col.lower() for ignore in ['date', 'tanggal', 'id', 'code', 'durasi', 'no', 'phone']):
-                        total_val = sub_df[g_col].apply(parse_number_exact).sum()
-                        if total_val > 0:
-                            calculated_metrics.append(f"- **{g_col}**: Rp {total_val:,.0f}".replace(",", "."))
+                    # Fallback jika nama kolomnya beda
+                    if not calculated_metrics:
+                        for col in sub_df.columns:
+                            col_lower = col.lower()
+                            if 'gmv' in col_lower and not any(ignore in col_lower for ignore in ['target', '%', 'status']):
+                                num_series = sub_df[col].apply(parse_number_exact)
+                                total_val = num_series.sum()
+                                if total_val > 0:
+                                    calculated_metrics.append(f"- **{col}**: Rp {total_val:,.0f}".replace(",", "."))
 
-                calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Tidak ada angka terhitung dari kolom nominal."
+                    calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Tidak ada kolom angka nominal yang terhitung."
+                    
+                    sub_df_sample = sub_df.dropna(how='all', axis=1).head(10)
+                    data_table_md = sub_df_sample.to_markdown(index=False)
 
-                system_prompt = f"""
-Kamu adalah Senior Data Analyst SPV.
+                    system_prompt = f"""
+Kamu adalah Senior Data Analyst SPV yang sangat teliti.
 
-DITEMUKAN HASIL KALKULASI PYTHON DARI DATA SHEET:
+DITEMUKAN **{len(sub_df)} BARIS DATA** UNTUK PENCARIAN.
+
+HASIL KALKULASI PRESISI PYTHON UNTUK **SELURUH {len(sub_df)} BARIS DATA**:
 {calc_summary_str}
+
+SAMPEL TABEL DATA:
+{data_table_md}
 
 Pertanyaan User: "{prompt}"
 
 Instruksi Menjawab:
-1. GUNAKAN ANGKA TOTAL DARI HASIL DI ATAS UNTUK MENJAWAB.
-2. Sebutkan secara langsung nama entitas dan angkanya di kalimat pertama.
-3. JANGAN MENAMBAHKAN/MENGHITUNG MANUALLAGI.
+1. GUNAKAN LANGSUNG ANGKA HASIL KALKULASI PYTHON DI ATAS! DILARANG MENGHITUNG PENJUMLAHAN MANUAL ULANG PAKAI AI.
+2. Jawab langsung di kalimat pertama. Format: "Total pencapaian GMV [Nama Reps] bulan ini adalah Rp [Angka]."
+3. JANGAN PERNAH menampilkan rincian pertambahan manual `(a + b + c)` di dalam teks.
 """
-                response_text = ""
-                try:
-                    completion = client.chat.completions.create(
-                        model="google/gemini-2.0-flash-lite-001:free",
-                        messages=[{"role": "user", "content": system_prompt}],
-                        temperature=0.0
-                    )
-                    if completion.choices:
-                        response_text = completion.choices[0].message.content
-                except Exception:
-                    response_text = f"Berikut total pencapaian yang terhitung:\n\n{calc_summary_str}"
+                    response_text = ""
+                    models_to_try = [
+                        "google/gemini-2.0-flash-lite-001:free",
+                        "google/gemini-2.0-flash-exp:free",
+                        "openrouter/free"
+                    ]
 
-                if not response_text:
-                    response_text = f"Berikut total pencapaian:\n\n{calc_summary_str}"
+                    for model_id in models_to_try:
+                        try:
+                            completion = client.chat.completions.create(
+                                model=model_id,
+                                messages=[{"role": "user", "content": system_prompt}],
+                                temperature=0.0
+                            )
+                            if completion.choices and len(completion.choices) > 0:
+                                res = completion.choices[0].message.content
+                                if res and len(res.strip()) > 5:
+                                    response_text = res
+                                    break
+                        except Exception:
+                            continue
+
+                    if not response_text or len(response_text.strip()) < 5:
+                        response_text = f"Ditemukan **{len(sub_df)} baris data**. Berikut total pencapaiannya:\n\n{calc_summary_str}"
+
+                else:
+                    response_text = f"Maaf bro, data untuk pencarian tersebut tidak ditemukan di Google Sheet."
 
                 st.markdown(response_text)
-            else:
-                st.markdown(f"Data untuk **{target_name}** tidak ditemukan.")
-
+        
         st.session_state.messages.append({"role": "assistant", "content": response_text})
 
 except Exception as e:
