@@ -235,7 +235,6 @@ try:
                         for col in mission_cols:
                             calculated_metrics.append(f"• **Kolom {col}**: (Data rekap misi sales rep)")
                     elif is_wtu_query:
-                        # Khusus WTU / kunjungan: tampilkan outlet lalu langsung Total Performa Per Week tanpa data bulanan di atasnya
                         calculated_metrics.append("\n**📅 Total Performa Per Week (Mingguan & Jumlah Outlet Transaksi):**")
                         for w in ['W1', 'W2', 'W3', 'W4']:
                             if w in week_cols_map:
@@ -284,7 +283,9 @@ try:
                     elif is_mission_query:
                         mission_cols = [c for c in raw_df.columns if any(term in c.lower() for term in ['misi', 'gold', 'mission', 'campaign'])]
                         if mission_cols:
-                            calculated_metrics.append("**🎯 Informasi Campaign Misi:**")
+                            reguler_metrics = []
+                            gold_metrics = []
+
                             for col in mission_cols:
                                 c_lower = col.lower()
                                 val_metric = str(target_row.get(col, "-")).strip()
@@ -294,10 +295,28 @@ try:
                                 else:
                                     val_formatted = val_metric
 
-                                if 'gold' in c_lower and len(calculated_metrics) > 0 and "**🏆 Target & Pencapaian Gold Misi:**" not in calculated_metrics:
-                                    calculated_metrics.append("\n**🏆 Target & Pencapaian Gold Misi:**")
-                                
-                                calculated_metrics.append(f"• **{col}**: {val_formatted}")
+                                # Bersihkan nama kolom dari kata kunci berulang agar lebih bersih
+                                clean_label = col
+                                for remove_word in ['misi reguler', 'misi', 'gold misi']:
+                                    clean_label = re.sub(re.escape(remove_word), '', clean_label, flags=re.IGNORECASE).strip()
+                                clean_label = clean_label.strip('- ').title()
+                                if not clean_label:
+                                    clean_label = col
+
+                                if 'gold' in c_lower:
+                                    gold_metrics.append(f"• **{clean_label}**: {val_formatted}")
+                                else:
+                                    reguler_metrics.append(f"• **{clean_label}**: {val_formatted}")
+
+                            if reguler_metrics:
+                                calculated_metrics.append("**🎯 Informasi Campaign Misi Reguler:**")
+                                calculated_metrics.extend(reguler_metrics)
+                            
+                            if gold_metrics:
+                                if reguler_metrics:
+                                    calculated_metrics.append("") # Spasi pemisah
+                                calculated_metrics.append("**🏆 Target & Pencapaian Gold Misi:**")
+                                calculated_metrics.extend(gold_metrics)
                         else:
                             calculated_metrics.append("• Kolom misi/gold tidak ditemukan pada sheet.")
                     elif is_wtu_query:
