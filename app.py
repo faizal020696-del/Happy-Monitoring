@@ -1,4 +1,89 @@
-prompt_lower = prompt.lower()
+import streamlit as st
+import pandas as pd
+from openai import OpenAI
+import re
+import json
+
+OPENROUTER_API_KEY = st.secrets["OPENROUTER_API_KEY"]
+SHEET_URL = st.secrets["SHEET_URL"]
+
+st.set_page_config(
+    page_title="Chatbot Universe SPV Happy", 
+    page_icon="🤖", 
+    layout="centered"
+)
+
+def convert_to_csv_url(url):
+    sheet_id_match = re.search(r'/d/([a-zA-Z0-9-_]+)', url)
+    if not sheet_id_match: 
+        return None
+    sheet_id = sheet_id_match.group(1)
+    gid_match = re.search(r'[#&?]gid=([0-9]+)', url)
+    gid = gid_match.group(1) if gid_match else "0"
+    return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
+
+def parse_number_exact(val):
+    if pd.isna(val) or val is None:
+        return 0.0
+    val_str = str(val).strip()
+    if not val_str or val_str.lower() in ['nan', 'null', 'none', '-', '']:
+        return 0.0
+
+    cleaned = re.sub(r'[^0-9\,\.-]', '', val_str)
+    if not cleaned:
+        return 0.0
+
+    try:
+        if '.' in cleaned and ',' in cleaned:
+            if cleaned.rfind('.') < cleaned.rfind(','):
+                cleaned = cleaned.replace('.', '').replace(',', '.')
+            else:
+                cleaned = cleaned.replace(',', '')
+        elif ',' in cleaned and '.' not in cleaned:
+            parts = cleaned.split(',')
+            if len(parts) == 2 and len(parts[1]) <= 2:
+                cleaned = cleaned.replace(',', '.')
+            else:
+                cleaned = cleaned.replace(',', '')
+        elif '.' in cleaned and ',' not in cleaned:
+            parts = cleaned.split('.')
+            if len(parts) > 2:
+                cleaned = cleaned.replace('.', '')
+            elif len(parts) == 2:
+                if len(parts[1]) == 3 or len(parts[1]) != 2:
+                    cleaned = cleaned.replace('.', '')
+
+        return float(cleaned)
+    except Exception:
+        return 0.0
+
+try:
+    csv_url = convert_to_csv_url(SHEET_URL)
+    df = pd.read_csv(csv_url, dtype=str)
+    df.columns = df.columns.str.strip()
+    df_clean_text = df.fillna("").astype(str)
+
+    client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=OPENROUTER_API_KEY,
+    )
+
+    if "messages" not in st.session_state:
+        st.session_state.messages = [
+            {"role": "assistant", "content": "Halo SPV! 👋 Ada data outlet atau reps yang mau dicek hari ini?"}
+        ]
+
+    for message in st.session_state.messages:
+        avatar = "👤" if message["role"] == "user" else "🤖"
+        with st.chat_message(message["role"], avatar=avatar):
+            st.markdown(message["content"])
+
+    if prompt := st.chat_input("Tulis pertanyaan kamu di sini..."):
+        with st.chat_message("user", avatar="👤"):
+            st.markdown(prompt)
+        st.session_state.messages.append({"role": "user", "content": prompt})
+
+        prompt_lower = prompt.lower()
 
         # --- 1. DETEKSI INTENT PERTANYAAN (PRESISI) ---
         detected_intents = []
@@ -23,13 +108,12 @@ prompt_lower = prompt.lower()
         elif any(k in prompt_lower for k in ['gmv', 'omset', 'sales', 'penjualan', 'pencapaian', 'capaian']) and not is_misi:
             detected_intents.append('gmv')
 
-        # --- 2. EXTRACTION NAMA TOKO / REPS (DENGAN TAMBAHAN KATA SAPU BERSIH) ---
+        # --- 2. EXTRACTION NAMA TOKO / REPS (PEMBERSIHAN REGEX AGRESIF) ---
         clean_prompt = prompt_lower
 
         # Hapus imbuhan "di" di awal kata (misal: "diapotek" -> "apotek", "dibulan" -> "bulan")
         clean_prompt = re.sub(r'\bdi([a-z]+)', r'\1', clean_prompt)
         
-        # Tambahkan 'pencapaian', 'capaian', 'performa', 'hasil' ke junk words
         junk_patterns = [
             r'\bberapa\b', r'\btotal\b', r'\bjumlah\b', r'\byang\b', r'\btersedia\b', r'\bada\b', 
             r'\bkunjungan\b', r'\breps\b', r'\bsales\b', r'\bsalesman\b', r'\blimit\b', r'\bplafon\b',
@@ -61,9 +145,8 @@ prompt_lower = prompt.lower()
                 if len(sub_df) > 0:
                     target_columns = []
 
-                    # --- 3. FILTERING KOLOM KHUSUS (ON-POINT KUNCI MISI) ---
+                    # --- 3. FILTERING KOLOM KHUSUS (ON-POINT KUNCI METRIK) ---
                     if 'misi' in detected_intents:
-                        # Hanya ambil kolom yang ADA KATA "MISI"
                         target_columns = [c for c in sub_df.columns if 'misi' in c.lower()]
                     elif 'cm' in detected_intents:
                         target_columns = [c for c in sub_df.columns if c.lower() == 'cm' or 'cm' in c.lower()]
@@ -78,7 +161,6 @@ prompt_lower = prompt.lower()
                     elif 'gmv' in detected_intents:
                         target_columns = [c for c in sub_df.columns if any(k in c.lower() for k in ['gmv', 'sales'])]
 
-                    # Fallback jika user hanya minta data umum tanpa kata kunci metrik
                     if not target_columns:
                         important_keys = ['gmv', 'cm', 'lm', 'sales', 'limit', 'dpd', 'misi']
                         target_columns = [c for c in sub_df.columns if any(k in c.lower() for k in important_keys)]
@@ -99,7 +181,7 @@ prompt_lower = prompt.lower()
                         else:
                             calculated_metrics.append(f"• **{col}**: Rp {total_val:,.0f}".replace(",", "."))
 
-                    calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Metrik misi tidak terdeteksi di sheet."
+                    calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Metrik tidak terdeteksi di sheet."
 
                     system_prompt = f"""
 Kamu adalah Assistant Data SPV.
@@ -134,3 +216,8 @@ Instruksi Ringkas & Direct:
                     response_text = f"Waduh, data untuk **'{searched_name}'** tidak ditemukan di Google Sheet. Cek ejaan nama toko/reps ya bro."
 
                 st.markdown(response_text)
+        
+        st.session_state.messages.append({"role": "assistant", "content": response_text})
+
+except Exception as e:
+    st.error(f"Gagal memuat data: {e}")
