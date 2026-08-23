@@ -117,10 +117,9 @@ try:
             st.markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
 
-        # --- FIX 1: SANITASI PROMPT DARI TANDA BACA ---
+        # Sanitasi Prompt
         clean_prompt = re.sub(r'[^\w\s]', ' ', prompt.lower())
         
-        # Stopwords diperluas untuk membuang kata umum & keterangan waktu
         stop_words = set([
             'berapa', 'total', 'gmv', 'pencapaian', 'capaian', 'misi', 'reguler', 'gold', 
             'target', 'data', 'untuk', 'bulan', 'ini', 'kemarin', 'di', 'dan', 'yang', 
@@ -134,35 +133,44 @@ try:
         sub_df = pd.DataFrame()
         if entity_tokens:
             is_reps_query = any(k in clean_prompt for k in ['reps', 'sales', 'salesman', 'mr'])
-            is_apotek_query = any(k in clean_prompt for k in ['apotek', 'apotik', 'toko', 'outlet', 'customer'])
-
+            
             reps_cols = [c for c in df.columns if any(k in c.lower() for k in ['reps', 'sales', 'rep_name', 'nama rep', 'mr'])]
-            apotek_cols = [c for c in df.columns if any(k in c.lower() for k in ['apotek', 'apotik', 'toko', 'outlet', 'customer', 'nama_toko'])]
+            apotek_cols = [c for c in df.columns if any(k in c.lower() for k in ['apotek', 'apotik', 'toko', 'outlet', 'customer', 'account', 'nama'])]
 
             search_df = df_clean_text.copy()
 
+            # Tentukan scope pencarian
             if is_reps_query and reps_cols:
-                row_series = search_df[reps_cols].apply(lambda row: " ".join(row.values).lower(), axis=1)
-            elif is_apotek_query and apotek_cols:
-                row_series = search_df[apotek_cols].apply(lambda row: " ".join(row.values).lower(), axis=1)
+                target_df = search_df[reps_cols]
+            elif apotek_cols:
+                target_df = search_df[apotek_cols]
             else:
-                row_series = search_df.apply(lambda row: " ".join(row.values).lower(), axis=1)
-            
-            # TINGKAT 1: PHRASE MATCHING EXACT ("gabang farma")
-            mask_phrase = row_series.str.contains(re.escape(phrase_search), regex=True, na=False)
-            sub_df = df[mask_phrase]
+                target_df = search_df
 
-            # TINGKAT 2: TOKEN MATCHING (Semua kata pencarian harus ada di baris tersebut)
+            row_series = target_df.apply(lambda row: " ".join(row.values).lower(), axis=1)
+            
+            # --- STRATEGI PENCARIAN BERTINGKAT ---
+            # 1. Exact Phrase pada target kolom
+            mask = row_series.str.contains(re.escape(phrase_search), regex=True, na=False)
+            sub_df = df[mask]
+
+            # 2. All Tokens Matching pada target kolom (Setiap kata harus ada)
             if len(sub_df) == 0:
-                mask_all = row_series.apply(lambda x: all(t in x for t in entity_tokens))
-                sub_df = df[mask_all]
+                mask = row_series.apply(lambda x: all(t in x for t in entity_tokens))
+                sub_df = df[mask]
+
+            # 3. Fallback: Cari di SELURUH KOLOM jika filter kolom gagal menemukan data
+            if len(sub_df) == 0:
+                full_row_series = search_df.apply(lambda row: " ".join(row.values).lower(), axis=1)
+                mask_full = full_row_series.apply(lambda x: all(t in x for t in entity_tokens))
+                sub_df = df[mask_full]
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Menghitung data dengan presisi 100%..."):
                 if len(sub_df) > 0:
                     calculated_metrics = []
                     
-                    # Filter Kolom Penjumlahan
+                    # Filter Kolom Penjumlahan yang Valid
                     valid_cols = []
                     for col in sub_df.columns:
                         col_lower = col.lower()
@@ -170,7 +178,7 @@ try:
                             if not any(ignore in col_lower for ignore in ['target', '%', 'pct', 'date', 'tanggal', 'id', 'code', 'durasi', 'duration']):
                                 valid_cols.append(col)
 
-                    # Prioritaskan kolom CM / Bulan Ini jika ada
+                    # Prioritaskan kolom CM / Current Month jika ada
                     cm_cols = [c for c in valid_cols if any(k in c.lower() for k in ['cm', 'current', 'bulan ini', 'total'])]
                     target_calculation_cols = cm_cols if cm_cols else valid_cols
 
