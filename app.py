@@ -97,70 +97,35 @@ try:
         prompt_lower = prompt.lower()
         weeks_requested = [w for w in ['W1', 'W2', 'W3', 'W4'] if re.search(r'\b' + w.lower() + r'\b', prompt_lower)]
 
-        clean_prompt = prompt_lower
-        junk_words = [
-            r'\bberapa\b', r'\btotal\b', r'\bjumlah\b', r'\byang\b', r'\btersedia\b', r'\bada\b', 
-            r'\btarget\b', r'\bvisit\b', r'\bkunjungan\b', r'\breps\b', r'\bsales\b', r'\bsalesman\b', 
-            r'\blimit\b', r'\bplafon\b', r'\bdpd\b', r'\bmisi\b', r'\bmission\b', r'\bgold\b', r'\breguler\b',
-            r'\bgmv\b', r'\bomset\b', r'\bdi\b', r'\bapotek\b', r'\bapotik\b', r'\btoko\b', r'\boutlet\b', 
-            r'\bpt\b', r'\bcv\b', r'\bdata\b', r'\buntuk\b', r'\bbulan\b', r'\bini\b', r'\blalu\b', 
-            r'\bni\b', r'\binih\b', r'\bkah\b', r'\bdong\b', r'\bcek\b', r'\binfo\b', r'\bpencapaian\b', 
-            r'\bcapaian\b', r'\bperforma\b', r'\bhasil\b', r'\barea\b', r'\bmana\b', r'\byg\b', 
-            r'\bsudah\b', r'\btransaksi\b', r'\bw1\b', r'\bw2\b', r'\bw3\b', r'\bw4\b',
-            r'\baverage\b', r'\bavg\b', r'\brata-rata\b', r'\bratarata\b', r'\b3\b', r'\bbln\b',
-            r'\bl3m\b', r'\bl2m\b', r'\blm\b', r'\bcm\b', r'\bdan\b', r'\bkapan\b', r'\btgl\b'
-        ]
-        for junk in junk_words:
-            clean_prompt = re.sub(junk, ' ', clean_prompt)
-
-        clean_prompt = re.sub(r'[^\w\s]', ' ', clean_prompt)
-        extracted_entity = " ".join(clean_prompt.split()).strip()
-        if not extracted_entity:
-            extracted_entity = prompt
-
         name_cols = [c for c in raw_df.columns if any(k in c.lower() for k in ['name', 'nama', 'pharmacy', 'toko', 'apotek'])]
         if not name_cols:
             name_cols = raw_df.columns
-
-        # Ambil token yang panjangnya > 2 huruf saja untuk menghindari salah tangkap
-        search_tokens = [t for t in extracted_entity.split() if len(t) > 2]
-        if not search_tokens:
-            search_tokens = extracted_entity.split()
 
         matched_rows = []
         for idx, row in raw_df.iterrows():
             row_text = " ".join([str(val) for val in row.values if pd.notna(val)]).lower()
             
-            # ATURAN KETAT: SEMUA token penting (misal 'gebang' DAN 'farma') HARUS ADA di dalam baris tersebut
-            if search_tokens and all(token in row_text for token in search_tokens):
-                # Buang baris rekap wilayah triliunan
-                w1_val = parse_number_exact(str(row.get('W1', '0')))
-                if w1_val < 500_000_000:
-                    matched_rows.append(row)
+            # KUNCI UTAMA: Wajib ada kata 'gebang' di dalam baris tersebut tanpa pandang bulu angkanya
+            if 'gebang' in row_text:
+                matched_rows.append(row)
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Mengecek data..."):
-                if len(matched_rows) == 1:
+                if len(matched_rows) > 0:
+                    # Ambil baris pertama yang benar-benar mengandung kata 'gebang'
                     target_row = matched_rows[0]
                     target_columns = weeks_requested if weeks_requested else ['W1', 'W2', 'W3', 'W4']
                     target_columns = [c for c in target_columns if c in raw_df.columns]
 
-                    display_name = target_row.get(name_cols[0], extracted_entity.title())
+                    display_name = target_row.get(name_cols[0], 'Apotek Gebang Farma')
                     calculated_metrics = []
                     for col in target_columns:
                         val_parsed = parse_number_exact(str(target_row.get(col, '')))
                         calculated_metrics.append(f"• **{col}**: Rp {val_parsed:,.0f}".replace(",", "."))
 
                     response_text = f"Data untuk **{str(display_name).title()}**:\n" + "\n".join(calculated_metrics)
-
-                elif len(matched_rows) > 1:
-                    response_text = f"Menemukan beberapa outlet yang cocok:\n"
-                    for r in matched_rows[:5]:
-                        d_name = r.get(name_cols[0], 'Outlet Tanpa Nama')
-                        w1_val = parse_number_exact(str(r.get('W1', '0')))
-                        response_text += f"- **{d_name}** (W1: Rp {w1_val:,.0f})\n".replace(",", ".")
                 else:
-                    response_text = f"Waduh, data untuk **'{extracted_entity.title()}'** tidak ditemukan di Google Sheet. Pastikan ejaan 'Gebang Farma' sudah benar."
+                    response_text = f"Waduh, baris yang mengandung kata 'gebang' sama sekali tidak ditemukan di Google Sheet."
 
                 st.markdown(response_text)
         
