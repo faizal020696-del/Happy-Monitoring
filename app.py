@@ -295,9 +295,9 @@ try:
                                 else:
                                     val_formatted = val_metric
 
-                                # Bersihkan nama kolom dari kata kunci berulang agar lebih bersih
+                                # Bersihkan nama kolom agar bersih dari embel-embel berulang
                                 clean_label = col
-                                for remove_word in ['misi reguler', 'misi', 'gold misi']:
+                                for remove_word in ['misi reguler', 'gold misi']:
                                     clean_label = re.sub(re.escape(remove_word), '', clean_label, flags=re.IGNORECASE).strip()
                                 clean_label = clean_label.strip('- ').title()
                                 if not clean_label:
@@ -309,13 +309,13 @@ try:
                                     reguler_metrics.append(f"• **{clean_label}**: {val_formatted}")
 
                             if reguler_metrics:
-                                calculated_metrics.append("**🎯 Informasi Campaign Misi Reguler:**")
+                                calculated_metrics.append("🎯 **Informasi Campaign Misi Reguler:**")
                                 calculated_metrics.extend(reguler_metrics)
                             
                             if gold_metrics:
                                 if reguler_metrics:
-                                    calculated_metrics.append("") # Spasi pemisah
-                                calculated_metrics.append("**🏆 Target & Pencapaian Gold Misi:**")
+                                    calculated_metrics.append("") # Spasi pemisah rapi
+                                calculated_metrics.append("🏆 **Target & Pencapaian Gold Misi:**")
                                 calculated_metrics.extend(gold_metrics)
                         else:
                             calculated_metrics.append("• Kolom misi/gold tidak ditemukan pada sheet.")
@@ -369,7 +369,7 @@ try:
                                     val_parsed = parse_number_transaction(val_raw)
                                     calculated_metrics.append(f"• **{w}**: Rp {val_parsed:,.0f}".replace(",", "."))
 
-                    response_text = f"Data untuk **{str(display_name).title()}**:\n" + "\n".join(calculated_metrics)
+                    response_text = f"Data untuk **{str(display_name).title()}**:\n\n" + "\n".join(calculated_metrics)
                 else:
                     response_text = f"Data untuk pencarian tersebut tidak ditemukan di Google Sheet."
 
