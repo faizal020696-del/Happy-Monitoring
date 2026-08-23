@@ -14,7 +14,7 @@ st.set_page_config(
     layout="centered"
 )
 
-# Kustomisasi Tampilan Visual (Tema Light Mode Clean)
+# Kustomisasi Tampilan Visual (Tema Light Mode Clean - Background Putih)
 st.markdown("""
     <style>
     /* 1. Menghilangkan elemen internal Streamlit */
@@ -29,7 +29,7 @@ st.markdown("""
         background-color: #ffffff !important;
     }
     
-    /* 3. HEADER CONTAINER: Gelap Elegan agar Menjolok di Background Putih */
+    /* 3. HEADER CONTAINER: Gelap Elegan */
     .main-header {
         background: #0f172a;
         padding: 2.5rem 2rem;
@@ -51,7 +51,7 @@ st.markdown("""
         margin: 0;
     }
 
-    /* 4. GELEMBUNG CHAT: Teks Gelap Kontras di Background Terang */
+    /* 4. GELEMBUNG CHAT: Teks Gelap Kontras */
     .stChatMessage {
         background: #f8fafc !important;
         border-radius: 16px !important;
@@ -138,12 +138,13 @@ try:
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Menganalisis data universe..."):
                 try:
+                    # MODEL AKTIF GROQ: llama-3.1-8b-instant
                     chat_completion = client.chat.completions.create(
                         messages=[
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": prompt}
                         ],
-                        model="llama3-70b-8192",
+                        model="llama-3.1-8b-instant",
                     )
                     
                     response_text = chat_completion.choices[0].message.content
