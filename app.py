@@ -25,14 +25,21 @@ def parse_number_exact(val):
     if pd.isna(val) or val is None:
         return 0.0
     val_str = str(val).strip()
-    if not val_str or val_str.lower() in ['nan', 'null', 'none', '', '-', ' - ']:
+    if not val_str or val_str.lower() in ['nan', 'null', 'none', '', '-', ' - ', '0']:
         return 0.0
 
+    # Ambil hanya karakter angka (0-9) dan pemisah desimal/titik
+    # Jangan gabungkan string sembarangan. Cari angka utama yang valid.
+    # Terkadang data csv menggabungkan beberapa kolom jika ada koma/pemisah yang salah.
+    # Kita ambil blok angka pertama yang masuk akal.
+    
+    # Hapus karakter selain angka, titik, dan koma
     cleaned = re.sub(r'[^0-9\,\.]', '', val_str)
     if not cleaned:
         return 0.0
 
     try:
+        # Jika ada titik dan koma, tentukan mana pemisah ribuan atau desimal
         if '.' in cleaned and ',' in cleaned:
             if cleaned.rfind('.') < cleaned.rfind(','):
                 cleaned = cleaned.replace('.', '').replace(',', '.')
@@ -40,8 +47,9 @@ def parse_number_exact(val):
                 cleaned = cleaned.replace(',', '')
         elif '.' in cleaned:
             parts = cleaned.split('.')
-            if len(parts) > 1:
-                cleaned = cleaned.replace('.', '')
+            # Jika titik terlalu banyak (misal format tidak sengaja tergabung), ambil bagian depannya atau parse float normal
+            if len(parts) > 2:
+                cleaned = "".join(parts[:-1]) + "." + parts[-1]
         elif ',' in cleaned:
             parts = cleaned.split(',')
             if len(parts) == 2 and len(parts[1]) <= 2:
@@ -49,7 +57,19 @@ def parse_number_exact(val):
             else:
                 cleaned = cleaned.replace(',', '')
 
-        return float(cleaned)
+        val_float = float(cleaned)
+        
+        # PENGAMANAN EKSTREM: Jika angka transaksi sebuah outlet per minggu tidak sengaja terbaca > 10 Miliar (pasti error gabungan kolom), 
+        # kita potong atau kembalikan ke 0 / ambil digit wajarnya.
+        if val_float > 10_000_000_000:
+            # Ambil hanya 8 digit pertama jika terjadi kesalahan penggabungan string csv
+            val_str_raw = re.sub(r'\D', '', val_str)
+            if len(val_str_raw) > 8:
+                val_float = float(val_str_raw[:8])
+            else:
+                val_float = 0.0
+                
+        return val_float
     except Exception:
         return 0.0
 
@@ -103,7 +123,7 @@ try:
 
         target_row = None
         
-        # 1. PRIORITAS UTAMA: Cek apakah user menyertakan angka ID (4-6 digit, contoh: 12195)
+        # 1. Cari berdasarkan ID jika ada angka 4-6 digit di prompt
         id_match_prompt = re.search(r'\b(\d{4,6})\b', prompt)
         if id_match_prompt and id_cols:
             search_id = id_match_prompt.group(1)
@@ -116,16 +136,13 @@ try:
                 if target_row is not None:
                     break
 
-        # 2. JIKA TIDAK ADA ID: Cari berdasarkan nama toko secara ketat
+        # 2. Jika tidak ada ID, cari berdasarkan nama toko
         if target_row is None:
-            # Ambil kata kunci nama dari prompt (buang kata-kata sampah)
-            ignore_words = {'transaksi', 'w1', 'w2', 'w3', 'w4', 'berapa', 'total', 'jumlah', 'apotek', 'apotik', 'toko', 'cek', 'data', 'id', 'Klinik'}
+            ignore_words = {'transaksi', 'w1', 'w2', 'w3', 'w4', 'berapa', 'total', 'jumlah', 'apotek', 'apotik', 'toko', 'cek', 'data', 'id'}
             query_words = [w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in ignore_words]
             
             if query_words:
                 name_series = raw_df[name_col].fillna("").astype(str).str.lower()
-                
-                # Filter baris yang wajib mengandung SEMUA kata kunci pencarian dari user
                 match_mask = name_series.apply(lambda x: all(qw in x for qw in query_words))
                 matches = raw_df[match_mask]
                 
