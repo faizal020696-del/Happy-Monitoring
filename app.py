@@ -140,29 +140,20 @@ try:
                 weeks_requested = ['W1', 'W2', 'W3', 'W4']
 
         is_limit_query = any(k in prompt_lower for k in ['limit', 'plafond', 'sisa', 'ssisa', 'avaiability', 'availability', 'avail']) and not weeks_requested
-        is_general_gmv_query = 'gmv' in prompt_lower and not weeks_requested and not is_limit_query and not any(k in prompt_lower for k in ['lalu', 'kemarin', 'peak', 'l3m', 'l2m', 'cm', 'lm', 'average', 'avg'])
+        is_general_gmv_query = 'gmv' in prompt_lower and not weeks_requested and not is_limit_query and not any(k in prompt_lower for k in ['lalu', 'kemarin', 'peak', 'l3m', 'l2m', 'cm', 'lm', 'average', 'avg']) and not 'gold' in prompt_lower and not 'misi' in prompt_lower
         is_visit_query = any(k in prompt_lower for k in ['target visit', 'visit count', 'visit', 'kunjungan', 'last visit', 'terakhir']) and not weeks_requested
 
-        # Deteksi kolom spesifik (seperti misi / gold)
+        # Deteksi apakah user menanyakan tentang Gold Misi atau Misi Reguler secara spesifik (paket lengkap)
+        is_gold_mission_query = 'gold' in prompt_lower and ('misi' in prompt_lower or 'mission' in prompt_lower)
+        is_regular_mission_query = ('misi' in prompt_lower or 'mission' in prompt_lower) and not is_gold_mission_query
+
         metric_requested = None
-        if not weeks_requested and not is_limit_query and not is_general_gmv_query and not is_visit_query:
+        if not weeks_requested and not is_limit_query and not is_general_gmv_query and not is_visit_query and not is_gold_mission_query and not is_regular_mission_query:
             for c in raw_df.columns:
                 c_low = c.strip().lower()
                 if c_low in prompt_lower:
                     metric_requested = c
                     break
-
-            if not metric_requested:
-                if 'gold' in prompt_lower:
-                    for c in raw_df.columns:
-                        if 'gold' in c.lower() and ('misi' in c.lower() or 'mission' in c.lower() or 'gmv' in c.lower()):
-                            metric_requested = c
-                            break
-                elif 'misi' in prompt_lower or 'mission' in prompt_lower:
-                    for c in raw_df.columns:
-                        if 'misi' in c.lower() or 'mission' in c.lower():
-                            metric_requested = c
-                            break
 
             if not metric_requested:
                 for col in raw_df.columns:
@@ -173,12 +164,11 @@ try:
 
         target_row = None
         
-        # Kata-kata perintah chatbot yang akan dibuang dari prompt saat mencari nama outlet
         command_words = {
             'cek', 'data', 'id', 'berapa', 'total', 'jumlah', 'w1', 'w2', 'w3', 'w4', 
             'transaksi', 'tolong', 'visit', 'kunjungan', 'misi', 'gold', 'mission',
             'campaign', 'type', 'start', 'date', 'duration', 'target', 'level', 'gmv', 
-            'ppn', 'gap', 'hna'
+            'ppn', 'gap', 'hna', 'pencapaian', 'kekurangan', 'info'
         }
 
         # 1. Cek berdasarkan ID jika ada angka 4-6 digit di prompt
@@ -194,23 +184,19 @@ try:
                 if target_row is not None:
                     break
 
-        # 2. Cek Berdasarkan Nama Outlet Lengkap (Tanpa membuang kata 'apotek' atau 'toko')
+        # 2. Cek Berdasarkan Nama Outlet Lengkap
         if target_row is None:
-            # Ambil kata yang bukan command_words
             outlet_query_words = [w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in command_words]
             if outlet_query_words:
                 name_series = raw_df[name_col].fillna("").astype(str).str.lower()
-                
-                # Coba cari dengan mencocokkan seluruh kata kunci yang tersisa secara berurutan/lengkap
                 match_mask = name_series.apply(lambda x: all(qw in x for qw in outlet_query_words))
                 matches = raw_df[match_mask]
                 
                 if not matches.empty:
                     target_row = matches.iloc[0]
                 else:
-                    # Jika tidak ketemu lengkap, coba cari baris yang mengandung minimal nama unik utama (misal: 'gebang')
                     for qw in outlet_query_words:
-                        if len(qw) > 3: # Hanya kata yang panjangnya > 3 huruf agar spesifik
+                        if len(qw) > 3:
                             sub_matches = raw_df[name_series.str.contains(qw)]
                             if len(sub_matches) == 1:
                                 target_row = sub_matches.iloc[0]
@@ -222,7 +208,31 @@ try:
                     display_name = target_row.get(name_col, "Outlet Ditemukan")
                     calculated_metrics = []
 
-                    if is_limit_query:
+                    if is_gold_mission_query:
+                        calculated_metrics.append("**⭐ Performa Gold Misi:**")
+                        gold_cols = [c for c in raw_df.columns if 'gold' in c.lower()]
+                        for c in gold_cols:
+                            val_raw = target_row.get(c, 0)
+                            val_parsed = parse_number_general(val_raw)
+                            val_str = f"Rp {val_parsed:,.0f}".replace(",", ".") if val_parsed > 0 else str(val_raw)
+                            calculated_metrics.append(f"• **{c}**: {val_str}")
+                        
+                        if not gold_cols:
+                            calculated_metrics.append("Kolom data Gold Misi tidak ditemukan di sheet.")
+
+                    elif is_regular_mission_query:
+                        calculated_metrics.append("**🎯 Performa Misi Reguler:**")
+                        misi_cols = [c for c in raw_df.columns if 'misi' in c.lower() and 'gold' not in c.lower()]
+                        for c in misi_cols:
+                            val_raw = target_row.get(c, 0)
+                            val_parsed = parse_number_general(val_raw)
+                            val_str = f"Rp {val_parsed:,.0f}".replace(",", ".") if val_parsed > 0 else str(val_raw)
+                            calculated_metrics.append(f"• **{c}**: {val_str}")
+                        
+                        if not misi_cols:
+                            calculated_metrics.append("Kolom data Misi Reguler tidak ditemukan di sheet.")
+
+                    elif is_limit_query:
                         total_limit_col = next((c for c in raw_df.columns if 'total' in c.lower() and 'limit' in c.lower()), None)
                         avail_limit_col = next((c for c in raw_df.columns if c != total_limit_col and ('limit' in c.lower() or 'sisa' in c.lower() or 'avail' in c.lower() or 'plafond' in c.lower())), None)
 
