@@ -141,9 +141,9 @@ ATURAN MUTLAK: Jangan mengubah angka atau nominal Rupiah yang ada di dalam data 
                     response_text = None
                     for attempt in range(3):
                         try:
-                            # Menggunakan model gratis di OpenRouter, misal Llama 3 atau Gemma 2
+                            # Menggunakan model Google Gemma 2 (gratis & stabil di OpenRouter)
                             completion = client.chat.completions.create(
-                                model="mistralai/mistral-7b-instruct:free",
+                                model="google/gemma-2-9b-it:free",
                                 messages=[
                                     {"role": "user", "content": formatting_prompt}
                                 ]
