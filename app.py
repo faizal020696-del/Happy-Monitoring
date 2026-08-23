@@ -51,29 +51,6 @@ def convert_to_csv_url(url):
     gid = gid_match.group(1) if gid_match else "0"
     return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
 
-def parse_currency(value):
-    if pd.isna(value):
-        return 0.0
-    val_str = str(value).strip()
-    cleaned = re.sub(r'[^0-9\,\.-]', '', val_str)
-    if not cleaned:
-        return 0.0
-    if ',' in cleaned and '.' in cleaned:
-        if cleaned.find('.') < cleaned.find(','):
-            cleaned = cleaned.replace('.', '').replace(',', '.')
-        else:
-            cleaned = cleaned.replace(',', '')
-    elif ',' in cleaned and '.' not in cleaned:
-        cleaned = cleaned.replace(',', '.')
-    elif '.' in cleaned and ',' not in cleaned:
-        parts = cleaned.split('.')
-        if len(parts) > 2 or (len(parts) == 2 and len(parts[1]) != 2):
-            cleaned = cleaned.replace('.', '')
-    try:
-        return float(cleaned)
-    except:
-        return 0.0
-
 try:
     csv_url = convert_to_csv_url(SHEET_URL)
     df = pd.read_csv(csv_url)
@@ -109,6 +86,7 @@ try:
         ignore_words = ['berapa', 'data', 'untuk', 'bulan', 'ini', 'kemarin', 'di', 'dan', 'yang', 'dari', 'tentang', 'pencapaian', 'capaian', 'misi', 'gold', 'gmv', 'total', 'totalin', 'tim', 'gw', 'saya', 'tolong', 'coba']
         search_tokens = [word for word in prompt_lower.split() if word not in ignore_words and len(word) > 2]
         
+        # Filtering Baris Data
         sub_df = pd.DataFrame()
         if search_tokens:
             row_combined = df_clean_text.apply(lambda row: " ".join(row.values).lower(), axis=1)
@@ -116,64 +94,45 @@ try:
             sub_df = df[mask]
 
         with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("Menganalisis data..."):
+            with st.spinner("Gemini sedang menganalisis data..."):
                 if len(sub_df) > 0:
-                    summary_lines = []
-                    for col in sub_df.columns:
-                        if any(k in col.lower() for k in ['gmv', 'target', 'sales', 'value', 'amount', 'cm', 'lm', 'misi', 'gold']):
-                            numeric_series = sub_df[col].apply(parse_currency)
-                            total_val = numeric_series.sum()
-                            if total_val > 0:
-                                summary_lines.append(f"Total {col}: Rp {total_val:,.0f}".replace(",", "."))
+                    # Buang kolom yang seratus persen kosong agar data ringkas & kirim cepat
+                    sub_df_clean = sub_df.dropna(how='all', axis=1)
                     
-                    calc_summary = "\n".join(summary_lines)
-                    data_csv = sub_df.to_csv(index=False)
+                    # Konversi mentah CSV tanpa diubah-ubah Python
+                    data_csv = sub_df_clean.to_csv(index=False)
                     
                     system_prompt = f"""
-Kamu adalah asisten analitik SPV yang cerdas, akurat, dan ramah.
+Kamu adalah asisten analitik SPV yang cerdas, teliti, dan cepat.
+Berikut adalah data mentah dari Google Sheet (Format CSV):
 
-HASIL KALKULASI PASTI DARI PYTHON (GUNAKAN ANGKA INI UNTUK MENJAWAB):
-{calc_summary if calc_summary else "Tidak ada angka metrik khusus yang dijumlahkan."}
-
-DATA DETAIL BARIS RELEVAN (Format CSV):
 {data_csv}
 
 Pertanyaan User: "{prompt}"
 
-Instruksi:
-1. Jawab pertanyaan user secara langsung di kalimat pertama dengan menyebutkan angka Rupiah pasti dari hasil kalkulasi di atas.
-2. Jelaskan detail jika ada perbandingan (misal GMV vs Target).
-3. Buat bahasa yang singkat, jelas, dan ramah.
+Instruksi Paling Penting:
+1. Pahami nama-nama kolom pada data CSV di atas.
+2. Jika user minta total, jumlahkan angka di kolom yang dimaksud (misal GMV CM / Bulan Ini) dari SEMUA baris data milik orang/kategori tersebut di atas.
+3. Jawab pertanyaan user secara langsung di kalimat pertama dengan angka total Rupiah yang benar.
+4. Berikan penjelasan/analisis singkat yang akurat dan tepat sasaran.
 """
-                    response_text = None
                     try:
+                        # Panggil Gemini Flash Lite (Super Cepat + Otak Gemini Akurat)
                         completion = client.chat.completions.create(
                             model="google/gemini-2.0-flash-lite-001:free",
                             messages=[{"role": "user", "content": system_prompt}],
-                            temperature=0.1
+                            temperature=0.1 # Biar matematika & analisisnya makin konsisten akurat
                         )
-                        if completion.choices and len(completion.choices) > 0:
-                            response_text = completion.choices[0].message.content
+                        response_text = completion.choices[0].message.content
                     except Exception as e:
-                        pass
-
-                    # Fallback jika model mengembalikan None atau error
-                    if not response_text:
                         try:
                             completion = client.chat.completions.create(
                                 model="google/gemini-flash-1.5:free",
-                                messages=[{"role": "user", "content": system_prompt}],
-                                temperature=0.1
+                                messages=[{"role": "user", "content": system_prompt}]
                             )
-                            if completion.choices and len(completion.choices) > 0:
-                                response_text = completion.choices[0].message.content
+                            response_text = completion.choices[0].message.content
                         except Exception as err:
-                            pass
-                    
-                    # Jika AI masih gagal/kosong, tampilkan ringkasan kalkulasi Python langsung
-                    if not response_text or response_text.strip() == "None":
-                        response_text = f"Berikut adalah data pencapaian yang ditemukan:\n\n" + "\n".join([f"- **{item}**" for item in summary_lines])
-
+                            response_text = f"Error dari API: {err}"
                 else:
                     response_text = f"Maaf bro, data untuk **'{' '.join(search_tokens)}'** tidak ditemukan di Google Sheet."
 
