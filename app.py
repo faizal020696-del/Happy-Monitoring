@@ -59,7 +59,7 @@ st.markdown("""
     /* Input Chat di Bawah Diberi Space Agar Tidak Tertutup Badge */
     .stChatInputContainer {
         border-radius: 15px !important;
-        bottom: 20px !important; /* Terangkat aman di atas badge */
+        bottom: 20px !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -100,18 +100,38 @@ try:
             st.markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
 
+        # --- OPTIMASI ANGKA (MENGHINDARI HALUSINASI AI) ---
+        # Mencari tahu kolom mana yang berupa angka untuk dibantu hitung via Pandas
+        numeric_summary = ""
+        prompt_lower = prompt.lower()
+        
+        if any(keyword in prompt_lower for keyword in ["total", "jumlah", "rata-rata", "sum", "average", "gmv"]):
+            # Coba cari kolom numerik secara otomatis
+            numeric_cols = df.select_dtypes(include=['number']).columns
+            if len(numeric_cols) > 0:
+                calc_results = []
+                for col in numeric_cols:
+                    total_val = df[col].sum()
+                    mean_val = df[col].mean()
+                    calc_results.append(f"- Kolom '{col} -> Total: {total_val:,.2f}, Rata-rata: {mean_val:,.2f}")
+                numeric_summary = "\n[HASIL PERHITUNGAN PYTHON RESMI - GUNAKAN ANGKA INI JIKA DITANYAKAN TOTAL/RATA-RATA]:\n" + "\n".join(calc_results)
+
         data_str = df.to_csv(index=False)
         system_prompt = f"""
-       Kamu adalah sistem database analitik yang presisi. Saat user meminta detail atau total angka, dilarang melakukan estimasi atau tebakan. Tarik datanya secara mentah dari baris yang sesuai dengan data spreadsheet yang diberikan.
-        Berikut adalah data terbaru dalam format CSV:
-        {data_str}
-        Tugasmu: Jawab pertanyaan user secara akurat HANYA berdasarkan data di atas dalam bahasa Indonesia yang rapi dan komunikatif.
-        """
+Kamu adalah sistem database analitik yang presisi tinggi. Saat user meminta detail atau total angka, dilarang melakukan estimasi atau tebakan matematis sendiri. Tarik datanya secara mentah dari baris yang sesuai atau gunakan hasil kalkulasi Python yang sudah disediakan di bawah jika relevan.
+
+Berikut adalah data terbaru dalam format CSV:
+{data_str}
+
+{numeric_summary}
+
+Tugasmu: Jawab pertanyaan user secara akurat HANYA berdasarkan data dan kalkulasi di atas dalam bahasa Indonesia yang rapi, profesional, dan komunikatif.
+"""
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Menganalisis data..."):
                 response = client.models.generate_content(
-                    model='gemini-3.6-flash',
+                    model='gemini-2.5-flash',  # Menggunakan versi model flash yang stabil
                     contents=f"{system_prompt}\n\nPertanyaan User: {prompt}"
                 )
                 st.markdown(response.text)
