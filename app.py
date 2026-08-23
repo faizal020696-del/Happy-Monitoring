@@ -6,22 +6,61 @@ import re
 OPENROUTER_API_KEY = st.secrets["OPENROUTER_API_KEY"]
 SHEET_URL = st.secrets["SHEET_URL"]
 
-st.set_page_config(page_title="Chatbot Universe SPV Happy", page_icon="🤖", layout="centered")
+st.set_page_config(
+    page_title="Chatbot Universe SPV Happy", 
+    page_icon="🤖", 
+    layout="centered"
+)
+
+st.markdown("""
+    <style>
+    #MainMenu {visibility: hidden !important;}
+    header {visibility: hidden !important;}
+    footer {visibility: hidden !important;}
+    .stApp { background-color: #f8fafc; }
+    .main-header {
+        background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+        padding: 2.5rem 2rem;
+        border-radius: 20px;
+        color: white;
+        text-align: center;
+        box-shadow: 0 10px 25px -5px rgba(79, 70, 229, 0.2);
+        margin-bottom: 2rem;
+    }
+    .main-header h1 { color: white !important; font-weight: 800; font-size: 2.2rem; margin-bottom: 0.5rem; }
+    .main-header p { color: #e0e7ff !important; font-size: 1rem; margin: 0; }
+    .stChatMessage { border-radius: 16px !important; padding: 1rem 1.2rem !important; margin-bottom: 0.8rem !important; box-shadow: 0 2px 5px rgba(0,0,0,0.03) !important; }
+    .stChatInputContainer { border-radius: 15px !important; bottom: 20px !important; }
+    </style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+    <div class="main-header">
+        <h1>🤖 Chatbot Universe SPV Happy</h1>
+        <p>Tanyakan apa saja terkait data universe kalian.</p>
+    </div>
+""", unsafe_allow_html=True)
 
 def convert_to_csv_url(url):
     sheet_id_match = re.search(r'/d/([a-zA-Z0-9-_]+)', url)
-    if not sheet_id_match: return None
+    if not sheet_id_match: 
+        return None
     sheet_id = sheet_id_match.group(1)
     gid_match = re.search(r'[#&?]gid=([0-9]+)', url)
     gid = gid_match.group(1) if gid_match else "0"
     return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
 
 def parse_number_exact(val):
-    if pd.isna(val) or val is None: return 0.0
+    if pd.isna(val) or val is None:
+        return 0.0
     val_str = str(val).strip()
-    if not val_str or val_str.lower() in ['nan', 'null', 'none', '-', '']: return 0.0
+    if not val_str or val_str.lower() in ['nan', 'null', 'none', '-', '']:
+        return 0.0
+
     cleaned = re.sub(r'[^0-9\,\.-]', '', val_str)
-    if not cleaned: return 0.0
+    if not cleaned:
+        return 0.0
+
     try:
         if '.' in cleaned and ',' in cleaned:
             if cleaned.rfind('.') < cleaned.rfind(','):
@@ -30,11 +69,18 @@ def parse_number_exact(val):
                 cleaned = cleaned.replace(',', '')
         elif ',' in cleaned and '.' not in cleaned:
             parts = cleaned.split(',')
-            cleaned = cleaned.replace(',', '.') if len(parts) == 2 and len(parts[1]) <= 2 else cleaned.replace(',', '')
+            if len(parts) == 2 and len(parts[1]) <= 2:
+                cleaned = cleaned.replace(',', '.')
+            else:
+                cleaned = cleaned.replace(',', '')
         elif '.' in cleaned and ',' not in cleaned:
             parts = cleaned.split('.')
-            if len(parts) > 2 or (len(parts) == 2 and len(parts[1]) != 2):
+            if len(parts) > 2:
                 cleaned = cleaned.replace('.', '')
+            elif len(parts) == 2:
+                if len(parts[1]) == 3 or len(parts[1]) != 2:
+                    cleaned = cleaned.replace('.', '')
+
         return float(cleaned)
     except Exception:
         return 0.0
@@ -45,7 +91,10 @@ try:
     df.columns = df.columns.str.strip()
     df_clean_text = df.fillna("").astype(str)
 
-    client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=OPENROUTER_API_KEY)
+    client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=OPENROUTER_API_KEY,
+    )
 
     with st.sidebar:
         st.write("### 📊 Status Data Master")
@@ -74,7 +123,7 @@ Saring pertanyaan user dan kembalikan format JSON:
 
 Aturan:
 - "entity": Ambil HANYA kata kunci utama nama (misal: "gebang farma", "rizki", "afrianto"). Hapus kata "apotek", "reps", "gmv", "pencapaian", "bulan ini", dll.
-- "category": Jika tanyakan reps/sales -> "REPS". Jika toko/apotek -> "APOTEK". Selain itu -> "GENERAL".
+- "category": Jika tanyakan reps/sales -> "REPS". Jika toko/apotek/outlet -> "APOTEK". Selain itu -> "GENERAL".
 
 Input: "{prompt}"
 JSON:"""
@@ -106,45 +155,109 @@ JSON:"""
         sub_df = pd.DataFrame()
 
         if entity_tokens:
-            # Tentukan kolom acuan pencarian
-            search_cols = []
+            # --- 2. PENENTUAN KOLOM SPESIFIK & PENGABAIAN KOLOM ALAMAT ---
+            
+            # Daftar kolom yang TIDAK BOLEH dicari (supaya nama jalan/alamat tidak memicu false match)
+            ignored_search_cols = [c for c in df.columns if any(k in c.lower() for k in ['alamat', 'address', 'jalan', 'street', 'kota', 'city', 'kecamatan', 'kelurahan', 'keterangan', 'remark'])]
+            
+            # Kolom pencarian bersih (tanpa kolom alamat)
+            clean_search_df_cols = [c for c in df.columns if c not in ignored_search_cols]
+
+            target_cols = []
             if category == "APOTEK":
-                search_cols = [c for c in df.columns if any(k in c.lower() for k in ['apotek', 'apotik', 'toko', 'outlet', 'customer', 'pelanggan', 'nama'])]
+                target_cols = [c for c in df.columns if any(k in c.lower() for k in ['nama toko', 'nama apotek', 'nama outlet', 'nama customer', 'customer', 'pelanggan', 'outlet', 'apotek', 'toko']) and c not in ignored_search_cols]
             elif category == "REPS":
-                search_cols = [c for c in df.columns if any(k in c.lower() for k in ['reps', 'sales', 'salesman', 'nama reps'])]
+                target_cols = [c for c in df.columns if any(k in c.lower() for k in ['reps', 'sales', 'salesman', 'nama reps', 'nama sales']) and c not in ignored_search_cols]
 
-            # Pencarian spesifik ke kolom acuan jika ditemukan
-            if search_cols:
-                series_check = df_clean_text[search_cols].apply(lambda row: " ".join(row.values).lower(), axis=1)
-                sub_df = df[series_check.apply(lambda x: all(t in x for t in entity_tokens))]
+            # Uji Prioritas 1: Search HANYA di kolom Nama Apotek/Reps yang spesifik
+            if target_cols:
+                series_target = df_clean_text[target_cols].apply(lambda row: " ".join(row.values).lower(), axis=1)
+                sub_df = df[series_target.apply(lambda x: all(t in x for t in entity_tokens))]
 
-            # Fallback ke seluruh baris jika kolom acuan tidak spesifik
+            # Uji Prioritas 2: Jika target_cols tidak spesifik/kosong, cari di seluruh kolom KECUALI Kolom Alamat
             if len(sub_df) == 0:
-                row_combined = df_clean_text.apply(lambda row: " ".join(row.values).lower(), axis=1)
-                sub_df = df[row_combined.apply(lambda x: all(t in x for t in entity_tokens))]
+                series_clean = df_clean_text[clean_search_df_cols].apply(lambda row: " ".join(row.values).lower(), axis=1)
+                sub_df = df[series_clean.apply(lambda x: all(t in x for t in entity_tokens))]
 
         with st.chat_message("assistant", avatar="🤖"):
-            if len(sub_df) > 0:
-                # Tampilkan tabel rincian data mentah yang terfilter agar user bisa langsung verifikasi
-                st.write(f"🔎 **Ditemukan {len(sub_df)} baris data match di Google Sheet:**")
-                st.dataframe(sub_df.head(10))
+            with st.spinner("Menghitung data dengan presisi 100%..."):
+                if len(sub_df) > 0:
+                    calculated_metrics = []
+                    
+                    # Filter Kolom Penjumlahan (HANYA Nilai GMV/Sales/Rupiah)
+                    valid_cols = []
+                    for col in sub_df.columns:
+                        col_lower = col.lower()
+                        # Abaikan kolom non-nominal / count / visit / target
+                        if any(ignore in col_lower for ignore in ['count', 'visit', 'target', '%', 'pct', 'date', 'tanggal', 'id', 'code', 'durasi', 'duration', 'telepon', 'phone']):
+                            continue
+                        if any(k in col_lower for k in ['gmv', 'cm', 'lm', 'sales', 'pencapaian']):
+                            valid_cols.append(col)
 
-                # Perhitungan Otomatis Seluruh Kolom Angka
-                calc_details = []
-                for col in sub_df.columns:
-                    # Ambil hanya kolom numeric (mengandung angka/GMV/Sales)
-                    num_series = sub_df[col].apply(parse_number_exact)
-                    total_val = num_series.sum()
-                    if total_val > 0 and not any(k in col.lower() for k in ['id', 'code', 'zip', 'telepon', 'phone', '%', 'pct']):
-                        calc_details.append(f"- **{col}**: Rp {total_val:,.0f}".replace(",", "."))
+                    # Prioritaskan kolom CM / Current Month jika ada
+                    cm_cols = [c for c in valid_cols if any(k in c.lower() for k in ['cm', 'current', 'bulan ini', 'total'])]
+                    target_calculation_cols = cm_cols if cm_cols else valid_cols
 
-                summary_txt = "\n".join(calc_details) if calc_details else "Tidak ada nominal angka terdeteksi di kolom ini."
-                response_text = f"Berikut adalah total penjumlahan untuk **'{extracted_entity}'** dari {len(sub_df)} baris data terfilter:\n\n{summary_txt}"
+                    for col in target_calculation_cols:
+                        num_series = sub_df[col].apply(parse_number_exact)
+                        total_val = num_series.sum()
+                        if total_val > 0:
+                            calculated_metrics.append(f"- **{col}**: Rp {total_val:,.0f}".replace(",", "."))
+
+                    calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Tidak ada kolom angka nominal yang dapat terhitung."
+                    
+                    sub_df_sample = sub_df.dropna(how='all', axis=1).head(10)
+                    data_table_md = sub_df_sample.to_markdown(index=False)
+
+                    system_prompt = f"""
+Kamu adalah Senior Data Analyst SPV yang sangat teliti.
+
+DITEMUKAN **{len(sub_df)} BARIS DATA** UNTUK ENTITAS: '{extracted_entity}' (Kategori: {category}).
+
+HASIL KALKULASI PRESISI PYTHON UNTUK **SELURUH {len(sub_df)} BARIS DATA** (GUNAKAN ANGKA INI):
+{calc_summary_str}
+
+SAMPEL RINCIAN TABEL DARI GOOGLE SHEET (Max 10 baris):
+{data_table_md}
+
+Pertanyaan User: "{prompt}"
+
+Instruksi Sangat Penting:
+1. GUNAKAN HASIL KALKULASI PRESISI PYTHON DI ATAS UNTUK MENJAWAB TOTAL ANGKA/GMV! JANGAN MENAMBAHKAN/MENJUMLAHKAN MANUAL LAGI PAKAI AI.
+2. Jawab secara to the point di kalimat pertama dengan menyebutkan nama entitas dan angka total nominal rupiah yang presisi.
+3. Jika user bertanya "bulan ini", utamakan angka dari kolom CM (Current Month) atau MTD. Jika tidak ada, jelaskan bahwa angka berasal dari kolom LM (Last Month).
+4. JANGAN PERNAH menampilkan rincian penjumlahan tambah-tambahan manual `(a + b + c)` yang dipotong-potong di jawaban.
+"""
+                    response_text = ""
+                    models_to_try = [
+                        "google/gemini-2.0-flash-lite-001:free",
+                        "google/gemini-2.0-flash-exp:free",
+                        "openrouter/free"
+                    ]
+
+                    for model_id in models_to_try:
+                        try:
+                            completion = client.chat.completions.create(
+                                model=model_id,
+                                messages=[{"role": "user", "content": system_prompt}],
+                                temperature=0.0
+                            )
+                            if completion.choices and len(completion.choices) > 0:
+                                res = completion.choices[0].message.content
+                                if res and len(res.strip()) > 5:
+                                    response_text = res
+                                    break
+                        except Exception:
+                            continue
+
+                    if not response_text or len(response_text.strip()) < 5:
+                        response_text = f"Ditemukan **{len(sub_df)} baris data** untuk {category.lower()} '{extracted_entity}'. Berikut rincian total angkanya:\n\n{calc_summary_str}"
+
+                else:
+                    response_text = f"Maaf bro, data untuk **'{extracted_entity}'** tidak ditemukan pada kolom nama {category.lower()} di Google Sheet."
+
                 st.markdown(response_text)
-            else:
-                response_text = f"Maaf, kata kunci **'{extracted_entity}'** tidak ditemukan pada kolom {category.lower()} di Google Sheet."
-                st.markdown(response_text)
-
+        
         st.session_state.messages.append({"role": "assistant", "content": response_text})
 
 except Exception as e:
