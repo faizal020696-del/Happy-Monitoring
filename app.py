@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from openai import OpenAI
 import re
+import json
 
 OPENROUTER_API_KEY = st.secrets["OPENROUTER_API_KEY"]
 SHEET_URL = st.secrets["SHEET_URL"]
@@ -116,20 +117,19 @@ try:
             st.markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
 
-        # --- 1. AI EKSTRAKSI NAMA BERSIH & KATEGORI ---
+        # --- 1. AI EKSTRAKSI ENTITAS NAMA ---
         extraction_prompt = f"""
 Saring pertanyaan user dan kembalikan format JSON:
-{{"entity": "<nama entitas bersih>", "category": "<REPS|APOTEK|GENERAL>"}}
+{{"entity": "<nama entitas bersih>"}}
 
 Aturan:
-- "entity": Ambil HANYA kata kunci utama nama (misal: "gebang farma", "rizki", "afrianto"). Hapus kata "apotek", "reps", "gmv", "pencapaian", "bulan ini", dll.
-- "category": Jika tanyakan reps/sales -> "REPS". Jika toko/apotek/outlet -> "APOTEK". Selain itu -> "GENERAL".
+Ambil HANYA kata kunci utama nama (misal: "gebang farma", "rizki", "afrianto"). 
+Hapus kata "apotek", "reps", "sales", "gmv", "pencapaian", "bulan ini", dll.
 
 Input: "{prompt}"
 JSON:"""
 
         extracted_entity = ""
-        category = "GENERAL"
         try:
             ext_res = client.chat.completions.create(
                 model="google/gemini-2.0-flash-lite-001:free",
@@ -139,56 +139,61 @@ JSON:"""
             raw_out = ext_res.choices[0].message.content.strip()
             json_match = re.search(r'\{.*\}', raw_out, re.DOTALL)
             if json_match:
-                import json
                 parsed_json = json.loads(json_match.group(0))
                 extracted_entity = parsed_json.get("entity", "").lower().strip()
-                category = parsed_json.get("category", "GENERAL").upper()
         except Exception:
             extracted_entity = ""
 
         if not extracted_entity:
             clean_prompt = re.sub(r'[^\w\s]', ' ', prompt.lower())
-            stop_words = set(['berapa', 'total', 'gmv', 'pencapaian', 'pencapian', 'capaian', 'target', 'data', 'untuk', 'bulan', 'ini', 'reps', 'sales', 'apotek', 'apotik', 'toko', 'outlet', 'pt', 'cv'])
+            stop_words = set(['berapa', 'total', 'gmv', 'pencapaian', 'pencapian', 'capaian', 'target', 'data', 'untuk', 'bulan', 'ini', 'reps', 'sales', 'salesman', 'apotek', 'apotik', 'toko', 'outlet', 'pt', 'cv'])
             extracted_entity = " ".join([w for w in clean_prompt.split() if w not in stop_words and len(w) > 1])
 
         entity_tokens = extracted_entity.split()
         sub_df = pd.DataFrame()
 
         if entity_tokens:
-            # Kolom non-pencarian (alamat dll)
-            ignored_cols = [c for c in df.columns if any(k in c.lower() for k in ['alamat', 'address', 'jalan', 'street', 'kota', 'city', 'keterangan'])]
-            clean_search_cols = [c for c in df.columns if c not in ignored_cols]
+            # --- 2. LOGIKA PENALARAN PERTANYAAN & FILTER KOLOM STRICT ---
+            prompt_lower = prompt.lower()
+            is_reps_query = any(k in prompt_lower for k in ['reps', 'sales', 'salesman', 'rep'])
+            is_apotek_query = any(k in prompt_lower for k in ['apotek', 'apotik', 'toko', 'outlet', 'customer', 'pelanggan'])
 
-            if category == "REPS":
-                reps_cols = [c for c in df.columns if any(k in c.lower() for k in ['reps', 'sales', 'salesman', 'nama reps', 'nama sales']) and c not in ignored_cols]
+            # Blokir kolom alamat & keterangan dari pencarian
+            ignored_cols = [c for c in df.columns if any(k in c.lower() for k in ['alamat', 'address', 'jalan', 'street', 'kota', 'city', 'keterangan', 'remark'])]
+            searchable_cols = [c for c in df.columns if c not in ignored_cols]
+
+            if is_reps_query:
+                # Cari kolom khusus Nama Reps / Sales
+                reps_cols = [c for c in searchable_cols if any(k in c.lower() for k in ['reps', 'sales', 'salesman', 'nama reps', 'nama sales'])]
+                if not reps_cols:
+                    reps_cols = searchable_cols
+
+                # Match kata utuh (\brizki\b) khusus di kolom Reps
+                pattern = r'\b' + re.escape(extracted_entity) + r'\b'
+                mask_reps = pd.Series(False, index=df.index)
+                for col in reps_cols:
+                    mask_reps |= df_clean_text[col].str.lower().str.contains(pattern, regex=True, na=False)
                 
-                if reps_cols:
-                    # 1. Coba Exact Match dulu (misal: isi sel persis "rizki")
-                    exact_mask = pd.Series(False, index=df.index)
-                    for c in reps_cols:
-                        exact_mask |= df_clean_text[c].str.lower().str.strip() == extracted_entity
-                    
-                    sub_df = df[exact_mask]
+                sub_df = df[mask_reps]
 
-                    # 2. Jika tidak ada yang exact, gunakan Word Boundary Regex (\brizki\b) agar 'Rizki' terpisah
-                    if len(sub_df) == 0:
-                        regex_pattern = r'\b' + r'\b.*\b'.join([re.escape(t) for t in entity_tokens]) + r'\b'
-                        boundary_mask = pd.Series(False, index=df.index)
-                        for c in reps_cols:
-                            boundary_mask |= df_clean_text[c].str.lower().str.contains(regex_pattern, regex=True, na=False)
-                        sub_df = df[boundary_mask]
+            elif is_apotek_query:
+                # Cari kolom khusus Nama Apotek / Toko
+                apotek_cols = [c for c in searchable_cols if any(k in c.lower() for k in ['toko', 'apotek', 'apotik', 'outlet', 'customer', 'pelanggan', 'nama toko', 'nama apotek'])]
+                if not apotek_cols:
+                    apotek_cols = searchable_cols
 
-            elif category == "APOTEK":
-                apotek_cols = [c for c in df.columns if any(k in c.lower() for k in ['nama toko', 'nama apotek', 'nama outlet', 'nama customer', 'customer', 'pelanggan', 'outlet', 'apotek', 'toko']) and c not in ignored_cols]
+                pattern = r'\b' + r'\b.*\b'.join([re.escape(t) for t in entity_tokens]) + r'\b'
+                mask_apotek = pd.Series(False, index=df.index)
+                for col in apotek_cols:
+                    mask_apotek |= df_clean_text[col].str.lower().str.contains(pattern, regex=True, na=False)
                 
-                if apotek_cols:
-                    series_target = df_clean_text[apotek_cols].apply(lambda row: " ".join(row.values).lower(), axis=1)
-                    sub_df = df[series_target.apply(lambda x: all(t in x for t in entity_tokens))]
+                sub_df = df[mask_apotek]
 
-            # Fallback jika sub_df masih kosong
+            # Fallback jika kueri umum / tidak secara eksplisist menyebut "reps" atau "apotek"
             if len(sub_df) == 0:
-                series_clean = df_clean_text[clean_search_cols].apply(lambda row: " ".join(row.values).lower(), axis=1)
-                sub_df = df[series_clean.apply(lambda x: all(t in x for t in entity_tokens))]
+                series_clean = df_clean_text[searchable_cols].apply(lambda row: " ".join(row.values).lower(), axis=1)
+                pattern_fallback = r'\b' + r'\b.*\b'.join([re.escape(t) for t in entity_tokens]) + r'\b'
+                sub_df = df[series_clean.str.contains(pattern_fallback, regex=True, na=False)]
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Menghitung data dengan presisi 100%..."):
@@ -221,7 +226,7 @@ JSON:"""
                     system_prompt = f"""
 Kamu adalah Senior Data Analyst SPV yang sangat teliti.
 
-DITEMUKAN **{len(sub_df)} BARIS DATA** UNTUK ENTITAS: '{extracted_entity}' (Kategori: {category}).
+DITEMUKAN **{len(sub_df)} BARIS DATA** UNTUK ENTITAS: '{extracted_entity}'.
 
 HASIL KALKULASI PRESISI PYTHON UNTUK **SELURUH {len(sub_df)} BARIS DATA** (GUNAKAN ANGKA INI):
 {calc_summary_str}
@@ -260,10 +265,10 @@ Instruksi Sangat Penting:
                             continue
 
                     if not response_text or len(response_text.strip()) < 5:
-                        response_text = f"Ditemukan **{len(sub_df)} baris data** untuk {category.lower()} '{extracted_entity}'. Berikut rincian total angkanya:\n\n{calc_summary_str}"
+                        response_text = f"Ditemukan **{len(sub_df)} baris data** untuk pencarian '{extracted_entity}'. Berikut rincian total angkanya:\n\n{calc_summary_str}"
 
                 else:
-                    response_text = f"Maaf bro, data untuk **'{extracted_entity}'** tidak ditemukan pada kolom {category.lower()} di Google Sheet."
+                    response_text = f"Maaf bro, data untuk **'{extracted_entity}'** tidak ditemukan pada kolom target di Google Sheet."
 
                 st.markdown(response_text)
         
