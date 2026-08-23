@@ -97,7 +97,7 @@ try:
         prompt_lower = prompt.lower()
         weeks_requested = [w for w in ['W1', 'W2', 'W3', 'W4'] if re.search(r'\b' + w.lower() + r'\b', prompt_lower)]
 
-        # Bersihkan prompt untuk mendapatkan nama toko
+        # Bersihkan prompt untuk mendapatkan nama toko/entity
         clean_prompt = prompt_lower
         junk_words = [
             r'\bberapa\b', r'\btotal\b', r'\bjumlah\b', r'\byang\b', r'\btersedia\b', r'\bada\b', 
@@ -120,20 +120,22 @@ try:
             extracted_entity = prompt
 
         matched_indices = []
-        entity_tokens = [t for t in extracted_entity.split() if len(t) > 2]
-        if not entity_tokens:
-            entity_tokens = extracted_entity.split()
+        
+        # Fokuskan pencarian khusus pada kolom nama toko/farmasi saja agar tidak nyasar ke kolom lain
+        name_cols = [c for c in raw_df.columns if any(k in c.lower() for k in ['name', 'nama', 'pharmacy', 'toko', 'apotek'])]
+        if not name_cols:
+            name_cols = raw_df.columns
 
-        # Cari baris yang mengandung token nama toko
-        for idx, row in raw_df.iterrows():
+        # Pecah kata kunci menjadi token yang wajib ada (misal: "gebang" dan "farma")
+        search_tokens = [t for t in extracted_entity.split() if len(t) > 2]
+        if not search_tokens:
+            search_tokens = extracted_entity.split()
+
+        for idx, row in raw_df[name_cols].iterrows():
             row_text = " ".join([str(val) for val in row.values if pd.notna(val)]).lower()
-            # Pastikan minimal kata kunci utama (seperti "gebang" atau "farma") cocok
-            if any(token in row_text for token in entity_tokens):
+            # Baris dianggap cocok JIKA KATA UTAMA (misal 'gebang' atau 'farma') benar-benar ada di dalam teks kolom nama toko
+            if search_tokens and all(token in row_text for token in search_tokens):
                 matched_indices.append(idx)
-
-        # Buang baris pertama (index 0) jika itu baris total/rekap nasional
-        if matched_indices and matched_indices[0] == 0 and len(matched_indices) > 1:
-            matched_indices = matched_indices[1:]
 
         sub_df = raw_df.loc[matched_indices] if matched_indices else pd.DataFrame(columns=raw_df.columns)
 
@@ -150,8 +152,11 @@ try:
                     target_columns = [c for c in target_columns if c in sub_df.columns]
 
                     calculated_metrics = []
-                    # Ambil baris data yang spesifik (baris pertama dari hasil filter yang bukan rekap)
+                    # Ambil baris pertama yang benar-benar cocok namanya
                     target_row = sub_df.iloc[0]
+
+                    # Ambil nama asli toko dari baris tersebut untuk kepastian informasi
+                    display_name = target_row.get(name_cols[0], extracted_entity.title())
 
                     for col in target_columns:
                         val_raw = str(target_row.get(col, '')).strip()
@@ -159,10 +164,10 @@ try:
                         calculated_metrics.append(f"• **{col}**: Rp {val_parsed:,.0f}".replace(",", "."))
 
                     calc_summary_str = "\n".join(calculated_metrics)
-                    response_text = f"Data untuk **{extracted_entity.title()}**:\n{calc_summary_str}"
+                    response_text = f"Data untuk **{str(display_name).title()}**:\n{calc_summary_str}"
 
                 else:
-                    response_text = f"Waduh, data untuk **'{extracted_entity.title()}'** tidak ditemukan di Google Sheet."
+                    response_text = f"Waduh, data untuk **'{extracted_entity.title()}'** tidak ditemukan di kolom nama toko Google Sheet."
 
                 st.markdown(response_text)
         
