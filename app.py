@@ -130,7 +130,7 @@ try:
         if re.search(r'\b(w2|week\s*2|week2|minggu\s*2|minggu2)\b', prompt_lower):
             weeks_requested.append('W2')
         if re.search(r'\b(w3|week\s*3|week3|minggu\s*3|minggu3)\b', prompt_lower):
-            weeks_requested.append('W3')
+            weeks_requested. & append('W3') if hasattr(weeks_requested, 'append') else weeks_requested.append('W3')
         if re.search(r'\b(w4|week\s*4|week4|minggu\s*4|minggu4)\b', prompt_lower):
             weeks_requested.append('W4')
 
@@ -138,8 +138,8 @@ try:
             if not any(k in prompt_lower for k in ['w1', 'w2', 'w3', 'w4', 'week', 'minggu', 'gmv', 'total', 'cm', 'lm', 'l2m', 'l3m', 'lalu', 'kemarin', 'sisa', 'limit']):
                 weeks_requested = ['W1', 'W2', 'W3', 'W4']
 
-        # Deteksi khusus pertanyaan Limit / Sisa Limit (Menampilkan Total Limit & Avaiability Limit sekaligus)
-        is_limit_query = ('limit' in prompt_lower or 'plafond' in prompt_lower or 'sisa' in prompt_lower) and not weeks_requested
+        # Deteksi wajib untuk semua kata yang mengandung 'limit', 'plafond', atau 'sisa'
+        is_limit_query = any(k in prompt_lower for k in ['limit', 'plafond', 'sisa', 'ssisa', 'avaiability', 'availability']) and not weeks_requested
 
         metric_requested = None
         if not weeks_requested and not is_limit_query:
@@ -197,7 +197,7 @@ try:
                     if val_id == search_id:
                         target_row = row
                         break
-                if target_row is not Information:
+                if target_row is not None:
                     break
 
         if target_row is None:
@@ -225,7 +225,7 @@ try:
                     calculated_metrics = []
 
                     if is_limit_query:
-                        # Cari kolom Total Limit dan Avaiability Limit secara fleksibel
+                        # Otomatis ambil Total Limit dan Avaiability Limit sekaligus
                         total_limit_col = next((c for c in raw_df.columns if 'total' in c.lower() and 'limit' in c.lower()), None)
                         avail_limit_col = next((c for c in raw_df.columns if ('avaiability' in c.lower() or 'availability' in c.lower() or 'sisa' in c.lower()) and 'limit' in c.lower()), None)
 
