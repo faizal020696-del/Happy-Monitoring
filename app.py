@@ -12,7 +12,7 @@ st.set_page_config(
     layout="centered"
 )
 
-# Kustomisasi Tampilan Visual
+# Style UI Streamlit
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden !important;}
@@ -51,29 +51,6 @@ def convert_to_csv_url(url):
     gid = gid_match.group(1) if gid_match else "0"
     return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
 
-def parse_currency(value):
-    if pd.isna(value):
-        return 0.0
-    val_str = str(value).strip()
-    cleaned = re.sub(r'[^0-9\,\.-]', '', val_str)
-    if not cleaned:
-        return 0.0
-    if ',' in cleaned and '.' in cleaned:
-        if cleaned.find('.') < cleaned.find(','):
-            cleaned = cleaned.replace('.', '').replace(',', '.')
-        else:
-            cleaned = cleaned.replace(',', '')
-    elif ',' in cleaned and '.' not in cleaned:
-        cleaned = cleaned.replace(',', '.')
-    elif '.' in cleaned and ',' not in cleaned:
-        parts = cleaned.split('.')
-        if len(parts) > 2 or (len(parts) == 2 and len(parts[1]) != 2):
-            cleaned = cleaned.replace('.', '')
-    try:
-        return float(cleaned)
-    except:
-        return 0.0
-
 try:
     csv_url = convert_to_csv_url(SHEET_URL)
     df = pd.read_csv(csv_url)
@@ -109,6 +86,7 @@ try:
         ignore_words = ['berapa', 'data', 'untuk', 'bulan', 'ini', 'kemarin', 'di', 'dan', 'yang', 'dari', 'tentang', 'pencapaian', 'capaian', 'misi', 'gold', 'gmv', 'total', 'totalin', 'tim', 'gw', 'saya', 'tolong', 'coba']
         search_tokens = [word for word in prompt_lower.split() if word not in ignore_words and len(word) > 2]
         
+        # Filtering Baris Data
         sub_df = pd.DataFrame()
         if search_tokens:
             row_combined = df_clean_text.apply(lambda row: " ".join(row.values).lower(), axis=1)
@@ -116,47 +94,70 @@ try:
             sub_df = df[mask]
 
         with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("Menganalisis data..."):
+            with st.spinner("Gemini sedang menganalisis data secara presisi..."):
                 if len(sub_df) > 0:
-                    summary_lines = []
-                    for col in sub_df.columns:
-                        if any(k in col.lower() for k in ['gmv', 'target', 'sales', 'value', 'amount', 'cm', 'lm', 'misi', 'gold']):
-                            numeric_series = sub_df[col].apply(parse_currency)
-                            total_val = numeric_series.sum()
-                            if total_val > 0:
-                                summary_lines.append(f"Total {col}: Rp {total_val:,.0f}".replace(",", "."))
+                    # 1. Buang kolom yang 100% kosong supaya prompt ringkas & fokus
+                    sub_df_clean = sub_df.dropna(how='all', axis=1)
                     
-                    calc_summary = "\n".join(summary_lines)
-                    data_csv = sub_df.to_csv(index=False)
+                    # 2. Ubah format ke Markdown Table (Gemini SANGAT AHLI baca format ini)
+                    data_table_md = sub_df_clean.to_markdown(index=False)
                     
-                    prompt_ai = f"""
-Berikut adalah ringkasan data pencapaian:
-{calc_summary if calc_summary else "Data tidak berupa angka metrik."}
+                    # 3. System Prompt "Level Dewa" dengan Chain-of-Thought
+                    system_prompt = f"""
+Kamu adalah Senior Data Analyst & Asisten SPV yang sangat teliti, akurat, dan tidak pernah salah berhitung.
 
-Data CSV Mentah:
-{data_csv}
+Berikut adalah TABEL DATA RELEVAN dari Google Sheet (Format Markdown Table):
 
-Pertanyaan: {prompt}
+{data_table_md}
 
-Jawab pertanyaan secara singkat dan sebutkan angka total Rupiah yang tepat.
+Pertanyaan User: "{prompt}"
+
+Instruksi Analisis Presisi Tinggi:
+1. PERIKSA TABEL DI ATAS DENGAN TELITI baris demi baris.
+2. Identifikasi kolom mana yang mewakili pertanyaan user (misal: "GMV", "Target", "Current Month/CM", dll).
+3. Jika pertanyaan meminta TOTAL/PENJUMLAHAN:
+   - Sebutkan baris mana saja yang kamu hitung.
+   - Lakukan penjumlahan angka nominal rupiah dari baris-baris tersebut secara presisi.
+4. Jawablah dengan format yang rapi:
+   - **Jawaban Utama**: Sebutkan angka total secara langsung di awal (format Rupiah lengkap dengan titik ribuan, contoh: Rp 150.000.000).
+   - **Rincian Data**: Tampilkan rincian singkat per baris yang ditemukan.
+   - **Kesimpulan/Analisis**: 1-2 kalimat ringkas dari pencapaian tersebut.
+5. JANGAN MEMPERKIRAKAN ATAU MENEBAK ANGKA. Gunakan hanya angka asli yang tertera pada tabel data di atas!
 """
                     response_text = ""
                     try:
+                        # Pemanggilan Model Gemini dengan Temperature 0.0 (Akurasi Mutlak)
                         completion = client.chat.completions.create(
                             model="google/gemini-2.0-flash-lite-001:free",
-                            messages=[{"role": "user", "content": prompt_ai}],
-                            temperature=0.1
+                            messages=[{"role": "user", "content": system_prompt}],
+                            temperature=0.0 # Wajib 0.0 agar jawaban selalu konsisten dan akurat!
                         )
                         if completion.choices and len(completion.choices) > 0:
-                            response_text = completion.choices[0].message.content.strip()
-                    except Exception:
-                        pass
+                            response_text = completion.choices[0].message.content
+                    except Exception as e:
+                        try:
+                            completion = client.chat.completions.create(
+                                model="google/gemini-flash-1.5:free",
+                                messages=[{"role": "user", "content": system_prompt}],
+                                temperature=0.0
+                            )
+                            if completion.choices and len(completion.choices) > 0:
+                                response_text = completion.choices[0].message.content
+                        except Exception as err:
+                            try:
+                                completion = client.chat.completions.create(
+                                    model="openrouter/free",
+                                    messages=[{"role": "user", "content": system_prompt}],
+                                    temperature=0.0
+                                )
+                                response_text = completion.choices[0].message.content
+                            except Exception as final_err:
+                                response_text = f"Gagal mendapatkan respon dari API: {final_err}"
 
-                    # Filter jika AI merespon dengan pesan error/safety
-                    invalid_responses = ["user safety", "safe", "none", "null", ""]
-                    if any(bad in response_text.lower() for bad in invalid_responses) or len(response_text) < 5:
-                        # Fallback langsung menampilkan hasil hitungan pasti dari Python
-                        response_text = f"Berikut adalah total data pencapaian yang ditemukan:\n\n" + "\n".join([f"- **{item}**" for item in summary_lines])
+                    # Validasi jika respon berisi pesan safety error atau None
+                    invalid_patterns = ["user safety", "safe", "none", "null", ""]
+                    if not response_text or any(bad in response_text.lower() for bad in invalid_patterns) or len(response_text.strip()) < 5:
+                        response_text = "Maaf bro, AI mengalami kendala saat membaca data tersebut. Coba ulangi pertanyaannya lagi."
 
                 else:
                     response_text = f"Maaf bro, data untuk **'{' '.join(search_tokens)}'** tidak ditemukan di Google Sheet."
