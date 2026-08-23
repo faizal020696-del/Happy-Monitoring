@@ -92,6 +92,12 @@ try:
 
         # --- 1. DETEKSI METRIK / INTENT ---
         detected_intents = []
+        
+        # Deteksi Mingguan (W1, W2, W3, W4)
+        weeks_requested = [w for w in ['w1', 'w2', 'w3', 'w4'] if re.search(r'\b' + w + r'\b', prompt_lower)]
+        if weeks_requested:
+            detected_intents.append('weekly')
+
         if any(k in prompt_lower for k in ['1st', 'awal', 'pertama']):
             detected_intents.append('first_trx')
         if any(k in prompt_lower for k in ['last', 'terakhir', 'terbaru', 'paling baru']):
@@ -131,7 +137,7 @@ try:
             r'\bpt\b', r'\bcv\b', r'\bdata\b', r'\buntuk\b', r'\bbulan\b', r'\bini\b', r'\blalu\b', 
             r'\bni\b', r'\binih\b', r'\bkah\b', r'\bdong\b', r'\bcek\b', r'\binfo\b', r'\bpencapaian\b', 
             r'\bcapaian\b', r'\bperforma\b', r'\bhasil\b', r'\barea\b', r'\bmana\b', r'\byg\b', 
-            r'\bsudah\b', r'\btransaksi\b', r'\bw1\b', r'\bw2\b', r'\bw3\b', r'\bw4\b',
+            r'\bsudah\b', r'\btransaksi\b',
             r'\baverage\b', r'\bavg\b', r'\brata-rata\b', r'\bratarata\b', r'\b3\b', r'\bbln\b',
             r'\bl3m\b', r'\bl2m\b', r'\blm\b', r'\bcm\b', r'\bdan\b', r'\bdan2\b',
             r'\bkemarin\b', r'\bkemaren\b', r'\bkemarin2\b', r'\bkemaren2\b',
@@ -163,7 +169,11 @@ try:
                     target_columns = []
 
                     # --- FILTER KOLOM KETAT SESUAI INTENT ---
-                    if 'first_trx' in detected_intents or 'last_trx' in detected_intents:
+                    if 'weekly' in detected_intents:
+                        for w in weeks_requested:
+                            target_columns.extend([c for c in sub_df.columns if re.search(r'\b' + w + r'\b', c.lower())])
+
+                    elif 'first_trx' in detected_intents or 'last_trx' in detected_intents:
                         if 'first_trx' in detected_intents:
                             target_columns.extend([c for c in sub_df.columns if ('1st' in c.lower() or 'first' in c.lower()) and ('trx' in c.lower() or 'date' in c.lower())])
                         if 'last_trx' in detected_intents:
@@ -203,14 +213,14 @@ try:
                         target_columns = [c for c in sub_df.columns if 'gmv' in c.lower()]
 
                     if not target_columns:
-                        important_keys = ['gmv', 'cm', 'lm', 'l2m', 'l3m', 'sales', 'limit', 'dpd', 'misi', 'visit', 'avg', 'average', 'trx', 'date']
+                        important_keys = ['gmv', 'cm', 'lm', 'l2m', 'l3m', 'sales', 'limit', 'dpd', 'misi', 'visit', 'avg', 'average', 'trx', 'date', 'w1', 'w2', 'w3', 'w4']
                         target_columns = [c for c in sub_df.columns if any(k in c.lower() for k in important_keys)]
 
                     calculated_metrics = []
                     for col in target_columns:
                         col_lower = col.lower()
                         # Ignore kolom metadata / sales rep
-                        if any(ignore in col_lower for ignore in ['id', 'code', 'telepon', '%', 'nama', 'toko', 'apotek', 'address', 'sales rep', 'reps', 'salesman', 'unnamed', 'w1', 'w2', 'w3', 'w4']):
+                        if any(ignore in col_lower for ignore in ['id', 'code', 'telepon', '%', 'nama', 'toko', 'apotek', 'address', 'sales rep', 'reps', 'salesman', 'unnamed']):
                             continue
 
                         # Kolom Teks / Tanggal
@@ -248,7 +258,7 @@ try:
                             total_val = num_series.sum()
                             calculated_metrics.append(f"• **{col}**: {total_val:,.0f} kali".replace(",", "."))
 
-                        # Kolom Angka Umum / Sum
+                        # Kolom Angka Umum / Sum (Termasuk W1-W4)
                         else:
                             num_series = sub_df[col].apply(lambda x: parse_number_exact(x, is_dpd=False))
                             total_val = num_series.sum()
