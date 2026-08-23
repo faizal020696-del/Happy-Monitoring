@@ -112,7 +112,7 @@ try:
         reps_cols = [c for c in raw_df.columns if 'sales' in c.lower() or 'reps' in c.lower() or 'pic' in c.lower()]
     reps_col = reps_cols[0] if reps_cols else None
 
-    # Deteksi kolom Daily GMV secara spesifik dari master sheet
+    # Deteksi kolom Daily GMV dari master sheet
     daily_gmv_col = next((c for c in raw_df.columns if 'daily gmv' in c.lower() or 'dayli gmv' in c.lower()), None)
 
     if "messages" not in st.session_state:
@@ -146,7 +146,8 @@ try:
         is_mission_query = any(k in prompt_lower for k in ['misi', 'gold', 'mission', 'campaign', 'pencapaian misi']) and not weeks_requested
         is_wtu_query = any(k in prompt_lower for k in ['wtu', 'visit', 'kunjungan']) and not weeks_requested
         
-        is_total_gmv_query = (any(k in prompt_lower for k in ['total', 'semua', 'all']) and ('gmv' in prompt_lower or 'dayli' in prompt_lower or 'daily' in prompt_lower)) or prompt_lower.strip() in ['dayli gmv total', 'daily gmv total', 'total gmv', 'total daily gmv']:
+        # Perbaikan syntax (tanpa titik dua di akhir)
+        is_total_gmv_query = (any(k in prompt_lower for k in ['total', 'semua', 'all']) and ('gmv' in prompt_lower or 'dayli' in prompt_lower or 'daily' in prompt_lower)) or prompt_lower.strip() in ['dayli gmv total', 'daily gmv total', 'total gmv', 'total daily gmv']
 
         command_words = {
             'cek', 'data', 'id', 'berapa', 'total', 'jumlah', 'w1', 'w2', 'w3', 'w4', 
