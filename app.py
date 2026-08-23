@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 from openai import OpenAI
 import re
+import io
+import requests
 
 OPENROUTER_API_KEY = st.secrets["OPENROUTER_API_KEY"]
 SHEET_URL = st.secrets["SHEET_URL"]
@@ -64,8 +66,31 @@ def parse_number_exact(val, is_dpd=False):
 
 try:
     csv_url = convert_to_csv_url(SHEET_URL)
-    df = pd.read_csv(csv_url, dtype=str)
-    df.columns = df.columns.str.strip()
+    
+    # Deteksi Otomatis Baris Header yang Valid
+    res = requests.get(csv_url)
+    csv_text = res.text
+    lines = csv_text.splitlines()
+    
+    header_idx = 0
+    for idx, line in enumerate(lines[:10]):
+        if any(k in line.lower() for k in ['pharmacy name', 'nama toko', 'nama apotek', 'swiperx id', 'assignment']):
+            header_idx = idx
+            break
+            
+    df = pd.read_csv(io.StringIO(csv_text), skiprows=header_idx, dtype=str)
+    
+    # Bersihkan nama kolom dari prefix/suffix aneh (contoh: 'W1: 241' -> 'W1')
+    new_cols = []
+    for c in df.columns:
+        c_clean = str(c).strip()
+        w_match = re.search(r'\b(w[1-4])\b', c_clean, re.IGNORECASE)
+        if w_match:
+            new_cols.append(w_match.group(1).upper())
+        else:
+            new_cols.append(c_clean)
+    df.columns = new_cols
+    
     df_clean_text = df.fillna("").astype(str)
 
     client = OpenAI(
@@ -93,7 +118,6 @@ try:
         # --- 1. DETEKSI METRIK / INTENT ---
         detected_intents = []
         
-        # Tangkap dulu intent mingguan sebelum kata w1-w4 dibersihkan
         weeks_requested = [w for w in ['w1', 'w2', 'w3', 'w4'] if re.search(r'\b' + w + r'\b', prompt_lower)]
         if weeks_requested:
             detected_intents.append('weekly')
@@ -129,7 +153,6 @@ try:
         clean_prompt = prompt_lower
         clean_prompt = re.sub(r'\bdi([a-z]+)', r'\1', clean_prompt)
 
-        # W1-W4 dimasukkan kembali ke junk_words agar tidak mengotori nama outlet
         junk_words = [
             r'\bberapa\b', r'\btotal\b', r'\bjumlah\b', r'\byang\b', r'\btersedia\b', r'\bada\b', 
             r'\btarget\b', r'\bvisit\b', r'\bkunjungan\b', r'\breps\b', r'\bsales\b', r'\bsalesman\b', 
@@ -217,6 +240,9 @@ try:
                         important_keys = ['gmv', 'cm', 'lm', 'l2m', 'l3m', 'sales', 'limit', 'dpd', 'misi', 'visit', 'avg', 'average', 'trx', 'date', 'w1', 'w2', 'w3', 'w4']
                         target_columns = [c for c in sub_df.columns if any(k in c.lower() for k in important_keys)]
 
+                    # Hilangkan duplikasi kolom
+                    target_columns = list(dict.fromkeys(target_columns))
+
                     calculated_metrics = []
                     for col in target_columns:
                         col_lower = col.lower()
@@ -243,8 +269,8 @@ try:
                             else:
                                 calculated_metrics.append(f"• **{col}**: 0 hari")
 
-                        # Kolom Angka/Uang Snapshot
-                        elif any(k in col_lower for k in ['limit', 'plafon', 'avaibility', 'availability', 'avg', 'average', 'l3m', 'l2m', 'lm', 'cm']):
+                        # Kolom Angka/Uang Snapshot (Termasuk W1, W2, W3, W4)
+                        elif any(k in col_lower for k in ['limit', 'plafon', 'avaibility', 'availability', 'avg', 'average', 'l3m', 'l2m', 'lm', 'cm', 'w1', 'w2', 'w3', 'w4']):
                             valid_rows = sub_df[sub_df[col].notna() & (sub_df[col].astype(str).str.strip() != '')]
                             if not valid_rows.empty:
                                 val_raw = valid_rows[col].iloc[-1]
@@ -259,7 +285,7 @@ try:
                             total_val = num_series.sum()
                             calculated_metrics.append(f"• **{col}**: {total_val:,.0f} kali".replace(",", "."))
 
-                        # Kolom Angka Umum / Sum (Termasuk W1, W2, W3, W4)
+                        # Kolom Angka Umum / Sum
                         else:
                             num_series = sub_df[col].apply(lambda x: parse_number_exact(x, is_dpd=False))
                             total_val = num_series.sum()
