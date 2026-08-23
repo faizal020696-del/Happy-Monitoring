@@ -143,7 +143,7 @@ try:
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": prompt}
                         ],
-                        model="llama-3.3-70b-versatile",
+                        model="llama3-70b-8192",
                     )
                     
                     response_text = chat_completion.choices[0].message.content
