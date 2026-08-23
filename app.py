@@ -60,7 +60,7 @@ try:
     df_clean_text = df.fillna("").astype(str)
 
     for col in df.columns:
-        if any(keyword in col.lower() for keyword in ['gmv', 'target', 'sales', 'value', 'amount', 'cm', 'l3m', 'lm']):
+        if any(keyword in col.lower() for keyword in ['gmv', 'target', 'sales', 'value', 'amount', 'cm', 'lm', 'l3m']):
             df[col] = pd.to_numeric(
                 df[col].astype(str).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).str.replace(r'[^0-9\.-]', '', regex=True), 
                 errors='coerce'
@@ -99,7 +99,7 @@ try:
                 sub_df = df[mask]
                 
                 if len(sub_df) > 0:
-                    valid_metric_cols = [col for col in df.columns if any(k in col.lower() for k in ['gmv', 'cm']) and not any(x in col.lower() for x in ['code', 'assignment'])]
+                    valid_metric_cols = [col for col in df.columns if any(k in col.lower() for k in ['gmv', 'cm', 'lm']) and not any(x in col.lower() for x in ['code', 'assignment'])]
                     
                     summary_lines = [f"Data performa untuk sales {name.upper()}:"]
                     summary_lines.append(f"- Total baris data: {len(sub_df)}")
@@ -116,16 +116,17 @@ try:
             with st.spinner("Menganalisis data..."):
                 if python_summary_text:
                     formatting_prompt = f"""
-Kamu adalah asisten AI analitik yang profesional, tegas, dan to the point.
+Kamu adalah asisten AI analitik yang cerdas, profesional, dan to the point.
 Berikut adalah data angka valid yang sudah dihitung secara mutlak oleh sistem:
 
 {python_summary_text}
 
-Tugasmu: Jawab pertanyaan user ({prompt}) dengan menyusun ringkasan (summary) yang sangat gamblang, padat, dan *on point*. 
-Format yang diinginkan:
-1. Langsung sebutkan angka utama **CM** (Total GMV Bulan Ini) di kalimat pertama.
-2. Berikan rincian metrik pendukung lainnya dalam bentuk poin-poin pendek yang rapi agar mudah dibaca sekilas.
-3. Jangan ada kalimat pembuka atau penutup yang terlalu panjang/basa-basi.
+Tugasmu: Jawab pertanyaan user ({prompt}) secara akurat dan on point. 
+Perhatikan konteks pertanyaan user:
+- Jika user menanyakan bulan kemarin (LM), tonjolkan data GMV Bulan Lalu (LM) atau kolom yang relevan dengan bulan lalu terlebih dahulu di awal kalimat.
+- Jika user menanyakan bulan ini (CM), tonjolkan data CM di awal kalimat.
+- Berikan rincian metrik pendukung lainnya dalam bentuk poin-poin pendek yang rapi.
+- Jangan ada basa-basi yang berlebihan.
 
 ATURAN MUTLAK: Jangan mengubah angka atau nominal Rupiah yang ada di dalam data di atas sedikit pun!
 """
