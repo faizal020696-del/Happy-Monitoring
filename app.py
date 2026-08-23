@@ -3,33 +3,27 @@ import pandas as pd
 from groq import Groq
 import re
 
-# Mengambil data dari Secrets aman Streamlit
 GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
 SHEET_URL = st.secrets["SHEET_URL"]
 
-# Konfigurasi Halaman & Icon
 st.set_page_config(
     page_title="Chatbot Universe SPV Happy", 
     page_icon="🌌", 
     layout="centered"
 )
 
-# Kustomisasi Tampilan Visual (Tema Light Mode Clean - Background Putih)
 st.markdown("""
     <style>
-    /* 1. Menghilangkan elemen internal Streamlit */
     #MainMenu {visibility: hidden !important;}
     header {visibility: hidden !important;}
     footer {visibility: hidden !important;}
     .stAppHeader {display: none !important;}
     [data-testid="stToolbar"] {display: none !important;}
     
-    /* 2. BACKGROUND UTAMA: Putih Bersih */
     .stApp {
         background-color: #ffffff !important;
     }
     
-    /* 3. HEADER CONTAINER: Gelap Elegan */
     .main-header {
         background: #0f172a;
         padding: 2.5rem 2rem;
@@ -51,7 +45,6 @@ st.markdown("""
         margin: 0;
     }
 
-    /* 4. GELEMBUNG CHAT: Teks Gelap Kontras */
     .stChatMessage {
         background: #f8fafc !important;
         border-radius: 16px !important;
@@ -66,7 +59,6 @@ st.markdown("""
         border: 1px solid #bfdbfe !important;
     }
 
-    /* 5. INPUT CHAT DI BAWAH */
     .stChatInputContainer {
         border-radius: 16px !important;
         bottom: 25px !important;
@@ -79,14 +71,12 @@ st.markdown("""
         color: #0f172a !important;
     }
     
-    /* Loading Spinner */
     .stSpinner i {
         color: #2563eb !important;
     }
     </style>
 """, unsafe_allow_html=True)
 
-# Tampilan Header
 st.markdown("""
     <div class="main-header">
         <h1>🌌 Chatbot Universe SPV Happy</h1>
@@ -107,25 +97,25 @@ try:
     csv_url = convert_to_csv_url(SHEET_URL)
     df = pd.read_csv(csv_url)
 
-    # Inisialisasi Client Groq
     client = Groq(api_key=GROQ_API_KEY)
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    # Chat history
     for message in st.session_state.messages:
         avatar = "👤" if message["role"] == "user" else "🤖"
         with st.chat_message(message["role"], avatar=avatar):
             st.markdown(message["content"])
 
-    # Input Chat
     if prompt := st.chat_input("Tanyakan sesuatu tentang data universe..."):
         with st.chat_message("user", avatar="👤"):
             st.markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
 
-        data_str = df.to_csv(index=False)
+        # OPTIMASI TEKS CSV: Ambil maksimal 500 baris terbaru agar tidak Error 413
+        df_limited = df.tail(500) 
+        data_str = df_limited.to_csv(index=False)
+
         system_prompt = f"""
         Kamu adalah Asisten AI Profesional untuk SPV Happy. Tugasmu adalah menganalisis data Universe.
         Jawablah pertanyaan user dengan sopan, akurat, dan ringkas HANYA berdasarkan data CSV berikut:
@@ -137,12 +127,9 @@ try:
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Menganalisis data universe..."):
-                # Model produksi resmi aktif di Groq
                 models_to_try = [
-                    "openai/gpt-oss-120b",
-                    "openai/gpt-oss-20b",
-                    "qwen/qwen3.6-27b",
-                    "groq/compound"
+                    "llama-3.3-70b-versatile",
+                    "llama-3.1-8b-instant"
                 ]
                 
                 response_text = None
