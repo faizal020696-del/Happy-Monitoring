@@ -98,31 +98,35 @@ try:
 
         prompt_lower = prompt.lower()
         
-        # Kata-kata umum yang diabaikan agar fokus ke nama tim/orang & nama apotek
-        ignore_words = ['berapa', 'data', 'untuk', 'bulan', 'ini', 'kemarin', 'di', 'dan', 'yang', 'dari', 'tentang', 'pencapaian', 'capaian', 'misi', 'gold', 'gmv', 'total', 'totalin', 'tim', 'gw', 'saya', 'tolong', 'coba']
-        filtered_words = [word for word in prompt_lower.split() if word not in ignore_words and len(word) > 2]
+        # Kata umum yang diabaikan agar fokus pada entitas pencarian (nama apotek, tim, dll)
+        ignore_words = ['berapa', 'data', 'untuk', 'bulan', 'ini', 'kemarin', 'di', 'dan', 'yang', 'dari', 'tentang', 'pencapaian', 'capaian', 'misi', 'gold', 'gmv', 'total', 'totalin', 'tim', 'gw', 'saya', 'tolong', 'coba', 'pada', 'adalah']
+        
+        # Ambil kata-kata penting yang panjangnya > 2 karakter
+        search_tokens = [word for word in prompt_lower.split() if word not in ignore_words and len(word) > 2]
         
         python_summary_text = None
         sub_df = pd.DataFrame()
 
-        if filtered_words:
-            # PENCARIAN CERDAS: Mencari baris yang mengandung SEMUA atau SEBAGIAN besar kata kunci penting (misal: nama tim & nama apotek)
-            def match_row(row_text):
-                # Hitung berapa banyak kata kunci penting yang cocok dalam satu baris yang sama
-                matches = sum(1 for w in filtered_words if w in row_text)
-                return matches > 0
+        if search_tokens:
+            # Filter baris: baris harus mengandung SEMUA token penting (misal nama apotek DAN nama tim)
+            def strict_match(row_text):
+                return all(token in row_text for token in search_tokens)
 
-            # Gabungkan teks seluruh kolom dalam 1 baris untuk dicek
             row_combined = df_clean_text.apply(lambda row: " ".join(row.values).lower(), axis=1)
-            
-            # Filter baris yang minimal mengandung kata kunci penting
-            mask = row_combined.apply(match_row)
+            mask = row_combined.apply(strict_match)
             sub_df = df[mask]
+
+            # Jika dengan strict_match (semua kata) tidak ketemu, coba longgarkan (minimal ada 1 kata yang cocok)
+            if len(sub_df) == 0:
+                def loose_match(row_text):
+                    return any(token in row_text for token in search_tokens)
+                mask = row_combined.apply(loose_match)
+                sub_df = df[mask]
 
         if len(sub_df) > 0:
             valid_metric_cols = [col for col in df.columns if any(k in col.lower() for k in ['gmv', 'cm', 'lm', 'misi', 'gold']) and not any(x in col.lower() for x in ['code', 'assignment'])]
             
-            summary_lines = [f"Data akurat ditemukan ({len(sub_df)} baris) berdasarkan kata kunci '{', '.join(filtered_words)}':"]
+            summary_lines = [f"Hasil kalkulasi mutlak sistem untuk kata kunci '{' '.join(search_tokens)}' ({len(sub_df)} baris data ditemukan):"]
             
             for col in valid_metric_cols:
                 total_val = sub_df[col].sum()
@@ -132,21 +136,23 @@ try:
             python_summary_text = "\n".join(summary_lines)
 
         with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("Menganalisis data via OpenRouter..."):
+            with st.spinner("Menyiapkan jawaban..."):
                 if python_summary_text:
+                    # Instruksi keras agar AI tidak mengubah angka sedikit pun
                     formatting_prompt = f"""
-Kamu adalah asisten AI analitik yang teliti, profesional, dan to the point.
-Berikut adalah data angka valid yang sudah dihitung secara mutlak oleh sistem berdasarkan baris data yang cocok:
+Kamu adalah asisten data yang jujur dan presisi. 
+Berikut adalah hasil kalkulasi angka mutlak dari sistem database:
 
 {python_summary_text}
 
-Tugasmu: Jawab pertanyaan user ({prompt}) dengan akurat berdasarkan data di atas.
-Struktur jawaban:
-1. Jawab langsung ke inti pertanyaan di kalimat pertama (ambil nominal angka dari kolom GMV/metrik yang relevan).
-2. Tambahkan **1-2 kalimat ringkasan/analisis singkat** di bawahnya secara natural.
-3. Jangan menampilkan angka dari kolom lain yang tidak ditanyakan.
+Pertanyaan User: "{prompt}"
 
-ATURAN MUTLAK: Jangan mengubah angka atau nominal Rupiah yang ada di dalam data di atas sedikit pun!
+TUGASMU: 
+Buatkan kalimat jawaban yang ramah dan natural untuk menjawab pertanyaan user di atas dengan HANYA menggunakan angka-angka yang sudah disediakan di atas. 
+
+ATURAN MUTLAK:
+1. Jangan pernah mengubah, mengarang, atau membulatkan angka/Rupiah di atas. Tuliskan persis apa adanya.
+2. Jika ada beberapa metrik, sebutkan metrik yang paling relevan dengan pertanyaan user.
 """
                     response_text = None
                     for attempt in range(3):
@@ -166,7 +172,7 @@ ATURAN MUTLAK: Jangan mengubah angka atau nominal Rupiah yang ada di dalam data 
                             else:
                                 raise api_err
                 else:
-                    response_text = f"Maaf bro, data spesifik untuk kata kunci tersebut tidak ditemukan di dalam sistem spreadsheet."
+                    response_text = f"Maaf bro, data untuk kata kunci di dalam pertanyaan tersebut tidak ditemukan di Google Sheet."
 
                 st.markdown(response_text)
         
