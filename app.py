@@ -12,7 +12,6 @@ st.set_page_config(
     layout="centered"
 )
 
-# Kustomisasi Tampilan Visual Streamlit
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden !important;}
@@ -117,7 +116,7 @@ try:
             st.markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
 
-        # --- EKSTRAKSI ENTITAS NAMA DENGAN AI (INDENTASI DIPERBAIKI) ---
+        # --- EKSTRAKSI ENTITAS NAMA DENGAN AI ---
         extraction_prompt = f"""
 Ekstrak HANYA nama subjek/entitas utama (nama Reps/Sales/Apotek/Toko) dari pertanyaan user di bawah.
 Abaikan kata tanya, kata kerja, typo/salah ketik, istilah metrik (seperti gmv, pencapian, pencapaian, total, target, dll), dan keterangan waktu (seperti bulan ini, kemarin, dll).
@@ -142,7 +141,6 @@ Output (HANYA NAMA ENTITAS):"""
         except Exception:
             extracted_entity = ""
 
-        # Fallback manual jika ekstraksi AI gagal / offline
         if not extracted_entity:
             clean_prompt = re.sub(r'[^\w\s]', ' ', prompt.lower())
             stop_words = set([
@@ -158,30 +156,43 @@ Output (HANYA NAMA ENTITAS):"""
         sub_df = pd.DataFrame()
 
         if entity_tokens:
-            row_combined = df_clean_text.apply(lambda row: " ".join(row.values).lower(), axis=1)
+            # Detect apakah prompt spesifik menyebut kata 'reps' / 'sales' atau 'apotek'
+            is_reps_query = any(k in prompt.lower() for k in ['reps', 'sales', 'salesman'])
+            
+            # Cari kolom yang berhubungan dengan nama Reps / Sales jika pencarian khusus Reps
+            reps_cols = [c for c in df.columns if any(k in c.lower() for k in ['reps', 'sales', 'salesman', 'nama reps'])]
+            
+            # STRATEGI 1: Jika bertanya spesifik Reps dan ada kolom Reps, filter HANYA di kolom Reps
+            if is_reps_query and reps_cols:
+                reps_series = df_clean_text[reps_cols].apply(lambda row: " ".join(row.values).lower(), axis=1)
+                mask_reps = reps_series.apply(lambda x: all(t in x for t in entity_tokens))
+                sub_df = df[mask_reps]
 
-            # 1. Matching Semua Token Kata
-            mask_all = row_combined.apply(lambda x: all(t in x for t in entity_tokens))
-            sub_df = df[mask_all]
+            # STRATEGI 2 (Fallback): Jika tidak ketemu atau bukan query spesifik reps, cari di seluruh kolom
+            if len(sub_df) == 0:
+                row_combined = df_clean_text.apply(lambda row: " ".join(row.values).lower(), axis=1)
+                mask_all = row_combined.apply(lambda x: all(t in x for t in entity_tokens))
+                sub_df = df[mask_all]
 
-            # 2. Fallback jika kata majemuk: Cari Token Terpanjang/Paling Spesifik
-            if len(sub_df) == 0 and len(entity_tokens) > 1:
-                specific_token = max(entity_tokens, key=len)
-                mask_spec = row_combined.str.contains(re.escape(specific_token), regex=True, na=False)
-                sub_df = df[mask_spec]
+                if len(sub_df) == 0 and len(entity_tokens) > 1:
+                    specific_token = max(entity_tokens, key=len)
+                    mask_spec = row_combined.str.contains(re.escape(specific_token), regex=True, na=False)
+                    sub_df = df[mask_spec]
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Menghitung data dengan presisi 100%..."):
                 if len(sub_df) > 0:
                     calculated_metrics = []
                     
-                    # Filter Kolom Penjumlahan yang Valid
+                    # Filter Kolom Penjumlahan (Pilih hanya kolom pencapaian Rupiah/GMV, abaikan count/visit)
                     valid_cols = []
                     for col in sub_df.columns:
                         col_lower = col.lower()
+                        # Abaikan kolom count / visit / target / %
+                        if any(ignore in col_lower for ignore in ['count', 'visit', 'target', '%', 'pct', 'date', 'tanggal', 'id', 'code', 'durasi', 'duration']):
+                            continue
                         if any(k in col_lower for k in ['gmv', 'cm', 'lm', 'sales', 'pencapaian']):
-                            if not any(ignore in col_lower for ignore in ['target', '%', 'pct', 'date', 'tanggal', 'id', 'code', 'durasi', 'duration']):
-                                valid_cols.append(col)
+                            valid_cols.append(col)
 
                     # Prioritaskan kolom CM / Current Month jika ada
                     cm_cols = [c for c in valid_cols if any(k in c.lower() for k in ['cm', 'current', 'bulan ini', 'total'])]
