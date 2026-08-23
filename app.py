@@ -117,60 +117,52 @@ try:
             st.markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
 
-        # Sanitasi Prompt
-        clean_prompt = re.sub(r'[^\w\s]', ' ', prompt.lower())
+        prompt_lower = prompt.lower()
         
-        stop_words = set([
+        # Stopwords untuk isolasi pencarian
+        stop_words = [
             'berapa', 'total', 'gmv', 'pencapaian', 'capaian', 'misi', 'reguler', 'gold', 
             'target', 'data', 'untuk', 'bulan', 'ini', 'kemarin', 'di', 'dan', 'yang', 
-            'dari', 'tentang', 'tim', 'gw', 'saya', 'tolong', 'coba', 'reps', 'sales', 
-            'apotek', 'apotik', 'toko', 'outlet', 'seberapa', 'banyak'
-        ])
+            'dari', 'tentang', 'tim', 'gw', 'saya', 'tolong', 'coba', 'reps', 'sales', 'apotek', 'apotik'
+        ]
         
-        entity_tokens = [w for w in clean_prompt.split() if w not in stop_words and len(w) > 1]
+        entity_tokens = [w for w in prompt_lower.split() if w not in stop_words and len(w) > 1]
         phrase_search = " ".join(entity_tokens)
 
         sub_df = pd.DataFrame()
         if entity_tokens:
-            is_reps_query = any(k in clean_prompt for k in ['reps', 'sales', 'salesman', 'mr'])
-            
+            # 1. Deteksi intent user (Mencari Reps vs Apotek)
+            is_reps_query = any(k in prompt_lower for k in ['reps', 'sales', 'salesman', 'mr'])
+            is_apotek_query = any(k in prompt_lower for k in ['apotek', 'apotik', 'toko', 'outlet', 'customer'])
+
             reps_cols = [c for c in df.columns if any(k in c.lower() for k in ['reps', 'sales', 'rep_name', 'nama rep', 'mr'])]
-            apotek_cols = [c for c in df.columns if any(k in c.lower() for k in ['apotek', 'apotik', 'toko', 'outlet', 'customer', 'account', 'nama'])]
+            apotek_cols = [c for c in df.columns if any(k in c.lower() for k in ['apotek', 'apotik', 'toko', 'outlet', 'customer', 'nama_toko'])]
 
             search_df = df_clean_text.copy()
 
-            # Tentukan scope pencarian
             if is_reps_query and reps_cols:
-                target_df = search_df[reps_cols]
-            elif apotek_cols:
-                target_df = search_df[apotek_cols]
+                row_series = search_df[reps_cols].apply(lambda row: " ".join(row.values).lower(), axis=1)
+            elif is_apotek_query and apotek_cols:
+                row_series = search_df[apotek_cols].apply(lambda row: " ".join(row.values).lower(), axis=1)
             else:
-                target_df = search_df
-
-            row_series = target_df.apply(lambda row: " ".join(row.values).lower(), axis=1)
+                row_series = search_df.apply(lambda row: " ".join(row.values).lower(), axis=1)
             
-            # --- STRATEGI PENCARIAN BERTINGKAT ---
-            # 1. Exact Phrase pada target kolom
-            mask = row_series.str.contains(re.escape(phrase_search), regex=True, na=False)
-            sub_df = df[mask]
+            # --- TINGKAT 1: PHRASE MATCHING EXACT (Paling Akurat untuk "gabang farma") ---
+            mask_phrase = row_series.str.contains(re.escape(phrase_search), regex=True, na=False)
+            sub_df = df[mask_phrase]
 
-            # 2. All Tokens Matching pada target kolom (Setiap kata harus ada)
+            # --- TINGKAT 2: TOKEN MATCHING (Semua kata harus ada) ---
             if len(sub_df) == 0:
-                mask = row_series.apply(lambda x: all(t in x for t in entity_tokens))
-                sub_df = df[mask]
-
-            # 3. Fallback: Cari di SELURUH KOLOM jika filter kolom gagal menemukan data
-            if len(sub_df) == 0:
-                full_row_series = search_df.apply(lambda row: " ".join(row.values).lower(), axis=1)
-                mask_full = full_row_series.apply(lambda x: all(t in x for t in entity_tokens))
-                sub_df = df[mask_full]
+                mask_all = row_series.apply(lambda x: all(t in x for t in entity_tokens))
+                sub_df = df[mask_all]
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Menghitung data dengan presisi 100%..."):
                 if len(sub_df) > 0:
                     calculated_metrics = []
                     
-                    # Filter Kolom Penjumlahan yang Valid
+                    # Logika Penentuan Kolom Akurat:
+                    # Cari kolom yang paling spesifik (CM / Current Month / Total GMV)
                     valid_cols = []
                     for col in sub_df.columns:
                         col_lower = col.lower()
@@ -178,7 +170,7 @@ try:
                             if not any(ignore in col_lower for ignore in ['target', '%', 'pct', 'date', 'tanggal', 'id', 'code', 'durasi', 'duration']):
                                 valid_cols.append(col)
 
-                    # Prioritaskan kolom CM / Current Month jika ada
+                    # Jika ada kolom "Total" / "CM", utamakan itu agar tidak double count penjumlahan sub-kolom
                     cm_cols = [c for c in valid_cols if any(k in c.lower() for k in ['cm', 'current', 'bulan ini', 'total'])]
                     target_calculation_cols = cm_cols if cm_cols else valid_cols
 
@@ -238,7 +230,8 @@ Instruksi Sangat Penting:
                         response_text = f"Ditemukan **{len(sub_df)} baris data** untuk pencarian tersebut. Berikut rincian total angkanya:\n\n{calc_summary_str}"
 
                 else:
-                    response_text = f"Maaf bro, data untuk **'{phrase_search}'** tidak ditemukan di Google Sheet."
+                    search_kw = ' '.join(entity_tokens) if entity_tokens else prompt
+                    response_text = f"Maaf bro, data untuk **'{search_kw}'** tidak ditemukan di Google Sheet."
 
                 st.markdown(response_text)
         
