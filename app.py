@@ -107,7 +107,7 @@ try:
     name_col = name_cols[0] if name_cols else raw_df.columns[0]
     id_cols = [c for c in raw_df.columns if 'id' in c.lower()]
     
-    # Deteksi kolom Reps / Sales / PIC
+    # Deteksi kolom Reps / Sales / PIC / User
     reps_cols = [c for c in raw_df.columns if any(k in c.lower() for k in ['reps', 'sales', 'pic', 'team', 'user'])]
     reps_col = reps_cols[0] if reps_cols else None
 
@@ -149,49 +149,55 @@ try:
         is_gold_mission_query = 'gold' in prompt_lower and ('misi' in prompt_lower or 'mission' in prompt_lower)
         is_regular_mission_query = ('misi' in prompt_lower or 'mission' in prompt_lower) and not is_gold_mission_query
 
-        # Deteksi apakah user mencari berdasarkan nama Reps (misal "reps rizki" atau "rizki")
-        is_reps_query = False
+        # PRIORITAS 1: Cek apakah user mencari berdasarkan nama Reps / Sales (misal "reps afrianto" atau "rizki")
+        matched_reps_df = None
         matched_reps_name = None
+        
         if reps_col:
             unique_reps = raw_df[reps_col].dropna().astype(str).unique()
             for r in unique_reps:
                 r_clean = r.strip().lower()
                 if r_clean and r_clean in prompt_lower:
-                    is_reps_query = True
                     matched_reps_name = r
+                    matched_reps_df = raw_df[raw_df[reps_col].astype(str).str.strip().str.lower() == r_clean]
                     break
-            # Jika ada kata "reps" atau "sales" tapi namanya tidak tersebut persis, cek apakah ada kata setelahnya
-            if not is_reps_query and ('reps' in prompt_lower or 'sales' in prompt_lower):
-                words = prompt_lower.split()
-                for i, w in enumerate(words):
-                    if w in ['reps', 'sales', 'pic'] and i + 1 < len(words):
-                        candidate = words[i+1]
-                        for r in unique_reps:
-                            if candidate in r.lower():
-                                is_reps_query = True
-                                matched_reps_name = r
-                                break
+            
+            # Jika belum ketemu tapi user mengetik kata setelah kata "reps" / "sales" / "pic"
+            if matched_reps_df is None or matched_reps_df.empty:
+                for keyword_prefix in ['reps', 'sales', 'pic', 'team']:
+                    if keyword_prefix in prompt_lower:
+                        words = prompt_lower.split()
+                        try:
+                            idx_kw = words.index(keyword_prefix)
+                            if idx_kw + 1 < len(words):
+                                query_name_part = words[idx_kw + 1]
+                                for r in unique_reps:
+                                    if query_name_part in r.lower():
+                                        matched_reps_name = r
+                                        matched_reps_df = raw_df[raw_df[reps_col].astype(str).str.strip().str.lower() == r.strip().lower()]
+                                        break
+                        except Exception:
+                            pass
 
         metric_requested = None
-        if not is_reps_query and not weeks_requested and not is_limit_query and not is_general_gmv_query and not is_visit_query and not is_gold_mission_query and not is_regular_mission_query:
-            for c in raw_df.columns:
-                c_low = c.strip().lower()
-                if c_low in prompt_lower:
-                    metric_requested = c
-                    break
+        if matched_reps_df is None or matched_reps_df.empty:
+            if not weeks_requested and not is_limit_query and not is_general_gmv_query and not is_visit_query and not is_gold_mission_query and not is_regular_mission_query:
+                for c in raw_df.columns:
+                    c_low = c.strip().lower()
+                    if c_low in prompt_lower:
+                        metric_requested = c
+                        break
 
-            if not metric_requested:
-                for col in raw_df.columns:
-                    col_lower = col.lower()
-                    if col != name_col and col not in id_cols:
-                        keywords_col = [kw for kw in col_lower.split() if len(kw) > 2]
-                        if keywords_col and all(kw in prompt_lower for kw in keywords_col):
-                            metric_requested = col
-                            break
+                if not metric_requested:
+                    for col in raw_df.columns:
+                        col_lower = col.lower()
+                        if col != name_col and col not in id_cols:
+                            keywords_col = [kw for kw in col_lower.split() if len(kw) > 2]
+                            if keywords_col and all(kw in prompt_lower for kw in keywords_col):
+                                metric_requested = col
+                                break
 
         target_row = None
-        matched_reps_df = None
-        
         command_words = {
             'cek', 'data', 'id', 'berapa', 'total', 'jumlah', 'w1', 'w2', 'w3', 'w4', 
             'transaksi', 'tolong', 'visit', 'kunjungan', 'misi', 'gold', 'mission',
@@ -200,9 +206,7 @@ try:
             'sisa', 'limit', 'avg', 'l3m', 'reps', 'sales', 'pic', 'bulan', 'ini'
         }
 
-        if is_reps_query and reps_col and matched_reps_name:
-            matched_reps_df = raw_df[raw_df[reps_col].astype(str).str.strip().str.lower() == matched_reps_name.lower()]
-        else:
+        if matched_reps_df is None or matched_reps_df.empty:
             # 1. Cek berdasarkan ID jika ada angka 4-6 digit di prompt
             id_match_prompt = re.search(r'\b(\d{4,6})\b', prompt)
             if id_match_prompt and id_cols:
