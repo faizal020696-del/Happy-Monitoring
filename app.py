@@ -135,17 +135,29 @@ try:
             weeks_requested.append('W4')
 
         if ('wtu' in prompt_lower or 'transaksi' in prompt_lower) and not weeks_requested:
-            if not any(k in prompt_lower for k in ['w1', 'w2', 'w3', 'w4', 'week', 'minggu', 'gmv', 'total', 'cm', 'lm', 'l2m', 'l3m', 'lalu', 'kemarin', 'sisa', 'limit']):
+            if not any(k in prompt_lower for k in ['w1', 'w2', 'w3', 'w4', 'week', 'minggu', 'gmv', 'total', 'cm', 'lm', 'l2m', 'l3m', 'lalu', 'kemarin', 'sisa', 'limit', 'avg', 'average']):
                 weeks_requested = ['W1', 'W2', 'W3', 'W4']
 
         is_limit_query = any(k in prompt_lower for k in ['limit', 'plafond', 'sisa', 'ssisa', 'avaiability', 'availability', 'avail']) and not weeks_requested
 
-        # Deteksi General GMV (jika tanya "gmv" polos)
         is_general_gmv_query = 'gmv' in prompt_lower and not weeks_requested and not is_limit_query and not any(k in prompt_lower for k in ['lalu', 'kemarin', 'peak', 'l3m', 'l2m', 'cm', 'lm', 'average', 'avg'])
 
         metric_requested = None
         if not weeks_requested and not is_limit_query and not is_general_gmv_query:
-            if re.search(r'\bl3m\b', prompt_lower) and not 'average' in prompt_lower:
+            # SPESIFIK: Jika user tanya ada kata "avg" atau "average", cari kolom master yang mengandung 'average' dan 'l3m'
+            if 'avg' in prompt_lower or 'average' in prompt_lower:
+                for c in raw_df.columns:
+                    c_low = c.lower()
+                    if ('average' in c_low or 'avg' in c_low) and 'l3m' in c_low:
+                        metric_requested = c
+                        break
+                # Kalau tidak ketemu gabungan, cari yang ada kata average/avg saja
+                if not metric_requested:
+                    for c in raw_df.columns:
+                        if 'average' in c.lower() or 'avg' in c.lower():
+                            metric_requested = c
+                            break
+            elif re.search(r'\bl3m\b', prompt_lower) and not 'average' in prompt_lower and not 'avg' in prompt_lower:
                 for c in raw_df.columns:
                     if c.strip().lower() == 'l3m':
                         metric_requested = c
@@ -163,11 +175,6 @@ try:
             elif re.search(r'\bcm\b', prompt_lower) or 'bulan ini' in prompt_lower:
                 for c in raw_df.columns:
                     if c.strip().lower() == 'cm':
-                        metric_requested = c
-                        break
-            elif 'average' in prompt_lower or 'avg' in prompt_lower:
-                for c in raw_df.columns:
-                    if 'average' in c.lower() or 'avg' in c.lower():
                         metric_requested = c
                         break
 
@@ -241,12 +248,13 @@ try:
                             calculated_metrics.append("Data limit tidak ditemukan di kolom sheet.")
 
                     elif is_general_gmv_query:
-                        # Rangkuman lengkap Bulanan (CM, LM, L2M, L3M, AVG) + Mingguan (W1, W2, W3, W4)
                         cm_col = next((c for c in raw_df.columns if c.strip().lower() == 'cm'), None)
                         lm_col = next((c for c in raw_df.columns if c.strip().lower() == 'lm'), None)
                         l2m_col = next((c for c in raw_df.columns if c.strip().lower() == 'l2m'), None)
                         l3m_col = next((c for c in raw_df.columns if c.strip().lower() == 'l3m'), None)
-                        avg_col = next((c for c in raw_df.columns if 'average' in c.lower() or 'avg' in c.lower()), None)
+                        avg_col = next((c for c in raw_df.columns if ('average' in c.lower() or 'avg' in c.lower()) and 'l3m' in c.lower()), None)
+                        if not avg_col:
+                            avg_col = next((c for c in raw_df.columns if 'average' in c.lower() or 'avg' in c.lower()), None)
 
                         calculated_metrics.append("**📊 Performa Bulanan:**")
                         target_cols_gmv = [
