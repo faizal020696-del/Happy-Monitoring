@@ -21,7 +21,7 @@ def convert_to_csv_url(url):
     gid = gid_match.group(1) if gid_match else "0"
     return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
 
-# Parser khusus untuk transaksi W1-W4 agar tidak kepotong (murni angka dari string)
+# Parser khusus transaksi agar selalu presisi murni angka
 def parse_number_transaction(val):
     if pd.isna(val) or val is None:
         return 0.0
@@ -36,7 +36,7 @@ def parse_number_transaction(val):
     except Exception:
         return 0.0
 
-# Parser untuk kolom lain (seperti DPD, Limit, dll)
+# Parser untuk kolom umum (DPD, Limit, dll)
 def parse_number_general(val):
     if pd.isna(val) or val is None:
         return None
@@ -82,7 +82,7 @@ try:
     raw_df = pd.read_csv(io.StringIO(csv_text), skiprows=header_idx, dtype=str)
     raw_df.columns = [str(c).strip() for c in raw_df.columns]
 
-    # Petakan kolom W1-W4 secara eksplisit
+    # Petakan kolom W1-W4 secara eksplisien
     week_cols_map = {}
     for col in raw_df.columns:
         col_lower = col.lower()
@@ -116,8 +116,15 @@ try:
 
         prompt_lower = prompt.lower()
 
+        # Deteksi jika user meminta minggu W1-W4 (otomatis kenal walau ada kata WTU atau Week)
         weeks_requested = [w for w in ['W1', 'W2', 'W3', 'W4'] if re.search(r'\b' + w.lower() + r'\b', prompt_lower)]
         
+        # Jika user mengetik "WTU" secara umum tanpa spesifik minggu, anggap minta W1-W4 sekaligus
+        if 'wtu' in prompt_lower and not weeks_requested:
+            # Cek apakah setelah kata WTU ada penyebutan w1 w2 dll, jika tidak ada sama sekali, tampilkan semua W1-W4
+            if not any(w in prompt_lower for w in ['w1', 'w2', 'w3', 'w4', 'week']):
+                weeks_requested = ['W1', 'W2', 'W3', 'W4']
+
         metric_requested = None
         if not weeks_requested:
             if 'dpd' in prompt_lower:
@@ -139,7 +146,7 @@ try:
 
         target_row = None
         
-        # Cari berdasarkan ID (4-6 digit)
+        # 1. Cari berdasarkan ID (4-6 digit)
         id_match_prompt = re.search(r'\b(\d{4,6})\b', prompt)
         if id_match_prompt and id_cols:
             search_id = id_match_prompt.group(1)
@@ -152,9 +159,9 @@ try:
                 if target_row is not None:
                     break
 
-        # Cari berdasarkan nama toko
+        # 2. Cari berdasarkan nama toko (abaikan kata sampah seperti wtu, transaksi, apotek, dll)
         if target_row is None:
-            ignore_words = {'transaksi', 'w1', 'w2', 'w3', 'w4', 'berapa', 'total', 'jumlah', 'apotek', 'apotik', 'toko', 'cek', 'data', 'id', 'dpd', 'limit'}
+            ignore_words = {'transaksi', 'wtu', 'w1', 'w2', 'w3', 'w4', 'week', 'berapa', 'total', 'jumlah', 'apotek', 'apotik', 'toko', 'cek', 'data', 'id', 'dpd', 'limit'}
             query_words = [w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in ignore_words]
             
             if query_words:
@@ -176,7 +183,6 @@ try:
                         val_raw = target_row.get(metric_requested, "Tidak tersedia")
                         val_parsed = parse_number_general(val_raw)
                         if isinstance(val_parsed, float):
-                            # Cek apakah ini angka uang atau hari (DPD biasanya angka biasa tanpa 'Rp' jika kecil)
                             if 'dpd' in metric_requested.lower():
                                 val_str = f"{val_parsed:.0f}"
                             else:
@@ -185,7 +191,7 @@ try:
                             val_str = str(val_raw)
                         calculated_metrics.append(f"• **{metric_requested}**: {val_str}")
 
-                    # Jika menanyakan transaksi W1-W4 atau format default
+                    # Jika menanyakan WTU / W1-W4
                     else:
                         target_weeks = weeks_requested if weeks_requested else ['W1', 'W2', 'W3', 'W4']
                         for w in target_weeks:
@@ -196,7 +202,7 @@ try:
                                 calculated_metrics.append(f"• **{w}**: Rp {val_parsed:,.0f}".replace(",", "."))
 
                     if calculated_metrics:
-                        response_text = f"Data untuk **{str(display_name).title()}**:\n" + "\n".join(calculated_metrics)
+                        response_text = f"Data WTU untuk **{str(display_name).title()}**:\n" + "\n".join(calculated_metrics)
                     else:
                         response_text = f"Data untuk kolom tersebut tidak ditemukan."
                 else:
