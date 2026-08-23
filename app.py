@@ -56,16 +56,14 @@ try:
     csv_url = convert_to_csv_url(SHEET_URL)
     df = pd.read_csv(csv_url)
 
-    # --- PEMBERSIHAN KOLOM ANGKA YANG AMAN ---
+    # --- PEMBERSIHAN ANGKA YANG LEBIH AMAN ---
+    # Konversi kolom yang mengandung 'gmv' menjadi numerik secara paksa
     for col in df.columns:
-        if 'gmv' in col.lower() or 'target' in col.lower() or 'sales' in col.lower():
-            # Ubah dulu jadi string, buang karakter non-digit (seperti titik, koma, huruf, atau simbol mata uang)
-            df[col] = (
-                df[col].astype(str)
-                .str.replace(r'[^0-9]', '', regex=True)
-            )
-            # Kosongkan string kosong, lalu ubah ke tipe angka (Numeric)
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+        if 'gmv' in col.lower():
+            df[col] = pd.to_numeric(
+                df[col].astype(str).str.replace(r'[^0-9\.-]', '', regex=True), 
+                errors='coerce'
+            ).fillna(0)
 
     client = genai.Client(api_key=API_KEY)
 
@@ -82,40 +80,24 @@ try:
             st.markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
 
-        # --- LOGIKA PENCARIAN & KALKULASI PYTHON SPESIFIK ---
-        filtered_context = ""
-        prompt_lower = prompt.lower()
+        # Kirim nama-nama kolom ke sistem prompt agar AI tahu persis struktur tabelnya
+        columns_info = f"Daftar Kolom di Spreadsheet ini: {list(df.columns)}"
         
-        sales_names = ["sulistiana", "gde", "rizki", "mulyanto", "afrianto"]
-        matched_sales = [name for name in sales_names if name in prompt_lower]
-        
-        if matched_sales:
-            rep_col = next((col for col in df.columns if 'rep' in col.lower() or 'sales' in col.lower() or 'nama' in col.lower()), None)
-            gmv_col = next((col for col in df.columns if 'gmv' in col.lower()), None)
-            
-            if rep_col and gmv_col:
-                for name in matched_sales:
-                    sub_df = df[df[rep_col].astype(str).str.lower().str.contains(name)]
-                    exact_sum = sub_df[gmv_col].sum()
-                    filtered_context += f"\n[DATA VALID PYTHON UNTUK {name.upper()}]: Total baris ditemukan: {len(sub_df)} baris. Total GMV pasti: {int(exact_sum):,}\n"
-
         data_str = df.to_csv(index=False)
         system_prompt = f"""
-Kamu adalah sistem database analitik yang sangat akurat. Dilarang menebak angka. 
-Jika ada bagian [DATA VALID PYTHON] di bawah ini, KAMU WAJIB MENGGUNAKAN ANGKA TERSEBUT SECARA MUTLAK untuk menjawab pertanyaan user.
+Kamu adalah sistem database analitik yang sangat akurat. 
+{columns_info}
 
 Berikut adalah data keseluruhan dalam format CSV:
 {data_str}
 
-{filtered_context}
-
-Tugasmu: Jawab pertanyaan user secara akurat berdasarkan data dan hasil kalkulasi Python di atas dalam bahasa Indonesia yang rapi dan profesional.
+Tugasmu: Jawab pertanyaan user secara akurat berdasarkan data CSV di atas. Jika user menanyakan data sales tertentu (seperti Mulyanto) atau total GMV, cari baris yang mengandung nama tersebut di kolom yang relevan, hitung dengan teliti, dan jangan katakan data tidak ada jika datanya tertera di dalam CSV. Berikan angka yang presisi.
 """
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Menganalisis data..."):
                 response = client.models.generate_content(
-                    model='gemini-3.6-flash',
+                    model='gemini-2.5-flash',
                     contents=f"{system_prompt}\n\nPertanyaan User: {prompt}"
                 )
                 st.markdown(response.text)
