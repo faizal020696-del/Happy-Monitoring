@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from openai import OpenAI
 import re
 import io
 import requests
@@ -29,7 +30,7 @@ def parse_number_exact(val):
     if not val_str or val_str.lower() in ['nan', 'null', 'none', '', '-', ' - ']:
         return 0.0
 
-    cleaned = re.sub(r'[^0-9\,\.-]', '', val_str)
+    cleaned = re.sub(r'[^0-9\,\.]', '', val_str)
     if not cleaned:
         return 0.0
 
@@ -39,19 +40,16 @@ def parse_number_exact(val):
                 cleaned = cleaned.replace('.', '').replace(',', '.')
             else:
                 cleaned = cleaned.replace(',', '')
-        elif ',' in cleaned and '.' not in cleaned:
+        elif '.' in cleaned:
+            parts = cleaned.split('.')
+            if len(parts) > 1:
+                cleaned = cleaned.replace('.', '')
+        elif ',' in cleaned:
             parts = cleaned.split(',')
             if len(parts) == 2 and len(parts[1]) <= 2:
                 cleaned = cleaned.replace(',', '.')
             else:
                 cleaned = cleaned.replace(',', '')
-        elif '.' in cleaned and '.' not in cleaned:
-            parts = cleaned.split('.')
-            if len(parts) > 2:
-                cleaned = cleaned.replace('.', '')
-            elif len(parts) == 2:
-                if len(parts[1]) == 3 or len(parts[1]) != 2:
-                    cleaned = cleaned.replace('.', '')
 
         return float(cleaned)
     except Exception:
@@ -71,6 +69,7 @@ try:
             
     raw_df = pd.read_csv(io.StringIO(csv_text), skiprows=header_idx, dtype=str)
     
+    # PERBAIKAN UTAMA: Bersihkan nama kolom agar W1: 241, W2: 248 terbaca murni sebagai W1, W2, W3, W4
     new_cols = []
     for c in raw_df.columns:
         c_clean = str(c).strip()
@@ -80,6 +79,11 @@ try:
         else:
             new_cols.append(c_clean)
     raw_df.columns = new_cols
+
+    client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=OPENROUTER_API_KEY,
+    )
 
     if "messages" not in st.session_state:
         st.session_state.messages = [
@@ -144,10 +148,11 @@ try:
                     target_columns = []
                     if weeks_requested:
                         for w in weeks_requested:
-                            target_columns.extend([c for c in sub_df.columns if re.search(r'\b' + w + r'\b', c.lower())])
+                            target_columns.extend([c for c in sub_df.columns if c.upper() == w.upper()])
                     
                     if not target_columns:
-                        target_columns = [c for c in sub_df.columns if any(k in c.lower() for k in ['w1', 'w2', 'w3', 'w4', 'gmv', 'sales', 'limit'])]
+                        important_keys = ['gmv', 'cm', 'lm', 'l2m', 'l3m', 'sales', 'limit', 'dpd', 'misi', 'visit', 'avg', 'average', 'trx', 'date', 'W1', 'W2', 'W3', 'W4']
+                        target_columns = [c for c in sub_df.columns if any(k in c for k in important_keys)]
 
                     target_columns = list(dict.fromkeys(target_columns))
 
@@ -157,7 +162,6 @@ try:
                         if any(ignore in col_lower for ignore in ['id', 'code', 'telepon', '%', 'nama', 'toko', 'apotek', 'address', 'sales rep', 'reps', 'salesman', 'unnamed']):
                             continue
 
-                        # Mengambil data baris terakhir dengan aman tanpa tolist()
                         series_vals = sub_df[col].dropna()
                         if not series_vals.empty:
                             val_raw = str(series_vals.iloc[-1]).strip()
@@ -172,8 +176,31 @@ try:
                         else:
                             calculated_metrics.append(f"• **{col}**: Rp 0")
 
-                    calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Data transaksi tidak ditemukan."
-                    response_text = f"Data untuk **{extracted_entity.title()}**:\n{calc_summary_str}"
+                    calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Data tidak ditemukan."
+
+                    system_prompt = f"""
+Kamu adalah Assistant Data SPV.
+DATA UNTUK: '{extracted_entity.title()}'.
+PERTANYAAN USER: "{prompt}"
+HASIL KALKULASI:
+{calc_summary_str}
+Jawab langsung ke inti metrik yang diminta user secara rapi dan akurat berdasarkan hasil kalkulasi.
+"""
+                    response_text = ""
+                    try:
+                        completion = client.chat.completions.create(
+                            model="google/gemini-2.0-flash-lite-001:free",
+                            messages=[{"role": "user", "content": system_prompt}],
+                            temperature=0.0
+                        )
+                        if completion.choices and len(completion.choices) > 0:
+                            response_text = completion.choices[0].message.content.strip()
+                    except Exception:
+                        response_text = ""
+
+                    if not response_text:
+                        response_text = f"Data **{extracted_entity.title()}**:\n{calc_summary_str}"
+
                 else:
                     searched_name = extracted_entity.title() if extracted_entity else prompt
                     response_text = f"Waduh, data untuk **'{searched_name}'** tidak ditemukan di Google Sheet. Cek ejaan nama toko/reps ya bro."
