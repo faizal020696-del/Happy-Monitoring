@@ -23,9 +23,6 @@ def convert_to_csv_url(url):
 try:
     csv_url = convert_to_csv_url(SHEET_URL)
     df = pd.read_csv(csv_url)
-    
-    with st.sidebar.expander("👀 Lihat Data Google Sheets", expanded=False):
-        st.dataframe(df)
 
     client = genai.Client(api_key=API_KEY)
 
