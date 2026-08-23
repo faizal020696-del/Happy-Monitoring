@@ -96,13 +96,12 @@ try:
 
         prompt_lower = prompt.lower()
         
-        # 1. Deteksi minggu yang diminta
+        # 1. Ambil minggu yang diminta secara aman
         weeks_requested = [w for w in ['W1', 'W2', 'W3', 'W4'] if re.search(r'\b' + w.lower() + r'\b', prompt_lower)]
 
-        # 2. Bersihkan prompt dari kata-kata umum untuk mendapatkan nama toko/reps
+        # 2. Pembersihan prompt yang presisi tanpa merusak nama toko
         clean_prompt = prompt_lower
-        clean_prompt = re.sub(r'\bdi([a-z]+)', r'\1', clean_prompt)
-
+        
         junk_words = [
             r'\bberapa\b', r'\btotal\b', r'\bjumlah\b', r'\byang\b', r'\btersedia\b', r'\bada\b', 
             r'\btarget\b', r'\bvisit\b', r'\bkunjungan\b', r'\breps\b', r'\bsales\b', r'\bsalesman\b', 
@@ -124,17 +123,23 @@ try:
 
         clean_prompt = re.sub(r'[^\w\s]', ' ', clean_prompt)
         extracted_entity = " ".join(clean_prompt.split()).strip()
+        
+        # Jika entity kosong, fallback gunakan prompt asli tanpa kata tanya umum
+        if not extracted_entity:
+            extracted_entity = prompt
 
         matched_indices = []
         entity_tokens = extracted_entity.split()
 
         if entity_tokens:
+            # Prioritaskan pencarian di kolom nama toko/farmasi/assignment
             name_cols = [c for c in raw_df.columns if any(k in c.lower() for k in ['name', 'nama', 'pharmacy', 'toko', 'apotek', 'assignment', 'reps'])]
             if not name_cols:
                 name_cols = raw_df.columns
 
             for idx, row in raw_df[name_cols].iterrows():
                 row_text = " ".join([str(val) for val in row.values if pd.notna(val)]).lower()
+                # Cocokkan apakah SEMUA kata kunci toko (misal: "gebang", "farma") ada dalam baris tersebut
                 if all(token in row_text for token in entity_tokens):
                     matched_indices.append(idx)
             
@@ -161,6 +166,7 @@ try:
 
                         series_vals = sub_df[col].dropna()
                         if not series_vals.empty:
+                            # Ambil baris terakhir yang valid (mencegah salah ambil baris ringkasan atas)
                             val_raw = str(series_vals.iloc[-1]).strip()
                             if val_raw and val_raw.lower() not in ['nan', 'none', '']:
                                 val_parsed = parse_number_exact(val_raw)
@@ -175,7 +181,6 @@ try:
 
                     calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Data tidak ditemukan."
                     
-                    # Langsung tampilkan teks hasil kalkulasi asli tanpa lewat AI agar angka tidak berubah/halusinasi
                     response_text = f"Data untuk **{extracted_entity.title()}**:\n{calc_summary_str}"
 
                 else:
