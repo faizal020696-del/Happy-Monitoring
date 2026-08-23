@@ -116,31 +116,43 @@ try:
             st.markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
 
-        # --- EKSTRAKSI ENTITAS NAMA DENGAN AI ---
+        # --- 1. AI EKSTRAKSI NAMA ENTITAS & KATEGORI SUBJEK ---
         extraction_prompt = f"""
-Ekstrak HANYA nama subjek/entitas utama (nama Reps/Sales/Apotek/Toko) dari pertanyaan user di bawah.
-Abaikan kata tanya, kata kerja, typo/salah ketik, istilah metrik (seperti gmv, pencapian, pencapaian, total, target, dll), dan keterangan waktu (seperti bulan ini, kemarin, dll).
+Analisis pertanyaan user berikut dan berikan output format JSON persis seperti ini:
+{{"entity": "<nama entitas>", "category": "<REPS atau APOTEK atau GENERAL>"}}
 
-Contoh:
-Input: "berapa total pencapian GMV reps rizki bulan ini?" -> Output: rizki
-Input: "berapa total pencapian GMV reps afrianto bulan ini?" -> Output: afrianto
-Input: "pencapaian sales afrianto" -> Output: afrianto
+Aturan Ekstraksi:
+1. "entity": Ambil HANYA nama spesifik (misal: "gebang farma", "rizki", "afrianto"). Abaikan kata "apotek", "reps", "gmv", "pencapaian", "bulan ini", dll.
+2. "category": 
+   - Pilih "REPS" jika user bertanya tentang Sales/Reps/Salesman.
+   - Pilih "APOTEK" jika user bertanya tentang Apotek/Toko/Outlet/Pelanggan.
+   - Pilih "GENERAL" jika tidak spesifik.
 
 Kalimat Input: "{prompt}"
-Output (HANYA NAMA ENTITAS):"""
+Output JSON:"""
 
         extracted_entity = ""
+        category = "GENERAL"
+
         try:
             ext_res = client.chat.completions.create(
                 model="google/gemini-2.0-flash-lite-001:free",
                 messages=[{"role": "user", "content": extraction_prompt}],
                 temperature=0.0
             )
-            extracted_entity = ext_res.choices[0].message.content.strip().lower()
-            extracted_entity = re.sub(r'[^\w\s]', '', extracted_entity)
+            raw_out = ext_res.choices[0].message.content.strip()
+            # Ambil JSON
+            json_match = re.search(r'\{.*\}', raw_out, re.DOTALL)
+            if json_match:
+                import json
+                parsed_json = json.loads(json_match.group(0))
+                extracted_entity = parsed_json.get("entity", "").lower().strip()
+                category = parsed_json.get("category", "GENERAL").upper()
         except Exception:
             extracted_entity = ""
+            category = "GENERAL"
 
+        # Fallback manual jika ekstraksi AI gagal
         if not extracted_entity:
             clean_prompt = re.sub(r'[^\w\s]', ' ', prompt.lower())
             stop_words = set([
@@ -151,24 +163,29 @@ Output (HANYA NAMA ENTITAS):"""
             ])
             entity_tokens = [w for w in clean_prompt.split() if w not in stop_words and len(w) > 1]
             extracted_entity = " ".join(entity_tokens)
+            if any(k in prompt.lower() for k in ['apotek', 'apotik', 'toko', 'outlet']):
+                category = "APOTEK"
+            elif any(k in prompt.lower() for k in ['reps', 'sales', 'salesman']):
+                category = "REPS"
 
         entity_tokens = extracted_entity.split()
         sub_df = pd.DataFrame()
 
         if entity_tokens:
-            # Detect apakah prompt spesifik menyebut kata 'reps' / 'sales' atau 'apotek'
-            is_reps_query = any(k in prompt.lower() for k in ['reps', 'sales', 'salesman'])
-            
-            # Cari kolom yang berhubungan dengan nama Reps / Sales jika pencarian khusus Reps
-            reps_cols = [c for c in df.columns if any(k in c.lower() for k in ['reps', 'sales', 'salesman', 'nama reps'])]
-            
-            # STRATEGI 1: Jika bertanya spesifik Reps dan ada kolom Reps, filter HANYA di kolom Reps
-            if is_reps_query and reps_cols:
-                reps_series = df_clean_text[reps_cols].apply(lambda row: " ".join(row.values).lower(), axis=1)
-                mask_reps = reps_series.apply(lambda x: all(t in x for t in entity_tokens))
-                sub_df = df[mask_reps]
+            # Identifikasi kolom target berdasarkan kategori
+            target_cols = []
+            if category == "APOTEK":
+                target_cols = [c for c in df.columns if any(k in c.lower() for k in ['apotek', 'apotik', 'toko', 'outlet', 'customer', 'pelanggan', 'nama toko', 'nama apotek'])]
+            elif category == "REPS":
+                target_cols = [c for c in df.columns if any(k in c.lower() for k in ['reps', 'sales', 'salesman', 'nama reps', 'nama sales'])]
 
-            # STRATEGI 2 (Fallback): Jika tidak ketemu atau bukan query spesifik reps, cari di seluruh kolom
+            # STRATEGI 1: Search di kolom target spesifik jika ada
+            if target_cols:
+                target_series = df_clean_text[target_cols].apply(lambda row: " ".join(row.values).lower(), axis=1)
+                mask_target = target_series.apply(lambda x: all(t in x for t in entity_tokens))
+                sub_df = df[mask_target]
+
+            # STRATEGI 2: Fallback ke pencarian seluruh kolom jika tidak ditemukan di kolom spesifik
             if len(sub_df) == 0:
                 row_combined = df_clean_text.apply(lambda row: " ".join(row.values).lower(), axis=1)
                 mask_all = row_combined.apply(lambda x: all(t in x for t in entity_tokens))
@@ -184,17 +201,17 @@ Output (HANYA NAMA ENTITAS):"""
                 if len(sub_df) > 0:
                     calculated_metrics = []
                     
-                    # Filter Kolom Penjumlahan (Pilih hanya kolom pencapaian Rupiah/GMV, abaikan count/visit)
+                    # Filter Kolom Penjumlahan yang Valid (HANYA Nominal GMV/Sales)
                     valid_cols = []
                     for col in sub_df.columns:
                         col_lower = col.lower()
-                        # Abaikan kolom count / visit / target / %
+                        # Abaikan kolom non-nominal
                         if any(ignore in col_lower for ignore in ['count', 'visit', 'target', '%', 'pct', 'date', 'tanggal', 'id', 'code', 'durasi', 'duration']):
                             continue
                         if any(k in col_lower for k in ['gmv', 'cm', 'lm', 'sales', 'pencapaian']):
                             valid_cols.append(col)
 
-                    # Prioritaskan kolom CM / Current Month jika ada
+                    # Prioritaskan kolom CM / Current Month jika user menanyakan bulan ini
                     cm_cols = [c for c in valid_cols if any(k in c.lower() for k in ['cm', 'current', 'bulan ini', 'total'])]
                     target_calculation_cols = cm_cols if cm_cols else valid_cols
 
@@ -212,7 +229,7 @@ Output (HANYA NAMA ENTITAS):"""
                     system_prompt = f"""
 Kamu adalah Senior Data Analyst SPV yang sangat teliti.
 
-DITEMUKAN **{len(sub_df)} BARIS DATA** UNTUK ENTITAS YANG DICARI ('{extracted_entity}').
+DITEMUKAN **{len(sub_df)} BARIS DATA** UNTUK ENTITAS: '{extracted_entity}' (Kategori: {category}).
 
 HASIL KALKULASI PRESISI PYTHON UNTUK **SELURUH {len(sub_df)} BARIS DATA** (GUNAKAN ANGKA INI):
 {calc_summary_str}
@@ -224,7 +241,7 @@ Pertanyaan User: "{prompt}"
 
 Instruksi Sangat Penting:
 1. GUNAKAN HASIL KALKULASI PRESISI PYTHON DI ATAS UNTUK MENJAWAB TOTAL ANGKA/GMV! JANGAN MENAMBAHKAN/MENJUMLAHKAN MANUAL LAGI PAKAI AI.
-2. Jawab secara to the point di kalimat pertama dengan menyebutkan nama entitas (Reps/Apotek) dan angka total nominal rupiah yang presisi.
+2. Jawab secara to the point di kalimat pertama dengan menyebutkan nama entitas dan angka total nominal rupiah yang presisi.
 3. Jika user bertanya "bulan ini", utamakan angka dari kolom CM (Current Month) atau MTD. Jika tidak ada, jelaskan bahwa angka berasal dari kolom LM (Last Month).
 4. JANGAN PERNAH menampilkan rincian penjumlahan tambah-tambahan manual `(a + b + c)` yang dipotong-potong di jawaban.
 """
@@ -251,7 +268,7 @@ Instruksi Sangat Penting:
                             continue
 
                     if not response_text or len(response_text.strip()) < 5:
-                        response_text = f"Ditemukan **{len(sub_df)} baris data** untuk pencarian '{extracted_entity}'. Berikut rincian total angkanya:\n\n{calc_summary_str}"
+                        response_text = f"Ditemukan **{len(sub_df)} baris data** untuk {category.lower()} '{extracted_entity}'. Berikut rincian total angkanya:\n\n{calc_summary_str}"
 
                 else:
                     response_text = f"Maaf bro, data untuk **'{extracted_entity}'** tidak ditemukan di Google Sheet."
