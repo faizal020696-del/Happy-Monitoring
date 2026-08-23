@@ -12,7 +12,7 @@ st.set_page_config(
     layout="centered"
 )
 
-# Kustomisasi Tampilan Visual Streamlit
+# Kustomisasi Tampilan Visual
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden !important;}
@@ -52,60 +52,44 @@ def convert_to_csv_url(url):
     return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
 
 def parse_number_exact(val):
-    """
-    Konversi teks rupiah/angka dari Google Sheet ke float dengan presisi 100%.
-    Menangani format Rupiah Indonesia (1.234.567,89) maupun internasional (1,234,567.89).
-    """
     if pd.isna(val) or val is None:
         return 0.0
     val_str = str(val).strip()
     if not val_str or val_str.lower() in ['nan', 'null', 'none', '-', '']:
         return 0.0
 
-    # Hapus huruf, Rp, spasi, dan simbol selain angka, koma, titik, minus
     cleaned = re.sub(r'[^0-9\,\.-]', '', val_str)
     if not cleaned:
         return 0.0
 
     try:
-        # Jika ada titik DAN koma (misal: 1.234.567,50 atau 1,234,567.50)
         if '.' in cleaned and ',' in cleaned:
             if cleaned.rfind('.') < cleaned.rfind(','):
-                # Format Indonesia: 1.234.567,50 -> buang titik, ganti koma jadi titik
                 cleaned = cleaned.replace('.', '').replace(',', '.')
             else:
-                # Format US: 1,234,567.50 -> buang koma
                 cleaned = cleaned.replace(',', '')
         elif ',' in cleaned and '.' not in cleaned:
-            # Jika hanya ada koma
             parts = cleaned.split(',')
             if len(parts) == 2 and len(parts[1]) <= 2:
-                # Koma sebagai desimal (misal 1000,50)
                 cleaned = cleaned.replace(',', '.')
             else:
-                # Koma sebagai ribuan (misal 1,000,000)
                 cleaned = cleaned.replace(',', '')
         elif '.' in cleaned and ',' not in cleaned:
-            # Jika hanya ada titik
             parts = cleaned.split('.')
             if len(parts) > 2:
-                # Titik sebagai ribuan berulang (misal 1.000.000)
                 cleaned = cleaned.replace('.', '')
             elif len(parts) == 2:
                 if len(parts[1]) == 3:
-                    # Titik sebagai ribuan (misal 1.000)
                     cleaned = cleaned.replace('.', '')
                 elif len(parts[1]) != 2:
-                    # Jika bukan 2 digit desimal, anggap titik ribuan
                     cleaned = cleaned.replace('.', '')
 
-        return float(cleaned)
+        return round(float(cleaned))
     except Exception:
         return 0.0
 
 try:
     csv_url = convert_to_csv_url(SHEET_URL)
-    # Baca seluruh kolom sebagai STRING MURNI agar tidak ada pembulatan ilmiah oleh Pandas
     df = pd.read_csv(csv_url, dtype=str)
     df.columns = df.columns.str.strip()
     df_clean_text = df.fillna("").astype(str)
@@ -137,69 +121,87 @@ try:
 
         prompt_lower = prompt.lower()
         
-        # Kata dasar pertanyaan yang dibuang untuk pencarian nama entitas
         stop_words = [
             'berapa', 'total', 'gmv', 'pencapaian', 'capaian', 'misi', 'reguler', 'gold', 
             'target', 'data', 'untuk', 'bulan', 'ini', 'kemarin', 'di', 'dan', 'yang', 
-            'dari', 'tentang', 'tim', 'gw', 'saya', 'tolong', 'coba', 'reps', 'sales', 'apotek', 'apotik'
+            'dari', 'tentang', 'tim', 'gw', 'saya', 'tolong', 'coba', 'apotek', 'apotik'
         ]
         
         entity_tokens = [w for w in prompt_lower.split() if w not in stop_words and len(w) > 1]
-        if not entity_tokens:
-            entity_tokens = [w for w in prompt_lower.split() if len(w) > 2]
 
+        # Temukan kolom tempat nama Reps berada
+        reps_cols = [c for c in df.columns if any(k in c.lower() for k in ['reps', 'sales', 'spv', 'nama'])]
+        
         sub_df = pd.DataFrame()
-        if entity_tokens:
+
+        # 1. PERBAIKAN: Jika pertanyaan soal "Grand Total" / "Happy"
+        if any(k in prompt_lower for k in ['happy', 'grand total', 'total spv', 'total team']):
+            mask_total = df_clean_text.apply(
+                lambda r: any('grand total' in str(v).lower() or 'total' in str(v).lower() for v in r.values), 
+                axis=1
+            )
+            sub_df = df[mask_total]
+
+        # 2. PERBAIKAN: Kunci pencarian Reps HANYA di kolom Reps/Sales
+        elif entity_tokens and reps_cols:
+            for r_col in reps_cols:
+                mask_reps = df[r_col].fillna("").astype(str).apply(
+                    lambda x: any(t in x.lower() for t in entity_tokens)
+                )
+                if mask_reps.any():
+                    sub_df = df[mask_reps]
+                    break
+
+        # Fallback jika tidak menemukan kolom spesifik
+        if len(sub_df) == 0 and entity_tokens:
             row_combined = df_clean_text.apply(lambda row: " ".join(row.values).lower(), axis=1)
-            
-            # Tingkat 1: Cari yang mengandung SEMUA kata toko/reps
             mask_all = row_combined.apply(lambda x: all(t in x for t in entity_tokens))
             sub_df = df[mask_all]
-            
-            # Tingkat 2: Fallback jika 0 hasil
-            if len(sub_df) == 0:
-                mask_any = row_combined.apply(lambda x: any(t in x for t in entity_tokens))
-                sub_df = df[mask_any]
 
         with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("Menghitung data dengan presisi 100%..."):
+            with st.spinner("Mengecek angka dari tabel rekap..."):
                 if len(sub_df) > 0:
-                    # PROSES PENJUMLAHAN MURNI VIA PYTHON DENGAN PARSER PRESISI
                     calculated_metrics = []
-                    for col in sub_df.columns:
-                        col_lower = col.lower()
-                        # Hanya hitung kolom nominal metrik utama
-                        if any(k in col_lower for k in ['gmv', 'cm', 'lm', 'sales', 'target', 'misi', 'pencapaian']):
-                            if not any(ignore in col_lower for ignore in ['date', 'tanggal', 'id', 'code', 'durasi', 'duration']):
-                                num_series = sub_df[col].apply(parse_number_exact)
-                                total_val = num_series.sum()
-                                if total_val > 0:
-                                    calculated_metrics.append(f"- **{col}**: Rp {total_val:,.0f}".replace(",", "."))
-
-                    calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Tidak ada kolom angka nominal yang dapat terhitung."
                     
-                    # Sampel data untuk diserahkan ke Gemini
+                    # PERBAIKAN: Ambil langsung nilai dari baris rekap (tanpa sum ulang jika barisnya tunggal/rekap)
+                    if len(sub_df) <= 5:
+                        for col in sub_df.columns:
+                            col_lower = col.lower()
+                            if any(k in col_lower for k in ['ach', 'gmv', 'target', 'total', 'cm', 'lm']):
+                                val_raw = sub_df[col].values[0]
+                                num_val = parse_number_exact(val_raw)
+                                if num_val > 0:
+                                    calculated_metrics.append(f"- **{col}**: Rp {num_val:,.0f}".replace(",", "."))
+                    else:
+                        for col in sub_df.columns:
+                            col_lower = col.lower()
+                            if any(k in col_lower for k in ['gmv', 'cm', 'lm', 'sales', 'target', 'misi', 'ach']):
+                                if not any(ignore in col_lower for ignore in ['date', 'tanggal', 'id', 'code', 'durasi']):
+                                    num_series = sub_df[col].apply(parse_number_exact)
+                                    total_val = num_series.sum()
+                                    if total_val > 0:
+                                        calculated_metrics.append(f"- **{col}**: Rp {total_val:,.0f}".replace(",", "."))
+
+                    calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Tidak ada angka yang dapat terbaca."
+                    
                     sub_df_sample = sub_df.dropna(how='all', axis=1).head(10)
                     data_table_md = sub_df_sample.to_markdown(index=False)
 
                     system_prompt = f"""
-Kamu adalah Senior Data Analyst SPV yang sangat teliti.
+Kamu adalah Senior Data Analyst SPV.
 
-DITEMUKAN **{len(sub_df)} BARIS DATA** UNTUK ENTITAS YANG DICARI.
-
-HASIL KALKULASI PRESISI PYTHON UNTUK **SELURUH {len(sub_df)} BARIS DATA** (GUNAKAN ANGKA INI):
+DITEMUKAN ANGKA EKSAL DARI GOOGLE SHEET:
 {calc_summary_str}
 
-SAMPEL RINCIAN TABEL DARI GOOGLE SHEET (Max 10 baris):
+SAMPEL TABEL DATA:
 {data_table_md}
 
 Pertanyaan User: "{prompt}"
 
-Instruksi Sangat Penting:
-1. GUNAKAN HASIL KALKULASI PRESISI PYTHON DI ATAS UNTUK MENJAWAB TOTAL ANGKA/GMV! JANGAN MENAMBAHKAN/MENJUMLAHKAN MANUAL LAGI PAKAI AI.
-2. Jawab secara to the point di kalimat pertama dengan menyebutkan nama entitas (Reps/Apotek) dan angka total nominal rupiah yang presisi.
-3. Jika user bertanya "bulan ini", utamakan angka dari kolom CM (Current Month) atau MTD. Jika tidak ada, jelaskan bahwa angka berasal dari kolom LM (Last Month).
-4. JANGAN PERNAH menampilkan rincian penjumlahan tambah-tambahan manual `(a + b + c)` yang dipotong-potong di jawaban.
+Instruksi Menjawab:
+1. GUNAKAN ANGKA DARI HASIL DI ATAS SECARA KAKU DAN PRESISI.
+2. Jawab secara langsung di kalimat pertama.
+3. DILARANG MELAKUKAN PENJUMLAHAN MANUAL ULANG.
 """
                     response_text = ""
                     models_to_try = [
@@ -224,7 +226,7 @@ Instruksi Sangat Penting:
                             continue
 
                     if not response_text or len(response_text.strip()) < 5:
-                        response_text = f"Ditemukan **{len(sub_df)} baris data** untuk pencarian tersebut. Berikut rincian total angkanya:\n\n{calc_summary_str}"
+                        response_text = f"Berikut data untuk pencarian tersebut:\n\n{calc_summary_str}"
 
                 else:
                     search_kw = ' '.join(entity_tokens) if entity_tokens else prompt
