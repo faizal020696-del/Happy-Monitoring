@@ -138,8 +138,7 @@ try:
             if not any(k in prompt_lower for k in ['w1', 'w2', 'w3', 'w4', 'week', 'minggu', 'gmv', 'total', 'cm', 'lm', 'l2m', 'l3m', 'lalu', 'kemarin', 'sisa', 'limit']):
                 weeks_requested = ['W1', 'W2', 'W3', 'W4']
 
-        # Deteksi wajib untuk semua kata yang mengandung 'limit', 'plafond', atau 'sisa'
-        is_limit_query = any(k in prompt_lower for k in ['limit', 'plafond', 'sisa', 'ssisa', 'avaiability', 'availability']) and not weeks_requested
+        is_limit_query = any(k in prompt_lower for k in ['limit', 'plafond', 'sisa', 'ssisa', 'avaiability', 'availability', 'avail']) and not weeks_requested
 
         metric_requested = None
         if not weeks_requested and not is_limit_query:
@@ -225,9 +224,11 @@ try:
                     calculated_metrics = []
 
                     if is_limit_query:
-                        # Otomatis ambil Total Limit dan Avaiability Limit sekaligus
+                        # Cari kolom Total Limit & Kolom Sisa/Avaiability Limit dengan toleransi typo luas
                         total_limit_col = next((c for c in raw_df.columns if 'total' in c.lower() and 'limit' in c.lower()), None)
-                        avail_limit_col = next((c for c in raw_df.columns if ('avaiability' in c.lower() or 'availability' in c.lower() or 'sisa' in c.lower()) and 'limit' in c.lower()), None)
+                        
+                        # Diperluas pencariannya untuk menangkap "Avaiability Limit" atau kolom limit selain total
+                        avail_limit_col = next((c for c in raw_df.columns if c != total_limit_col and ('limit' in c.lower() or 'sisa' in c.lower() or 'avail' in c.lower() or 'plafond' in c.lower())), None)
 
                         if total_limit_col:
                             val_total = parse_number_general(target_row.get(total_limit_col, 0))
