@@ -130,19 +130,16 @@ try:
         for idx, row in raw_df[name_cols].iterrows():
             row_text = " ".join([str(val) for val in row.values if pd.notna(val)]).lower()
             if search_tokens and all(token in row_text for token in search_tokens):
-                # Validasi tambahan: abaikan baris yang terindikasi sebagai total/summary wilayah besar jika ada baris outlet detailnya
                 matched_indices.append(idx)
 
-        # Filter baris: Jika ada banyak baris yang cocok, buang baris yang nilai W1-nya tidak masuk akal (diatas 1 miliar misal, atau baris pertama jika itu rekap)
+        # Cari baris yang nilainya wajar (bukan baris total rekap triliunan)
         valid_indices = []
         for idx in matched_indices:
             row_data = raw_df.loc[idx]
-            # Cek nilai W1 untuk memastikan ini bukan baris rekap triliunan
-            w1_val = parse_number_exact(row_data.get('W1', 0))
-            if w1_val < 1_000_000_000: # Asumsi transaksi mingguan toko normal di bawah 1 miliar
+            w1_val = parse_number_exact(str(row_data.get('W1', '0')))
+            if w1_val < 1_000_000_000:
                 valid_indices.append(idx)
         
-        # Jika semua terfilter habis (atau memang angkanya besar), ambil baris terakhir dari hasil pencocokan (biasanya baris detail ada di bawah rekap)
         if not valid_indices and matched_indices:
             valid_indices = [matched_indices[-1]]
         elif not valid_indices:
