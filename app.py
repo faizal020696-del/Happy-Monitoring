@@ -21,11 +21,18 @@ def convert_to_csv_url(url):
     gid = gid_match.group(1) if gid_match else "0"
     return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
 
-def parse_number_exact(val):
+def parse_number_exact(val, is_dpd=False):
     if pd.isna(val) or val is None:
         return 0.0
     val_str = str(val).strip()
-    if not val_str or val_str.lower() in ['nan', 'null', 'none', '-', '']:
+    if not val_str or val_str.lower() in ['nan', 'null', 'none', '', '-', ' - ']:
+        return 0.0
+
+    # Khusus DPD: Tangkap angka bertanda minus (-) atau positif (+) murni
+    if is_dpd:
+        match = re.search(r'(-?\d+(?:\.\d+)?)', val_str.replace(',', '.'))
+        if match:
+            return float(match.group(1))
         return 0.0
 
     cleaned = re.sub(r'[^0-9\,\.-]', '', val_str)
@@ -44,7 +51,7 @@ def parse_number_exact(val):
                 cleaned = cleaned.replace(',', '.')
             else:
                 cleaned = cleaned.replace(',', '')
-        elif '.' in cleaned and ',' not in cleaned:
+        elif '.' in cleaned and '.' not in cleaned:
             parts = cleaned.split('.')
             if len(parts) > 2:
                 cleaned = cleaned.replace('.', '')
@@ -170,14 +177,27 @@ try:
                         if any(ignore in col_lower for ignore in ['id', 'code', 'telepon', '%', 'nama', 'toko', 'apotek', 'address']):
                             continue
 
-                        num_series = sub_df[col].apply(parse_number_exact)
-                        total_val = num_series.sum()
+                        is_dpd_col = 'dpd' in col_lower
 
-                        if 'dpd' in col_lower:
-                            calculated_metrics.append(f"• **{col}**: {num_series.mean():.0f} hari")
+                        if is_dpd_col:
+                            dpd_values = [parse_number_exact(v, is_dpd=True) for v in sub_df[col] if str(v).strip() != '']
+                            
+                            if len(dpd_values) == 1:
+                                calculated_metrics.append(f"• **{col}**: {dpd_values[0]:.0f} hari")
+                            elif len(dpd_values) > 1:
+                                vals_str = ", ".join([f"{v:.0f}" for v in dpd_values])
+                                avg_val = sum(dpd_values) / len(dpd_values)
+                                calculated_metrics.append(f"• **{col}**: {avg_val:.0f} hari (Rincian: {vals_str} hari)")
+                            else:
+                                calculated_metrics.append(f"• **{col}**: 0 hari")
+
                         elif any(k in col_lower for k in ['visit', 'kunjungan', 'count', 'target']):
+                            num_series = sub_df[col].apply(lambda x: parse_number_exact(x, is_dpd=False))
+                            total_val = num_series.sum()
                             calculated_metrics.append(f"• **{col}**: {total_val:,.0f} kali".replace(",", "."))
                         else:
+                            num_series = sub_df[col].apply(lambda x: parse_number_exact(x, is_dpd=False))
+                            total_val = num_series.sum()
                             calculated_metrics.append(f"• **{col}**: Rp {total_val:,.0f}".replace(",", "."))
 
                     calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Metrik tidak terdeteksi di sheet."
