@@ -12,6 +12,7 @@ st.set_page_config(
     layout="centered"
 )
 
+# Kustomisasi Tampilan Visual Streamlit
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden !important;}
@@ -52,8 +53,8 @@ def convert_to_csv_url(url):
 
 def parse_number_exact(val):
     """
-    Parser murni aman untuk Rupiah Indonesia.
-    Mengubah 'Rp 585.409.626,00' atau '20.000.000' menjadi float 20000000.0 murni tanpa kehilangan digit.
+    Parser angka anti-gagal khusus format Rupiah / Angka Indonesia maupun US.
+    Akurat menangani angka ribuan titik/koma tanpa memotong digit nilai.
     """
     if pd.isna(val) or val is None:
         return 0.0
@@ -61,25 +62,43 @@ def parse_number_exact(val):
     if not val_str or val_str.lower() in ['nan', 'null', 'none', '-', '']:
         return 0.0
 
-    # Hilangkan tulisan Rp, spasi, dan karakter non-numerik selain titik dan koma
+    # Ambil angka, koma, titik, dan minus saja
     cleaned = re.sub(r'[^0-9\,\.-]', '', val_str)
     if not cleaned:
         return 0.0
 
     try:
-        # Jika ada koma sebagai desimal di ujung akhir (misal ,00 atau ,50), buang desimal sen-nya
-        if ',' in cleaned:
+        # Jika ada format Rupiah dengan koma desimal (contoh: 20.000.000,00 atau 1.500.000,50)
+        if '.' in cleaned and ',' in cleaned:
+            if cleaned.rfind('.') < cleaned.rfind(','):
+                cleaned = cleaned.replace('.', '').replace(',', '.')
+            else: # Format US (1,500,000.50)
+                cleaned = cleaned.replace(',', '')
+        elif ',' in cleaned:
             parts = cleaned.split(',')
-            if len(parts[-1]) <= 2: # Asumsi 2 digit desimal sen
-                cleaned = "".join(parts[:-1])
+            # Jika 2 digit di belakang koma, anggap desimal sen
+            if len(parts) == 2 and len(parts[1]) <= 2:
+                cleaned = cleaned.replace(',', '.')
             else:
                 cleaned = cleaned.replace(',', '')
+        elif '.' in cleaned:
+            parts = cleaned.split('.')
+            # Jika titik lebih dari 1 (misal 10.000.000), pasti pemisah ribuan
+            if len(parts) > 2:
+                cleaned = cleaned.replace('.', '')
+            elif len(parts) == 2:
+                # Jika digit setelah titik berjumlah 3 (misal 20.000), maka ribuan
+                if len(parts[1]) == 3:
+                    cleaned = cleaned.replace('.', '')
+                elif len(parts[1]) != 2:
+                    cleaned = cleaned.replace('.', '')
 
-        # Hapus semua titik pemisah ribuan
-        cleaned = cleaned.replace('.', '')
         return float(cleaned)
     except Exception:
         return 0.0
+
+def format_rupiah(val):
+    return f"Rp {val:,.0f}".replace(",", ".")
 
 try:
     csv_url = convert_to_csv_url(SHEET_URL)
@@ -114,7 +133,7 @@ try:
 
         prompt_lower = prompt.lower()
         
-        # Daftar kata pencarian
+        # Kata pencarian umum yang diabaikan untuk isolasi kata kunci entitas
         stop_words = [
             'berapa', 'total', 'gmv', 'pencapaian', 'capaian', 'misi', 'reguler', 'gold', 
             'target', 'data', 'untuk', 'bulan', 'ini', 'kemarin', 'di', 'dan', 'yang', 
@@ -129,10 +148,11 @@ try:
         if entity_tokens:
             row_combined = df_clean_text.apply(lambda row: " ".join(row.values).lower(), axis=1)
             
-            # Cari baris yang mengandung token kata kunci
+            # Matched All Tokens
             mask_all = row_combined.apply(lambda x: all(t in x for t in entity_tokens))
             sub_df = df[mask_all]
             
+            # Fallback Matched Any Tokens
             if len(sub_df) == 0:
                 mask_any = row_combined.apply(lambda x: any(t in x for t in entity_tokens))
                 sub_df = df[mask_any]
@@ -141,51 +161,71 @@ try:
             with st.spinner("Menghitung data dengan presisi 100%..."):
                 if len(sub_df) > 0:
                     calculated_metrics = []
+                    grand_total_gmv = 0.0
+                    has_gmv_columns = False
                     
-                    # Targetkan hanya kolom yang relevan
-                    target_cols = [c for c in sub_df.columns if any(k in c.lower() for k in ['gmv ach', 'gmv cm', 'pencapaian cm', 'total gmv', 'ach gmv', 'gmv'])]
-                    # Filter buang kolom target/persen/id
-                    filtered_cols = [c for c in target_cols if not any(ignore in c.lower() for ignore in ['target', '%', 'pct', 'status', 'id', 'date', 'tanggal'])]
+                    for col in sub_df.columns:
+                        col_lower = col.lower()
+                        
+                        # 1. Pilih kolom nominal realisasi GMV / Sales
+                        if any(k in col_lower for k in ['gmv', 'cm', 'lm', 'sales', 'pencapaian']):
+                            
+                            # 2. FILTER KETAT: Abaikan kolom Target, %, Tanggal, ID, Status
+                            ignore_keywords = ['target', '%', 'pct', 'status', 'date', 'tanggal', 'id', 'code', 'durasi', 'duration']
+                            if not any(ignore in col_lower for ignore in ignore_keywords):
+                                num_series = sub_df[col].apply(parse_number_exact)
+                                total_val = num_series.sum()
+                                if total_val > 0:
+                                    has_gmv_columns = True
+                                    grand_total_gmv += total_val
+                                    calculated_metrics.append(f"- **{col}**: {format_rupiah(total_val)}")
 
-                    cols_to_use = filtered_cols if filtered_cols else target_cols
+                    # Format ringkasan kalkulasi murni Python
+                    calc_summary = ""
+                    if has_gmv_columns:
+                        calc_summary += f"🔥 **TOTAL AKUMULASI PENCAPAIAN GMV**: {format_rupiah(grand_total_gmv)}\n\n"
+                        calc_summary += "**Rincian Komponen Metrik:**\n" + "\n".join(calculated_metrics)
+                    else:
+                        calc_summary = "Tidak ditemukan kolom nominal angka realisasi yang valid untuk dihitung."
 
-                    for col in cols_to_use:
-                        num_series = sub_df[col].apply(parse_number_exact)
-                        total_val = num_series.sum()
-                        if total_val > 0:
-                            # Format Rupiah Indonesia murni
-                            formatted_num = f"Rp {total_val:,.0f}".replace(",", ".")
-                            calculated_metrics.append(f"- **{col}**: {formatted_num}")
-
-                    calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Tidak ada kolom angka nominal yang terhitung."
-                    
                     system_prompt = f"""
-Kamu adalah Senior Data Analyst SPV.
+Kamu adalah Senior Data Analyst SPV yang ramah dan teliti.
 
-DITEMUKAN HASIL HITUNG PRESISI DARI PYTHON:
-{calc_summary_str}
+HASIL KALKULASI PRESISI MURNI DARI PYTHON:
+{calc_summary}
 
 Pertanyaan User: "{prompt}"
 
-Instruksi SANGAT KETAT:
-1. Jawab LANGSUNG menyebutkan entitas dan ANGKA HASIL KALKULASI PYTHON DI ATAS SECARA PERSIS TANPA DIUBAH ATAU DITAMBAH SEPERAK PUN!
-2. Jika ada beberapa kolom yang terhitung, tampilkan rincian list kolom tersebut.
-3. DILARANG membuat perkiraan atau mengubah format angka dari string hasil Python.
+INSTRUKSI SANGAT KETAT:
+1. Sebutkan angka **TOTAL AKUMULASI PENCAPAIAN GMV** langsung di kalimat pertama jawaban.
+2. Tampilkan rincian komponen metrik di bawahnya agar transparan.
+3. DILARANG MENJUMLAHKAN ULANG, MEMOTONG, ATAU MENGUBAH ANGKA RUPIAH HASIL KALKULASI PYTHON DI ATAS.
+4. Jawab secara ringkas, profesional, dan to the point.
 """
                     response_text = ""
-                    try:
-                        completion = client.chat.completions.create(
-                            model="google/gemini-2.0-flash-lite-001:free",
-                            messages=[{"role": "user", "content": system_prompt}],
-                            temperature=0.0
-                        )
-                        if completion.choices:
-                            response_text = completion.choices[0].message.content
-                    except Exception:
-                        response_text = f"Berikut total pencapaian presisi terhitung dari data:\n\n{calc_summary_str}"
+                    models_to_try = [
+                        "google/gemini-2.0-flash-lite-001:free",
+                        "google/gemini-2.0-flash-exp:free",
+                        "openrouter/free"
+                    ]
+
+                    for model_id in models_to_try:
+                        try:
+                            completion = client.chat.completions.create(
+                                model=model_id,
+                                messages=[{"role": "user", "content": system_prompt}],
+                                temperature=0.0
+                            )
+                            if completion.choices and len(completion.choices) > 0:
+                                res = completion.choices[0].message.content
+                                if res and len(res.strip()) > 5:
+                                    response_text = res
+                                    break
+                        except Exception:
+                            continue
 
                     if not response_text:
-                        response_text = f"Berikut total pencapaian presisi terhitung:\n\n{calc_summary_str}"
+                        response_text = f"Berikut hasil kalkulasi presisi dari data:\n\n{calc_summary}"
 
                 else:
                     search_kw = ' '.join(entity_tokens) if entity_tokens else prompt
