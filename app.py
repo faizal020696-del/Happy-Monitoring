@@ -70,7 +70,7 @@ try:
                 errors='coerce'
             ).fillna(0)
 
-    # Inisialisasi Client OpenRouter (menggunakan base_url OpenAI)
+    # Inisialisasi Client OpenRouter
     client = OpenAI(
         base_url="https://openrouter.ai/api/v1",
         api_key=OPENROUTER_API_KEY,
@@ -141,9 +141,9 @@ ATURAN MUTLAK: Jangan mengubah angka atau nominal Rupiah yang ada di dalam data 
                     response_text = None
                     for attempt in range(3):
                         try:
-                            # Menggunakan model Google Gemma 2 (gratis & stabil di OpenRouter)
+                            # Menggunakan router otomatis gratis OpenRouter
                             completion = client.chat.completions.create(
-                                model="google/gemma-2-9b-it:free",
+                                model="openrouter/free",
                                 messages=[
                                     {"role": "user", "content": formatting_prompt}
                                 ]
