@@ -117,20 +117,37 @@ try:
             st.markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
 
-        # --- 1. AI EKSTRAKSI ENTITAS NAMA & METRIK SPESIFIK ---
+        prompt_lower = prompt.lower()
+
+        # --- 1. DETEKSI METRIK SPESIFIK LANGSUNG DARI PROMPT (PYTHON FIRST) ---
+        target_metric = None
+        if 'dpd' in prompt_lower:
+            target_metric = 'dpd'
+        elif any(k in prompt_lower for k in ['limit', 'plafon']):
+            target_metric = 'limit'
+        elif 'misi' in prompt_lower:
+            target_metric = 'misi'
+        elif any(k in prompt_lower for k in ['gmv', 'omset', 'sales', 'penjualan']):
+            if 'bulan ini' in prompt_lower or 'cm' in prompt_lower:
+                target_metric = 'cm'
+            elif 'bulan lalu' in prompt_lower or 'lm' in prompt_lower:
+                target_metric = 'lm'
+            else:
+                target_metric = 'gmv'
+
+        # --- 2. AI EKSTRAKSI ENTITAS NAMA ---
         extraction_prompt = f"""
 Saring pertanyaan user dan kembalikan format JSON:
-{{"entity": "<nama entitas bersih>", "metric": "<nama metrik yang dicari>"}}
+{{"entity": "<nama entitas bersih>"}}
 
 Aturan:
-- "entity": Ambil HANYA kata kunci nama toko/reps/objek (misal: "gebang farma", "rizki", "afrianto").
-- "metric": Ambil HANYA jenis data/metrik yang ditanyakan (misal: "dpd", "limit", "gmv", "cm", "lm", "misi", "target", "all"). Jika menanyakan secara umum, isi dengan "all".
+Ambil HANYA kata kunci nama toko/reps/objek (misal: "gebang farma", "rizki", "afrianto"). 
+Hapus kata metrik seperti "dpd", "limit", "misi", "reguler", "gold", "apotek", "reps", "sales", "gmv", "pencapaian", "bulan ini", dll.
 
 Input: "{prompt}"
 JSON:"""
 
         extracted_entity = ""
-        extracted_metric = "all"
         try:
             ext_res = client.chat.completions.create(
                 model="google/gemini-2.0-flash-lite-001:free",
@@ -142,12 +159,11 @@ JSON:"""
             if json_match:
                 parsed_json = json.loads(json_match.group(0))
                 extracted_entity = parsed_json.get("entity", "").lower().strip()
-                extracted_metric = parsed_json.get("metric", "all").lower().strip()
         except Exception:
             extracted_entity = ""
 
         if not extracted_entity:
-            clean_prompt = re.sub(r'[^\w\s]', ' ', prompt.lower())
+            clean_prompt = re.sub(r'[^\w\s]', ' ', prompt_lower)
             stop_words = set(['berapa', 'total', 'gmv', 'dpd', 'limit', 'misi', 'reguler', 'gold', 'pencapaian', 'pencapian', 'capaian', 'target', 'data', 'untuk', 'bulan', 'ini', 'reps', 'sales', 'salesman', 'apotek', 'apotik', 'toko', 'outlet', 'pt', 'cv'])
             extracted_entity = " ".join([w for w in clean_prompt.split() if w not in stop_words and len(w) > 1])
 
@@ -155,7 +171,6 @@ JSON:"""
         sub_df = pd.DataFrame()
 
         if entity_tokens:
-            prompt_lower = prompt.lower()
             is_reps_query = any(k in prompt_lower for k in ['reps', 'sales', 'salesman', 'rep'])
             is_apotek_query = any(k in prompt_lower for k in ['apotek', 'apotik', 'toko', 'outlet', 'customer', 'pelanggan'])
 
@@ -190,18 +205,34 @@ JSON:"""
                 sub_df = df[series_clean.str.contains(pattern_fallback, regex=True, na=False)]
 
         with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("Menghitung data dengan presisi 100%..."):
+            with st.spinner("Mencari data presisi..."):
                 if len(sub_df) > 0:
                     calculated_metrics = []
                     
-                    # --- 2. PERHITUNGAN PENJARINGAN METRIK SPESIFIK ---
-                    for col in sub_df.columns:
+                    # --- 3. FILTERING KOLOM KHUSUS SESUAI METRIK SPESIFIK ---
+                    matched_cols = []
+                    if target_metric:
+                        for c in sub_df.columns:
+                            c_lower = c.lower()
+                            if target_metric == 'dpd' and 'dpd' in c_lower:
+                                matched_cols.append(c)
+                            elif target_metric == 'limit' and 'limit' in c_lower:
+                                matched_cols.append(c)
+                            elif target_metric == 'misi' and 'misi' in c_lower:
+                                matched_cols.append(c)
+                            elif target_metric == 'cm' and any(k in c_lower for k in ['cm', 'bulan ini']):
+                                matched_cols.append(c)
+                            elif target_metric == 'lm' and any(k in c_lower for k in ['lm', 'bulan lalu']):
+                                matched_cols.append(c)
+                            elif target_metric == 'gmv' and any(k in c_lower for k in ['gmv', 'sales', 'pencapaian']):
+                                matched_cols.append(c)
+
+                    # Jika tidak ada metrik spesifik yang cocok/ditanya, baru ambil semua kolom angka berharga
+                    cols_to_process = matched_cols if matched_cols else sub_df.columns
+
+                    for col in cols_to_process:
                         col_lower = col.lower()
                         if any(ignore in col_lower for ignore in ['date', 'tanggal', 'id', 'code', 'zip', 'durasi', 'duration', 'telepon', 'phone', '%', 'pct']):
-                            continue
-                            
-                        # Jika user minta metrik spesifik (misal DPD), filter hanya kolom yang cocok
-                        if extracted_metric != "all" and extracted_metric not in col_lower:
                             continue
 
                         num_series = sub_df[col].apply(parse_number_exact)
@@ -213,37 +244,23 @@ JSON:"""
                         elif any(k in col_lower for k in ['limit', 'gmv', 'cm', 'lm', 'sales', 'pencapaian', 'misi', 'reguler', 'gold', 'target', 'omset']):
                             calculated_metrics.append(f"- **{col}**: Rp {total_val:,.0f}".replace(",", "."))
                         else:
-                            calculated_metrics.append(f"- **{col}**: {total_val:,.0f}".replace(",", "."))
-
-                    # Fallback jika pencocokan nama metrik terlalu sempit: tampilkan semua kolom angka
-                    if not calculated_metrics:
-                        for col in sub_df.columns:
-                            col_lower = col.lower()
-                            if any(ignore in col_lower for ignore in ['date', 'tanggal', 'id', 'code', 'zip', 'durasi', 'duration', 'telepon', 'phone', '%', 'pct']):
-                                continue
-                            num_series = sub_df[col].apply(parse_number_exact)
-                            total_val = num_series.sum()
                             if total_val > 0:
-                                if 'dpd' in col_lower:
-                                    calculated_metrics.append(f"- **{col}**: {num_series.mean():.0f} hari")
-                                else:
-                                    calculated_metrics.append(f"- **{col}**: Rp {total_val:,.0f}".replace(",", "."))
+                                calculated_metrics.append(f"- **{col}**: {total_val:,.0f}".replace(",", "."))
 
-                    calc_summary_str = "\n".join(calculated_metrics)
+                    calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Metrik yang ditanyakan tidak ditemukan pada kolom sheet."
                     
                     system_prompt = f"""
-Kamu adalah Senior Data Analyst SPV yang sangat teliti dan langsung pada inti jawaban.
+Kamu adalah Senior Data Analyst SPV.
 
-DITEMUKAN DATA UNTUK ENTITAS: '{extracted_entity}'.
-PERTANYAAN SPESIFIK USER: "{prompt}"
+DITEMUKAN DATA UNTUK ENTITAS: '{extracted_entity.title()}'.
+PERTANYAAN USER: "{prompt}"
 
 HASIL KALKULASI RELEVAN:
 {calc_summary_str}
 
-Instruksi Utama:
-1. Jawab LANGSUNG di kalimat pertama dengan jawaban singkat dan presisi (misal: "DPD Apotek Gebang Farma adalah **13 hari**.").
-2. JANGAN sebutkan angka/kolom lain yang tidak ditanyakan user!
-3. Jangan tampilkan daftar rincian jika user hanya menanyakan satu metrik spesifik.
+Instruksi Sangat Penting:
+1. Jawab LANGSUNG di kalimat pertama dengan singkat, to the point, dan ramah (misal: "DPD untuk **Apotek Gebang Farma** adalah **13 hari**.").
+2. JANGAN PERNAH menampilkan/menyebutkan nama kolom atau metrik lain yang tidak ditanyakan user!
 """
                     response_text = ""
                     try:
@@ -258,7 +275,8 @@ Instruksi Utama:
                         response_text = ""
 
                     if not response_text:
-                        response_text = f"Data untuk **{extracted_entity.title()}**:\n\n{calc_summary_str}"
+                        entity_name = extracted_entity.title() if extracted_entity else "Entitas"
+                        response_text = f"Data **{entity_name}**:\n\n{calc_summary_str}"
 
                 else:
                     response_text = f"Maaf bro, data untuk **'{extracted_entity}'** tidak ditemukan di Google Sheet."
