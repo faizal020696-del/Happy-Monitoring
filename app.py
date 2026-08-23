@@ -68,7 +68,7 @@ try:
             
     raw_df = pd.read_csv(io.StringIO(csv_text), skiprows=header_idx, dtype=str)
     
-    # Normalisasi nama kolom agar bersih menjadi W1, W2, W3, W4
+    # Normalisasi nama kolom
     new_cols = []
     for c in raw_df.columns:
         c_clean = str(c).strip()
@@ -81,7 +81,7 @@ try:
 
     if "messages" not in st.session_state:
         st.session_state.messages = [
-            {"role": "assistant", "content": "Halo SPV! 👋 Ada data outlet atau reps yang mau dicek hari ini?"}
+            {"role": "assistant", "content": "Halo SPV! 👋 Mode Debug Aktif. Kirim pertanyaan toko kamu."}
         ]
 
     for message in st.session_state.messages:
@@ -95,13 +95,10 @@ try:
         st.session_state.messages.append({"role": "user", "content": prompt})
 
         prompt_lower = prompt.lower()
-        
-        # 1. Ambil minggu yang diminta secara aman
         weeks_requested = [w for w in ['W1', 'W2', 'W3', 'W4'] if re.search(r'\b' + w.lower() + r'\b', prompt_lower)]
 
-        # 2. Pembersihan prompt yang presisi tanpa merusak nama toko
+        # Ekstraksi nama toko secara longgar (ambil semua kata selain perintah umum)
         clean_prompt = prompt_lower
-        
         junk_words = [
             r'\bberapa\b', r'\btotal\b', r'\bjumlah\b', r'\byang\b', r'\btersedia\b', r'\bada\b', 
             r'\btarget\b', r'\bvisit\b', r'\bkunjungan\b', r'\breps\b', r'\bsales\b', r'\bsalesman\b', 
@@ -112,84 +109,54 @@ try:
             r'\bcapaian\b', r'\bperforma\b', r'\bhasil\b', r'\barea\b', r'\bmana\b', r'\byg\b', 
             r'\bsudah\b', r'\btransaksi\b', r'\bw1\b', r'\bw2\b', r'\bw3\b', r'\bw4\b',
             r'\baverage\b', r'\bavg\b', r'\brata-rata\b', r'\bratarata\b', r'\b3\b', r'\bbln\b',
-            r'\bl3m\b', r'\bl2m\b', r'\blm\b', r'\bcm\b', r'\bdan\b', r'\bdan2\b',
-            r'\bkemarin\b', r'\bkemaren\b', r'\bkemarin2\b', r'\bkemaren2\b',
-            r'\bawal\b', r'\bpertama\b', r'\bterakhir\b', r'\bterbaru\b', r'\b1st\b', r'\blast\b', r'\btrx\b', r'\bdate\b', r'\btanggal\b',
-            r'\bkapan\b', r'\bkapan2\b', r'\btgl\b'
+            r'\bl3m\b', r'\bl2m\b', r'\blm\b', r'\bcm\b', r'\bdan\b', r'\bkapan\b', r'\btgl\b'
         ]
-
         for junk in junk_words:
             clean_prompt = re.sub(junk, ' ', clean_prompt)
 
         clean_prompt = re.sub(r'[^\w\s]', ' ', clean_prompt)
         extracted_entity = " ".join(clean_prompt.split()).strip()
-        
-        # Jika entity kosong, fallback gunakan prompt asli tanpa kata tanya umum
         if not extracted_entity:
             extracted_entity = prompt
 
         matched_indices = []
         entity_tokens = extracted_entity.split()
 
-        if entity_tokens:
-            # Prioritaskan pencarian di kolom nama toko/farmasi/assignment
-            name_cols = [c for c in raw_df.columns if any(k in c.lower() for k in ['name', 'nama', 'pharmacy', 'toko', 'apotek', 'assignment', 'reps'])]
-            if not name_cols:
-                name_cols = raw_df.columns
+        # Cari di seluruh sel DataFrame untuk melihat baris mana saja yang mengandung token tersebut
+        for idx, row in raw_df.iterrows():
+            row_text = " ".join([str(val) for val in row.values if pd.notna(val)]).lower()
+            # Cukup cocokkan salah satu token unik (misal: "gebang") agar tidak terlalu ketat
+            if any(token in row_text for token in entity_tokens if len(token) > 3):
+                matched_indices.append(idx)
 
-            for idx, row in raw_df[name_cols].iterrows():
-                row_text = " ".join([str(val) for val in row.values if pd.notna(val)]).lower()
-                # Cocokkan apakah SEMUA kata kunci toko (misal: "gebang", "farma") ada dalam baris tersebut
-                if all(token in row_text for token in entity_tokens):
-                    matched_indices.append(idx)
-            
         sub_df = raw_df.loc[matched_indices] if matched_indices else pd.DataFrame(columns=raw_df.columns)
 
         with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("Mengecek data..."):
+            with st.spinner("Menganalisis baris data..."):
+                debug_info = f"**Query Mentah:** `{prompt}`\n"
+                debug_info += f"**Entity Dicari:** `{extracted_entity}`\n"
+                debug_info += f"**Token:** `{entity_tokens}`\n"
+                debug_info += f"**Baris Ditemukan:** {len(sub_df)} baris\n\n"
+
                 if len(sub_df) > 0:
-                    target_columns = []
-                    if weeks_requested:
-                        target_columns = [w for w in weeks_requested if w in sub_df.columns]
+                    # Ambil baris pertama yang cocok untuk dicek kolom namanya
+                    first_row = sub_df.iloc[0]
+                    debug_info += "**Contoh Baris Pertama yang Cocok:**\n"
+                    for col in raw_df.columns[:5]: # Tampilkan 5 kolom pertama
+                        debug_info += f"- {col}: {first_row.get(col, '-')}\n"
                     
-                    if not target_columns:
-                        important_keys = ['GMV', 'CM', 'LM', 'L2M', 'L3M', 'Sales', 'Limit', 'DPD', 'Misi', 'Visit', 'Avg', 'Trx', 'W1', 'W2', 'W3', 'W4']
-                        target_columns = [c for c in sub_df.columns if any(k.upper() == c.upper() for k in important_keys)]
-
-                    target_columns = list(dict.fromkeys(target_columns))
-
-                    calculated_metrics = []
-                    for col in target_columns:
-                        col_upper = col.upper()
-                        if any(ignore in col_upper for ignore in ['ID', 'CODE', 'TELEPON', '%', 'NAMA', 'TOKO', 'APOTEK', 'ADDRESS', 'REPS', 'SALESMAN', 'UNNAMED']):
-                            continue
-
-                        series_vals = sub_df[col].dropna()
-                        if not series_vals.empty:
-                            # Ambil baris terakhir yang valid (mencegah salah ambil baris ringkasan atas)
-                            val_raw = str(series_vals.iloc[-1]).strip()
-                            if val_raw and val_raw.lower() not in ['nan', 'none', '']:
-                                val_parsed = parse_number_exact(val_raw)
-                                if val_parsed > 0 or col_upper in ['W1', 'W2', 'W3', 'W4', 'GMV', 'SALES', 'LIMIT']:
-                                    calculated_metrics.append(f"• **{col}**: Rp {val_parsed:,.0f}".replace(",", "."))
-                                else:
-                                    calculated_metrics.append(f"• **{col}**: {val_raw}")
-                            else:
-                                calculated_metrics.append(f"• **{col}**: Rp 0")
-                        else:
-                            calculated_metrics.append(f"• **{col}**: Rp 0")
-
-                    calc_summary_str = "\n".join(calculated_metrics) if calculated_metrics else "Data tidak ditemukan."
-                    
-                    response_text = f"Data untuk **{extracted_entity.title()}**:\n{calc_summary_str}"
-
+                    # Ambil nilai W1-W4 di baris tersebut
+                    debug_info += "\n**Nilai W1-W4 di Baris Ini:**\n"
+                    for w in ['W1', 'W2', 'W3', 'W4']:
+                        if w in sub_df.columns:
+                            val = first_row.get(w, '0')
+                            debug_info += f"- {w}: {val} (Parsed: {parse_number_exact(val):,.0f})\n"
                 else:
-                    searched_name = extracted_entity.title() if extracted_entity else prompt
-                    response_text = f"Waduh, data untuk **'{searched_name}'** tidak ditemukan di Google Sheet. Cek ejaan nama toko/reps ya bro."
+                    debug_info += "❌ Tidak ada baris yang cocok sama sekali di CSV!"
 
-                st.markdown(response_text)
+                st.markdown(debug_info)
         
-        st.session_state.messages.append({"role": "assistant", "content": response_text})
+        st.session_state.messages.append({"role": "assistant", "content": debug_info})
 
 except Exception as e:
     st.error(f"Gagal memuat data: {e}")
