@@ -147,8 +147,20 @@ try:
                 if len(sub_df) > 0:
                     target_columns = []
 
-                    # Filter Kolom Sesuai Intent
-                    if 'target_visit' in detected_intents:
+                    # --- FILTER KOLOM KETAT SESUAI INTENT & WAKTU ---
+                    if 'lm' in detected_intents:
+                        # Jika user spesifik minta BULAN LALU / LM
+                        target_columns = [c for c in sub_df.columns if 'lm' in c.lower() or 'last month' in c.lower() or 'bulan lalu' in c.lower()]
+                        if not target_columns and 'gmv' in detected_intents:
+                            target_columns = [c for c in sub_df.columns if 'gmv' in c.lower() and ('lm' in c.lower() or 'lalu' in c.lower())]
+
+                    elif 'cm' in detected_intents:
+                        # Jika user spesifik minta BULAN INI / CM
+                        target_columns = [c for c in sub_df.columns if 'cm' in c.lower() or 'current month' in c.lower() or 'bulan ini' in c.lower()]
+                        if not target_columns and 'gmv' in detected_intents:
+                            target_columns = [c for c in sub_df.columns if 'gmv' in c.lower() and ('cm' in c.lower() or 'ini' in c.lower())]
+
+                    elif 'target_visit' in detected_intents:
                         target_columns = [c for c in sub_df.columns if 'target' in c.lower() and 'visit' in c.lower()]
                     elif 'visit' in detected_intents:
                         target_columns = [c for c in sub_df.columns if 'visit' in c.lower() or 'kunjungan' in c.lower()]
@@ -159,14 +171,13 @@ try:
                             target_columns = [c for c in sub_df.columns if 'reguler' in c.lower()]
                         if not target_columns:
                             target_columns = [c for c in sub_df.columns if 'misi' in c.lower()]
-                    elif 'dpd' in detected_intents:
+                    elif 'dpd' in prompt_lower:
                         target_columns = [c for c in sub_df.columns if 'dpd' in c.lower()]
                     elif 'limit' in detected_intents:
                         target_columns = [c for c in sub_df.columns if 'limit' in c.lower() or 'plafon' in c.lower()]
-                    elif 'cm' in detected_intents and 'gmv' in detected_intents:
-                        target_columns = [c for c in sub_df.columns if c.lower() == 'cm' or 'cm' in c.lower()]
                     elif 'gmv' in detected_intents:
-                        target_columns = [c for c in sub_df.columns if any(k in c.lower() for k in ['gmv', 'sales', 'cm'])]
+                        # GMV umum (tanpa keterangan bulan)
+                        target_columns = [c for c in sub_df.columns if 'gmv' in c.lower()]
 
                     if not target_columns:
                         important_keys = ['gmv', 'cm', 'lm', 'sales', 'limit', 'dpd', 'misi', 'visit']
@@ -175,14 +186,15 @@ try:
                     calculated_metrics = []
                     for col in target_columns:
                         col_lower = col.lower()
-                        if any(ignore in col_lower for ignore in ['id', 'code', 'telepon', '%', 'nama', 'toko', 'apotek', 'address']):
+                        # Blacklist kolom nama/teks agar tidak diolah sebagai angka
+                        if any(ignore in col_lower for ignore in ['id', 'code', 'telepon', '%', 'nama', 'toko', 'apotek', 'address', 'sales rep', 'reps', 'salesman']):
                             continue
 
                         is_dpd_col = 'dpd' in col_lower
                         is_limit_col = any(k in col_lower for k in ['limit', 'plafon', 'avaibility', 'availability'])
                         is_status_col = any(k in col_lower for k in ['misi', 'gold', 'reguler', 'status', 'tier'])
 
-                        # A. KOLOM ATRIBUT / STATUS / LIMIT -> Ambil Baris Terakhir (Latest)
+                        # A. KOLOM ATRIBUT / STATUS / LIMIT -> Ambil Baris Terakhir (Latest Update)
                         if is_dpd_col or is_limit_col or is_status_col:
                             valid_rows = sub_df[sub_df[col].notna() & (sub_df[col].astype(str).str.strip() != '')]
                             if not valid_rows.empty:
