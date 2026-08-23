@@ -59,7 +59,7 @@ try:
     df.columns = df.columns.str.strip()
     df_clean_text = df.fillna("").astype(str)
 
-    # PERBAIKAN: Pembersihan kolom angka yang aman dari error tipe data string/int
+    # Pembersihan kolom angka yang aman dari error tipe data
     for col in df.columns:
         if any(keyword in col.lower() for keyword in ['gmv', 'target', 'sales', 'value', 'amount', 'cm', 'lm', 'l3m', 'misi', 'gold']):
             df[col] = pd.to_numeric(
@@ -112,7 +112,6 @@ try:
             
             for col in valid_metric_cols:
                 total_val = sub_df[col].sum()
-                # Hanya masukkan metrik yang nilainya di atas 0 agar ringkas
                 if isinstance(total_val, (int, float)) and total_val > 0:
                     summary_lines.append(f"- {col}: Rp {total_val:,.0f}")
             
@@ -135,8 +134,9 @@ Struktur jawaban:
 
 ATURAN MUTLAK: Jangan mengubah angka atau nominal Rupiah yang ada di dalam data di atas sedikit pun!
 """
+                    # Menggunakan model gemini-2.5-flash yang stabil
                     response = client.models.generate_content(
-                        model='gemini-3.4-flash',
+                        model='gemini-3.7-flash',
                         contents=formatting_prompt
                     )
                     response_text = response.text
