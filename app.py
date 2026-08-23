@@ -112,7 +112,6 @@ try:
         reps_cols = [c for c in raw_df.columns if 'sales' in c.lower() or 'reps' in c.lower() or 'pic' in c.lower()]
     reps_col = reps_cols[0] if reps_cols else None
 
-    # Deteksi kolom Daily GMV dari master sheet
     daily_gmv_col = next((c for c in raw_df.columns if 'daily gmv' in c.lower() or 'dayli gmv' in c.lower()), None)
 
     if "messages" not in st.session_state:
@@ -148,7 +147,7 @@ try:
         
         is_total_gmv_query = (any(k in prompt_lower for k in ['total', 'semua', 'all']) and ('gmv' in prompt_lower or 'dayli' in prompt_lower or 'daily' in prompt_lower)) or prompt_lower.strip() in ['dayli gmv total', 'daily gmv total', 'total gmv', 'total daily gmv']
 
-        # Tambahan deteksi aman untuk pertanyaan transaksi
+        # Tambahan aman untuk pertanyaan transaksi harian
         is_active_transaction_query = any(k in prompt_lower for k in ['sudah transaksi', 'ada transaksi', 'bertransaksi', 'transaksi hari ini', 'yang sudah']) and ('apotek' in prompt_lower or 'toko' in prompt_lower or 'mana' in prompt_lower)
         is_zero_transaction_query = any(k in prompt_lower for k in ['belum', 'kosong', 'zonk', 'nol', '0', 'belum ada']) and ('transaksi' in prompt_lower or 'gmv' in prompt_lower or 'apotek' in prompt_lower or 'toko' in prompt_lower)
 
@@ -192,6 +191,7 @@ try:
                         matched_reps_df = raw_df[raw_df[reps_col].astype(str).str.strip().str.lower() == r_clean]
                         break
 
+        # KEMBALI KE LOGIC PENCARIAN OUTLET ASLI YANG STABIL & AKURAT
         if not is_total_gmv_query and not is_active_transaction_query and not is_zero_transaction_query and (matched_reps_df is None or matched_reps_df.empty):
             id_match_prompt = re.search(r'\b(\d{4,6})\b', prompt)
             if id_match_prompt and id_cols:
@@ -206,10 +206,7 @@ try:
                         break
 
             if target_row is None:
-                outlet_query_words = [w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in command_words and w not in ['apotek', 'toko', 'farma']]
-                if not outlet_query_words:
-                    outlet_query_words = [w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in command_words]
-                
+                outlet_query_words = [w for w in re.findall(r'\b\w+\b', prompt_lower) if w not in command_words]
                 if outlet_query_words:
                     name_series = raw_df[name_col].fillna("").astype(str).str.lower()
                     scores = []
@@ -227,7 +224,8 @@ try:
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Mengecek data..."):
-                # Penanganan khusus untuk apotek yang sudah transaksi
+                
+                # 1. Handle Apotek Sudah Transaksi
                 if is_active_transaction_query:
                     if not daily_gmv_col:
                         response_text = "Maaf, kolom 'Daily GMV' tidak ditemukan di master Google Sheet."
@@ -246,7 +244,7 @@ try:
                         else:
                             response_text = "Belum ada apotek yang tercatat melakukan transaksi hari ini."
 
-                # Penanganan khusus untuk apotek yang belum transaksi (0)
+                # 2. Handle Apotek Belum Transaksi
                 elif is_zero_transaction_query:
                     if not daily_gmv_col:
                         response_text = "Maaf, kolom 'Daily GMV' tidak ditemukan di master Google Sheet."
@@ -264,6 +262,7 @@ try:
                         else:
                             response_text = "Mantap! Semua apotek sudah tercatat melakukan transaksi hari ini."
 
+                # 3. Handle Total GMV Keseluruhan
                 elif is_total_gmv_query:
                     total_outlets = len(raw_df)
                     calculated_metrics = [f"• **Total Keseluruhan Outlet**: {total_outlets} outlet\n"]
@@ -286,6 +285,7 @@ try:
 
                     response_text = "Rekap Total Keseluruhan:\n\n" + "\n".join(calculated_metrics)
 
+                # 4. Handle Pencarian Sales Rep
                 elif matched_reps_df is not None and not matched_reps_df.empty:
                     total_outlets = len(matched_reps_df)
                     calculated_metrics = [f"• **Jumlah Outlet**: {total_outlets} outlet"]
@@ -296,13 +296,70 @@ try:
 
                     response_text = f"Rekap Total untuk Sales Rep **{str(matched_reps_name).title()}**:\n" + "\n".join(calculated_metrics)
 
+                # 5. Handle Pencarian Outlet Spesifik (Menggunakan kode asli kamu sepenuhnya)
                 elif target_row is not None:
                     display_name = target_row.get(name_col, "Outlet Ditemukan")
                     calculated_metrics = []
 
-                    if daily_gmv_col:
-                        val_daily = parse_number_general(target_row.get(daily_gmv_col, 0))
-                        calculated_metrics.append(f"• **Daily GMV**: Rp {val_daily:,.0f}".replace(",", "."))
+                    if is_limit_query:
+                        limit_col = next((c for c in raw_df.columns if 'limit' in c.lower() or 'plafond' in c.lower()), None)
+                        sisa_col = next((c for c in raw_df.columns if 'sisa' in c.lower() or 'ssisa' in c.lower() or 'avaiability' in c.lower() or 'availability' in c.lower() or 'avail' in c.lower()), None)
+                        dpd_col = next((c for c in raw_df.columns if 'dpd' in c.lower()), None)
+                        
+                        if limit_col:
+                            val_limit = parse_number_general(target_row.get(limit_col, 0))
+                            calculated_metrics.append(f"• **Limit/Plafon**: Rp {val_limit:,.0f}".replace(",", "."))
+                        if sisa_col:
+                            val_sisa = parse_number_general(target_row.get(sisa_col, 0))
+                            calculated_metrics.append(f"• **Sisa Limit/Availability**: Rp {val_sisa:,.0f}".replace(",", "."))
+                        if dpd_col:
+                            val_dpd = target_row.get(dpd_col, "-")
+                            calculated_metrics.append(f"• **DPD**: {val_dpd}")
+                        
+                        if not calculated_metrics:
+                            calculated_metrics.append("Data limit atau sisa limit tidak ditemukan untuk outlet ini.")
+
+                    elif is_mission_query:
+                        misi_cols = [c for c in raw_df.columns if any(k in c.lower() for k in ['misi', 'gold', 'mission', 'campaign'])]
+                        if misi_cols:
+                            for mc in misi_cols:
+                                val_misi = target_row.get(mc, "-")
+                                calculated_metrics.append(f"• **{mc}**: {val_misi}")
+                        else:
+                            calculated_metrics.append("Data misi/campaign tidak ditemukan untuk outlet ini.")
+
+                    elif is_wtu_query:
+                        wtu_cols = [c for c in raw_df.columns if any(k in c.lower() for k in ['wtu', 'visit', 'kunjungan'])]
+                        if wtu_cols:
+                            for wc in wtu_cols:
+                                val_wtu = target_row.get(wc, "-")
+                                calculated_metrics.append(f"• **{wc}**: {val_wtu}")
+                        else:
+                            calculated_metrics.append("Data WTU/Visit tidak ditemukan untuk outlet ini.")
+
+                    elif weeks_requested:
+                        for w in weeks_requested:
+                            col_name = week_cols_map.get(w)
+                            if col_name:
+                                val_w = parse_number_general(target_row.get(col_name, 0))
+                                calculated_metrics.append(f"• **{w}**: Rp {val_w:,.0f}".replace(",", "."))
+                            else:
+                                calculated_metrics.append(f"• **{w}**: Kolom tidak ditemukan")
+                    else:
+                        if daily_gmv_col:
+                            val_daily = parse_number_general(target_row.get(daily_gmv_col, 0))
+                            calculated_metrics.append(f"• **Daily GMV**: Rp {val_daily:,.0f}".replace(",", "."))
+                        
+                        cm_col = next((c for c in raw_df.columns if c.strip().lower() == 'cm'), None)
+                        if cm_col:
+                            val_cm = parse_number_general(target_row.get(cm_col, 0))
+                            calculated_metrics.append(f"• **CM (Bulan Ini)**: Rp {val_cm:,.0f}".replace(",", "."))
+
+                        for w in ['W1', 'W2', 'W3', 'W4']:
+                            col_name = week_cols_map.get(w)
+                            if col_name:
+                                val_w = parse_number_general(target_row.get(col_name, 0))
+                                calculated_metrics.append(f"• **{w}**: Rp {val_w:,.0f}".replace(",", "."))
 
                     response_text = f"Data untuk **{str(display_name).title()}**:\n\n" + "\n".join(calculated_metrics)
                 else:
