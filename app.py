@@ -67,7 +67,7 @@ try:
             
     raw_df = pd.read_csv(io.StringIO(csv_text), skiprows=header_idx, dtype=str)
     
-    # Normalisasi nama kolom W1 - W4
+    # Normalisasi nama kolom W1 - W4 (mencocokkan kolom yang berawalan W1, W2, dst)
     new_cols = []
     for c in raw_df.columns:
         c_clean = str(c).strip()
@@ -102,23 +102,16 @@ try:
         target_row = None
         name_series = raw_df[name_col].fillna("").astype(str).str.lower()
 
-        # 1. Cari baris yang secara mutlak mengandung kata "gebang" DAN "farma", TAPI PANJANG KARAKTERNYA MASUK AKAL (bukan baris rekap panjang yang ada Sangiang/Periuk)
-        valid_mask = name_series.str.contains('gebang') & name_series.str.contains('farma') & (name_series.str.len() < 35)
-        matches = raw_df[valid_mask]
+        # Langsung cari baris yang mengandung kata "gebang" pada kolom nama toko
+        matches = raw_df[name_series.str.contains('gebang', na=False)]
 
         if not matches.empty:
             target_row = matches.iloc[0]
-        else:
-            # 2. Kalau baris pendek tidak ketemu, coba cari baris yang mengandung kata "gebang" saja dengan panjang wajar
-            valid_mask_fallback = name_series.str.contains('gebang') & (name_series.str.len() < 35)
-            matches_fallback = raw_df[valid_mask_fallback]
-            if not matches_fallback.empty:
-                target_row = matches_fallback.iloc[0]
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Mengecek data..."):
                 if target_row is not None:
-                    display_name = target_row.get(name_col, "Outlet Ditemukan")
+                    display_name = target_row.get(name_col, "Apotek Gebang Farma")
                     target_columns = weeks_requested if weeks_requested else ['W1', 'W2', 'W3', 'W4']
                     target_columns = [c for c in target_columns if c in raw_df.columns]
 
@@ -130,7 +123,7 @@ try:
 
                     response_text = f"Data untuk **{str(display_name).title()}**:\n" + "\n".join(calculated_metrics)
                 else:
-                    response_text = f"Data untuk apotek **Gebang Farma** benar-benar tidak ditemukan pada baris detail Google Sheet."
+                    response_text = f"Data untuk apotek **Gebang Farma** tidak ditemukan di Google Sheet."
 
                 st.markdown(response_text)
         
