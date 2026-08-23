@@ -84,7 +84,7 @@ try:
     header_idx = 0
     for idx, line in enumerate(lines[:15]):
         line_lower = line.lower()
-        if ('w1' in line_lower or 'week 1' in line_lower or 'dpd' in line_lower or 'limit' in line_lower or 'gmv' in line_lower or 'cm' in line_lower or 'target' in line_lower or 'visit' in line_lower or 'misi' in line_lower) and ('name' in line_lower or 'nama' in line_lower or 'apotek' in line_lower or 'toko' in line_lower or 'sales' in line_lower):
+        if ('w1' in line_lower or 'week 1' in line_lower or 'dpd' in line_lower or 'limit' in line_lower or 'gmv' in line_lower or 'cm' in line_lower or 'target' in line_lower or 'visit' in line_lower or 'misi' in line_lower or 'wtu' in line_lower) and ('name' in line_lower or 'nama' in line_lower or 'apotek' in line_lower or 'toko' in line_lower or 'sales' in line_lower):
             header_idx = idx
             break
             
@@ -141,8 +141,8 @@ try:
 
         is_limit_query = any(k in prompt_lower for k in ['limit', 'plafond', 'sisa', 'ssisa', 'avaiability', 'availability', 'avail']) and not weeks_requested
         is_mission_query = any(k in prompt_lower for k in ['misi', 'gold', 'mission', 'campaign', 'pencapaian misi']) and not weeks_requested
-        is_general_gmv_query = 'gmv' in prompt_lower and not weeks_requested and not is_limit_query and not is_mission_query and not any(k in prompt_lower for k in ['lalu', 'kemarin', 'peak', 'l3m', 'l2m', 'cm', 'lm', 'average', 'avg'])
-        is_visit_query = any(k in prompt_lower for k in ['target visit', 'visit count', 'visit', 'kunjungan', 'last visit', 'terakhir']) and not weeks_requested
+        is_wtu_query = any(k in prompt_lower for k in ['wtu', 'visit', 'kunjungan']) and not weeks_requested
+        is_general_gmv_query = 'gmv' in prompt_lower and not weeks_requested and not is_limit_query and not is_mission_query and not is_wtu_query and not any(k in prompt_lower for k in ['lalu', 'kemarin', 'peak', 'l3m', 'l2m', 'cm', 'lm', 'average', 'avg'])
 
         command_words = {
             'cek', 'data', 'id', 'berapa', 'total', 'jumlah', 'w1', 'w2', 'w3', 'w4', 
@@ -234,6 +234,16 @@ try:
                         mission_cols = [c for c in raw_df.columns if any(term in c.lower() for term in ['misi', 'gold', 'mission', 'campaign'])]
                         for col in mission_cols:
                             calculated_metrics.append(f"• **Kolom {col}**: (Data rekap misi sales rep)")
+                    elif is_wtu_query:
+                        wtu_cols = [c for c in raw_df.columns if any(term in c.lower() for term in ['wtu', 'visit', 'kunjungan'])]
+                        if wtu_cols:
+                            calculated_metrics.append("\n**📋 Data WTU / Kunjungan:**")
+                            for col in wtu_cols:
+                                sum_val = sum(parse_number_general(r.get(col, 0)) for _, r in matched_reps_df.iterrows())
+                                val_formatted = f"{sum_val:,.0f}".replace(",", ".") if sum_val > 0 else "Cek detail sheet"
+                                calculated_metrics.append(f"• **Total {col}**: {val_formatted}")
+                        else:
+                            calculated_metrics.append("• Kolom WTU / visit tidak ditemukan pada sheet.")
                     else:
                         calculated_metrics.append("\n**📊 Total Performa Bulanan:**")
                         target_cols_gmv = [
@@ -254,7 +264,7 @@ try:
                                 col_name = week_cols_map[w]
                                 sum_w = sum(parse_number_transaction(r.get(col_name, 0)) for _, r in matched_reps_df.iterrows())
                                 active_outlets = sum(1 for _, r in matched_reps_df.iterrows() if parse_number_transaction(r.get(col_name, 0)) > 0)
-                                calculated_metrics.append(f"• **Total {w}**: Rp {sum_w:,.0f} (*{active_outlets} outlet transaksi*)".replace(",", "."))
+                                calculated_metrics.append(f"• **Total {w}**: Rp {sum_w:,.0f} ({active_outlets} outlet transaksi)".replace(",", "."))
 
                     response_text = f"Rekap Total untuk Sales Rep **{str(matched_reps_name).title()}**:\n" + "\n".join(calculated_metrics)
 
@@ -291,6 +301,14 @@ try:
                                 calculated_metrics.append(f"• **{col}**: {val_formatted}")
                         else:
                             calculated_metrics.append("• Kolom misi/gold tidak ditemukan pada sheet.")
+                    elif is_wtu_query:
+                        wtu_cols = [c for c in raw_df.columns if any(term in c.lower() for term in ['wtu', 'visit', 'kunjungan'])]
+                        if wtu_cols:
+                            for col in wtu_cols:
+                                val_metric = target_row.get(col, "-")
+                                calculated_metrics.append(f"• **{col}**: {val_metric}")
+                        else:
+                            calculated_metrics.append("• Kolom WTU / visit tidak ditemukan pada sheet.")
                     else:
                         metric_requested = None
                         if 'dpd' in prompt_lower:
