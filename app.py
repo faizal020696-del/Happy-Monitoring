@@ -42,11 +42,12 @@ def parse_number_general(val):
     if not val_str or val_str.lower() in ['nan', 'null', 'none', '', '-', ' - ']:
         return 0.0
     
-    cleaned = re.sub(r'[^0-9\,\.]', '', val_str)
+    cleaned = re.sub(r'[^0-9\,\.\-]', '', val_str)
     if not cleaned:
         return 0.0
     
     try:
+        is_negative = '-' in cleaned
         if '.' in cleaned and ',' in cleaned:
             if cleaned.rfind('.') < cleaned.rfind(','):
                 cleaned = cleaned.replace('.', '').replace(',', '.')
@@ -70,7 +71,7 @@ def parse_number_general(val):
         val_float = float(cleaned)
         return val_float
     except Exception:
-        digits_only = re.sub(r'[^0-9]', '', val_str)
+        digits_only = re.sub(r'[^0-9\-]', '', val_str)
         if digits_only:
             return float(digits_only)
         return 0.0
@@ -107,13 +108,11 @@ try:
     name_col = name_cols[0] if name_cols else raw_df.columns[0]
     id_cols = [c for c in raw_df.columns if 'id' in c.lower()]
     
-    # Deteksi Kolom Sales Reps
     reps_cols = [c for c in raw_df.columns if c.lower() in ['sales rep', 'salesrep', 'sales reps', 'reps', 'sales', 'pic']]
     if not reps_cols:
         reps_cols = [c for c in raw_df.columns if 'sales' in c.lower() or 'reps' in c.lower() or 'pic' in c.lower()]
     reps_col = reps_cols[0] if reps_cols else None
 
-    # Deteksi Kolom SPV Happy / SPV
     spv_cols = [c for c in raw_df.columns if c.lower() in ['spv happy', 'spv', 'supervisor']]
     if not spv_cols:
         spv_cols = [c for c in raw_df.columns if 'spv' in c.lower() or 'supervisor' in c.lower()]
@@ -164,7 +163,6 @@ try:
         matched_spv_df = None
         matched_spv_name = None
 
-        # --- 1. CEK PENCARIAN BERDASARKAN SPV ---
         is_spv_query = 'spv' in prompt_lower or 'supervisor' in prompt_lower
         if not is_spv_query and spv_col:
             unique_spvs = raw_df[spv_col].dropna().astype(str).unique()
@@ -191,7 +189,6 @@ try:
                         matched_spv_df = raw_df[raw_df[spv_col].astype(str).str.strip().str.lower() == s_clean]
                         break
 
-        # --- 2. CEK PENCARIAN BERDASARKAN SALES REPS (Jika bukan SPV) ---
         if matched_spv_df is None or matched_spv_df.empty:
             is_sales_query = 'reps' in prompt_lower or 'sales' in prompt_lower or 'pic' in prompt_lower
             
@@ -220,7 +217,6 @@ try:
                             matched_reps_df = raw_df[raw_df[reps_col].astype(str).str.strip().str.lower() == r_clean]
                             break
 
-        # --- 3. CEK PENCARIAN OUTLET / ID ---
         if (matched_spv_df is None or matched_spv_df.empty) and (matched_reps_df is None or matched_reps_df.empty):
             id_match_prompt = re.search(r'\b(\d{4,6})\b', prompt)
             if id_match_prompt and id_cols:
@@ -251,7 +247,6 @@ try:
 
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("Mengecek data..."):
-                # --- JIKA YANG KETEMU SPV ---
                 if matched_spv_df is not None and not matched_spv_df.empty:
                     total_outlets = len(matched_spv_df)
                     calculated_metrics = [f"• **Jumlah Outlet**: {total_outlets} outlet"]
@@ -301,7 +296,6 @@ try:
 
                     response_text = f"Rekap Total untuk SPV **{str(matched_spv_name).title()}**:\n" + "\n".join(calculated_metrics)
 
-                # --- JIKA YANG KETEMU SALES REPS ---
                 elif matched_reps_df is not None and not matched_reps_df.empty:
                     total_outlets = len(matched_reps_df)
                     calculated_metrics = [f"• **Jumlah Outlet**: {total_outlets} outlet"]
@@ -351,7 +345,6 @@ try:
 
                     response_text = f"Rekap Total untuk Sales Rep **{str(matched_reps_name).title()}**:\n" + "\n".join(calculated_metrics)
 
-                # --- JIKA YANG KETEMU OUTLET TUNGGAL ---
                 elif target_row is not None:
                     display_name = target_row.get(name_col, "Outlet Ditemukan")
                     calculated_metrics = []
@@ -369,7 +362,6 @@ try:
                             mission_cols = [c for c in raw_df.columns if 'misi' in c.lower() or 'mission' in c.lower()]
                         
                         if mission_cols:
-                            # Mengelompokkan data misi agar otomatis rapi dan terstruktur
                             campaign_info = []
                             reguler_target = []
                             gold_target = []
@@ -377,18 +369,24 @@ try:
 
                             for col in mission_cols:
                                 val_misi = target_row.get(col, "-")
+                                val_str_raw = str(val_misi).strip()
                                 col_lower = col.lower()
                                 
-                                # Format nilai mata uang jika berupa angka
                                 val_parsed = parse_number_general(val_misi)
-                                if val_parsed > 0 and any(kw in col_lower for kw in ['target', 'gmv', 'gap', 'hna']):
-                                    val_str_fmt = f"Rp {val_parsed:,.0f}".replace(",", ".")
-                                    if 'gap' in col_lower and parse_number_general(val_misi) < 0:
-                                        val_str_fmt += " *(Kurang dari Target)*"
-                                    elif 'gap' in col_lower and parse_number_general(val_misi) > 0:
-                                        val_str_fmt += " *(Tercapai / Surplus!)*"
+                                if val_parsed != 0 and any(kw in col_lower for kw in ['target', 'gmv', 'gap', 'hna']):
+                                    # Format angka ke rupiah
+                                    val_str_fmt = f"Rp {abs(val_parsed):,.0f}".replace(",", ".")
+                                    if '-' in val_str_raw:
+                                        val_str_fmt = f"-Rp {abs(val_parsed):,.0f}".replace(",", ".")
+                                    
+                                    # Deteksi status berdasarkan ada/tidaknya tanda minus di data master
+                                    if 'gap' in col_lower:
+                                        if '-' in val_str_raw:
+                                            val_str_fmt += " *(Belum Tercapai / Minus)*"
+                                        else:
+                                            val_str_fmt += " *(Tercapai / Surplus!)*"
                                 else:
-                                    val_str_fmt = str(val_misi)
+                                    val_str_fmt = val_str_raw
 
                                 if any(k in col_lower for k in ['type', 'start date', 'end date', 'duration']):
                                     campaign_info.append(f"* **{col}**: {val_str_fmt}")
