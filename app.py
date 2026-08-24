@@ -47,7 +47,6 @@ def parse_number_general(val):
         return 0.0
     
     try:
-        is_negative = '-' in cleaned
         if '.' in cleaned and ',' in cleaned:
             if cleaned.rfind('.') < cleaned.rfind(','):
                 cleaned = cleaned.replace('.', '').replace(',', '.')
@@ -148,13 +147,14 @@ try:
         is_limit_query = any(k in prompt_lower for k in ['limit', 'plafond', 'sisa', 'ssisa', 'avaiability', 'availability', 'avail']) and not weeks_requested
         is_mission_query = any(k in prompt_lower for k in ['misi', 'gold', 'mission', 'campaign', 'pencapaian misi']) and not weeks_requested
         is_wtu_query = any(k in prompt_lower for k in ['wtu', 'visit', 'kunjungan']) and not weeks_requested
+        is_dpd_query = any(k in prompt_lower for k in ['dpd', 'jatuh tempo', 'overdue']) and not weeks_requested
 
         command_words = {
             'cek', 'data', 'id', 'berapa', 'total', 'jumlah', 'w1', 'w2', 'w3', 'w4', 
             'transaksi', 'tolong', 'visit', 'kunjungan', 'misi', 'gold', 'mission',
             'campaign', 'type', 'start', 'date', 'duration', 'target', 'level', 'gmv', 
             'ppn', 'gap', 'hna', 'pencapaian', 'kekurangan', 'info', 'apotek', 'toko', 'wtu',
-            'sisa', 'limit', 'avg', 'l3m', 'reps', 'sales', 'pic', 'bulan', 'ini', 'dpd', 'plafond', 'spv'
+            'sisa', 'limit', 'avg', 'l3m', 'reps', 'sales', 'pic', 'bulan', 'ini', 'dpd', 'plafond', 'spv', 'jatuh', 'tempo'
         }
 
         target_row = None
@@ -356,6 +356,16 @@ try:
                             val_parsed = parse_number_general(val_metric)
                             val_formatted = f"Rp {val_parsed:,.0f}".replace(",", ".") if val_parsed > 0 else val_metric
                             calculated_metrics.append(f"• **{col}**: {val_formatted}")
+                    elif is_dpd_query:
+                        dpd_cols = [c for c in raw_df.columns if 'dpd' in c.lower()]
+                        if dpd_cols:
+                            calculated_metrics.append(f"### Data DPD untuk **{str(display_name).title()}**\n")
+                            for col in dpd_cols:
+                                val_dpd = target_row.get(col, "-")
+                                calculated_metrics.append(f"• **{col}**: {val_dpd}")
+                            response_text = "\n".join(calculated_metrics)
+                        else:
+                            response_text = f"Data DPD untuk **{str(display_name).title()}** tidak ditemukan di sheet."
                     elif is_mission_query:
                         mission_cols = [c for c in raw_df.columns if any(term in c.lower() for term in ['misi', 'gold', 'mission', 'campaign'])]
                         if not mission_cols:
@@ -374,12 +384,10 @@ try:
                                 
                                 val_parsed = parse_number_general(val_misi)
                                 if val_parsed != 0 and any(kw in col_lower for kw in ['target', 'gmv', 'gap', 'hna']):
-                                    # Format angka ke rupiah
                                     val_str_fmt = f"Rp {abs(val_parsed):,.0f}".replace(",", ".")
                                     if '-' in val_str_raw:
                                         val_str_fmt = f"-Rp {abs(val_parsed):,.0f}".replace(",", ".")
                                     
-                                    # Deteksi status berdasarkan ada/tidaknya tanda minus di data master
                                     if 'gap' in col_lower:
                                         if '-' in val_str_raw:
                                             val_str_fmt += " *(Belum Tercapai / Minus)*"
