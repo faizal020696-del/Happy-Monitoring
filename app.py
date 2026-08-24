@@ -351,11 +351,16 @@ try:
 
                     if is_limit_query:
                         limit_cols = [c for c in raw_df.columns if any(term in c.lower() for term in ['limit', 'plafond', 'sisa', 'avail'])]
-                        for col in limit_cols:
-                            val_metric = target_row.get(col, "-")
-                            val_parsed = parse_number_general(val_metric)
-                            val_formatted = f"Rp {val_parsed:,.0f}".replace(",", ".") if val_parsed > 0 else val_metric
-                            calculated_metrics.append(f"• **{col}**: {val_formatted}")
+                        if limit_cols:
+                            calculated_metrics.append(f"### Data Limit untuk **{str(display_name).title()}**\n")
+                            for col in limit_cols:
+                                val_metric = target_row.get(col, "-")
+                                val_parsed = parse_number_general(val_metric)
+                                val_formatted = f"Rp {val_parsed:,.0f}".replace(",", ".") if val_parsed > 0 else val_metric
+                                calculated_metrics.append(f"• **{col}**: {val_formatted}")
+                            response_text = "\n".join(calculated_metrics)
+                        else:
+                            response_text = f"Data Limit untuk **{str(display_name).title()}** tidak ditemukan di sheet."
                     elif is_dpd_query:
                         dpd_cols = [c for c in raw_df.columns if 'dpd' in c.lower()]
                         if dpd_cols:
