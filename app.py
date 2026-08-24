@@ -369,12 +369,60 @@ try:
                             mission_cols = [c for c in raw_df.columns if 'misi' in c.lower() or 'mission' in c.lower()]
                         
                         if mission_cols:
-                            calculated_metrics.append("**🎯 Status Misi / Campaign:**")
+                            # Mengelompokkan data misi agar otomatis rapi dan terstruktur
+                            campaign_info = []
+                            reguler_target = []
+                            gold_target = []
+                            other_mission = []
+
                             for col in mission_cols:
                                 val_misi = target_row.get(col, "-")
-                                calculated_metrics.append(f"• **{col}**: {val_misi}")
+                                col_lower = col.lower()
+                                
+                                # Format nilai mata uang jika berupa angka
+                                val_parsed = parse_number_general(val_misi)
+                                if val_parsed > 0 and any(kw in col_lower for kw in ['target', 'gmv', 'gap', 'hna']):
+                                    val_str_fmt = f"Rp {val_parsed:,.0f}".replace(",", ".")
+                                    if 'gap' in col_lower and parse_number_general(val_misi) < 0:
+                                        val_str_fmt += " *(Kurang dari Target)*"
+                                    elif 'gap' in col_lower and parse_number_general(val_misi) > 0:
+                                        val_str_fmt += " *(Tercapai / Surplus!)*"
+                                else:
+                                    val_str_fmt = str(val_misi)
+
+                                if any(k in col_lower for k in ['type', 'start date', 'end date', 'duration']):
+                                    campaign_info.append(f"* **{col}**: {val_str_fmt}")
+                                elif 'gold' in col_lower:
+                                    gold_target.append(f"* **{col}**: {val_str_fmt}")
+                                elif any(k in col_lower for k in ['target', 'gmv', 'gap']):
+                                    reguler_target.append(f"* **{col}**: {val_str_fmt}")
+                                else:
+                                    other_mission.append(f"* **{col}**: {val_str_fmt}")
+
+                            calculated_metrics.append(f"### Data untuk **{str(display_name).title()}**\n")
+                            
+                            if campaign_info:
+                                calculated_metrics.append("#### 🎯 **Status Misi / Campaign (Reguler)**")
+                                calculated_metrics.extend(campaign_info)
+                                calculated_metrics.append("")
+                                
+                            if reguler_target:
+                                calculated_metrics.append("#### 📊 **Target & Pencapaian Misi Reguler**")
+                                calculated_metrics.extend(reguler_target)
+                                calculated_metrics.append("")
+                                
+                            if gold_target:
+                                calculated_metrics.append("#### 🥇 **Target & Pencapaian Gold Misi**")
+                                calculated_metrics.extend(gold_target)
+                                calculated_metrics.append("")
+                                
+                            if other_mission:
+                                calculated_metrics.append("#### 📌 **Informasi Misi Lainnya**")
+                                calculated_metrics.extend(other_mission)
+
+                            response_text = "\n".join(calculated_metrics)
                         else:
-                            calculated_metrics.append("Data kolom misi tidak ditemukan di sheet.")
+                            response_text = f"Data untuk **{str(display_name).title()}**:\nData kolom misi tidak ditemukan di sheet."
                     else:
                         cm_col = next((c for c in raw_df.columns if c.strip().lower() == 'cm'), None)
                         lm_col = next((c for c in raw_df.columns if c.strip().lower() == 'lm'), None)
@@ -405,7 +453,7 @@ try:
                                 val_parsed = parse_number_transaction(val_raw)
                                 calculated_metrics.append(f"• **{w}**: Rp {val_parsed:,.0f}".replace(",", "."))
 
-                    response_text = f"Data untuk **{str(display_name).title()}**:\n\n" + "\n".join(calculated_metrics)
+                        response_text = f"Data untuk **{str(display_name).title()}**:\n\n" + "\n".join(calculated_metrics)
                 else:
                     response_text = f"Data untuk pencarian tersebut tidak ditemukan di Google Sheet."
 
