@@ -262,32 +262,31 @@ try:
 
     weeks_requested = []
     if re.search(
-        r"\b(w1|week\s*1|week1|minggu\s*1|minggu1)\b", prompt_lower
+        r"\b(w1|week\s*1|week1|minggu\s*1|minggu1|ke\s*1)\b", prompt_lower
     ):
       weeks_requested.append("W1")
     if re.search(
-        r"\b(w2|week\s*2|week2|minggu\s*2|minggu2)\b", prompt_lower
+        r"\b(w2|week\s*2|week2|minggu\s*2|minggu2|ke\s*2)\b", prompt_lower
     ):
       weeks_requested.append("W2")
     if re.search(
-        r"\b(w3|week\s*3|week3|minggu\s*3|minggu3)\b", prompt_lower
+        r"\b(w3|week\s*3|week3|minggu\s*3|minggu3|ke\s*3)\b", prompt_lower
     ):
       weeks_requested.append("W3")
     if re.search(
-        r"\b(w4|week\s*4|week4|minggu\s*4|minggu4)\b", prompt_lower
+        r"\b(w4|week\s*4|week4|minggu\s*4|minggu4|ke\s*4)\b", prompt_lower
     ):
       weeks_requested.append("W4")
 
-    # PERBAIKAN: Menangkap kata negatif, serta kata kunci transaksi/trx/wtu
+    # PERBAIKAN UTAMA: Deteksi query "belum transaksi" jauh lebih kuat & presisi
     has_negative = any(
         k in prompt_lower for k in ["belum", "kosong", "nol", "tidak", "minus"]
     )
     has_trx_or_wtu = any(
-        k in prompt_lower for k in ["transaksi", "trx", "ambil", "wtu"]
+        k in prompt_lower
+        for k in ["transaksi", "trx", "ambil", "wtu", "minggu", "week"]
     )
-    is_untransacted_query = has_negative and (
-        has_trx_or_wtu or len(weeks_requested) > 0
-    )
+    is_untransacted_query = has_negative and has_trx_or_wtu
 
     is_limit_query = (
         any(
@@ -396,6 +395,10 @@ try:
         "mana",
         "saja",
         "ambil",
+        "list",
+        "yg",
+        "yang",
+        "ke",
     }
 
     target_row = None
