@@ -429,21 +429,54 @@ try:
             break
 
       if target_row is None:
-        outlet_query_words = [
-            w for w in re.findall(r"\b\w+\b", prompt_lower) if w not in command_words
-        ]
-        if outlet_query_words:
+        # Penanganan khusus jika menanyakan WTU / Data Apotek tertentu
+        clean_prompt = prompt_lower
+        for kw in [
+            "cek",
+            "data",
+            "tolong",
+            "wtu",
+            "apotek",
+            "toko",
+            "pengen",
+            "lihat",
+            "tampilkan",
+            "untuk",
+        ]:
+          clean_prompt = clean_prompt.replace(kw, "")
+        clean_prompt = clean_prompt.strip()
+
+        if clean_prompt:
           name_series = raw_df[name_col].fillna("").astype(str).str.lower()
           scores = []
+          query_words = clean_prompt.split()
           for idx, name_val in name_series.items():
-            score = sum(1 for qw in outlet_query_words if qw in name_val)
-            if all(qw in name_val for qw in outlet_query_words):
-              score += 10
+            score = sum(1 for qw in query_words if qw in name_val)
+            if all(qw in name_val for qw in query_words):
+              score += 20
             scores.append((score, idx))
           scores.sort(key=lambda x: x[0], reverse=True)
-          best_score, best_idx = scores[0]
-          if best_score > 0:
-            target_row = raw_df.loc[best_idx]
+          if scores and scores[0][0] > 0:
+            target_row = raw_df.loc[scores[0][1]]
+
+        if target_row is None:
+          outlet_query_words = [
+              w
+              for w in re.findall(r"\b\w+\b", prompt_lower)
+              if w not in command_words
+          ]
+          if outlet_query_words:
+            name_series = raw_df[name_col].fillna("").astype(str).str.lower()
+            scores = []
+            for idx, name_val in name_series.items():
+              score = sum(1 for qw in outlet_query_words if qw in name_val)
+              if all(qw in name_val for qw in outlet_query_words):
+                score += 10
+              scores.append((score, idx))
+            scores.sort(key=lambda x: x[0], reverse=True)
+            best_score, best_idx = scores[0]
+            if best_score > 0:
+              target_row = raw_df.loc[best_idx]
 
     with st.chat_message("assistant", avatar="🤖"):
       with st.spinner("Mengecek data..."):
