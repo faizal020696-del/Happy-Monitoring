@@ -1043,41 +1043,51 @@ try:
                   else:
                     val_str_fmt = val_str_raw
 
-                  # Diubah jadi menggunakan bold hitam biasa tanpa kode inline hijau
+                  # Ditambahkan elemen ikon pada masing-masing poin kategori
                   if any(
                       k in col_lower
                       for k in ["type", "start date", "end date", "duration"]
                   ):
-                    campaign_info.append(f"* **{col}**: **{val_str_fmt}**")
+                    campaign_info.append(
+                        f"👉 **{col}**: **`{val_str_fmt}`**"
+                    )
                   elif "gold" in col_lower:
-                    gold_target.append(f"* **{col}**: **{val_str_fmt}**")
+                    gold_target.append(f"⭐ **{col}**: **`{val_str_fmt}`**")
                   elif any(k in col_lower for k in ["target", "gmv", "gap"]):
-                    reguler_target.append(f"* **{col}**: **{val_str_fmt}**")
+                    reguler_target.append(
+                        f"🎯 **{col}**: **`{val_str_fmt}`**"
+                    )
                   else:
-                    other_mission.append(f"* **{col}**: **{val_str_fmt}**")
+                    other_mission.append(f"📌 **{col}**: **`{val_str_fmt}`**")
 
                 calculated_metrics.append(
                     f"### 🎯 Data Misi: **{str(display_name).title()}**\n---"
                 )
 
                 if campaign_info:
-                  calculated_metrics.append("**Status Misi / Campaign:**")
-                  calculated_metrics.extend(campaign_info)
+                  calculated_metrics.append(
+                      "#### 📌 Status Misi / Campaign:"
+                  )
+                  calculated_metrics.extend([f"* {item}" for item in campaign_info])
                   calculated_metrics.append("")
 
                 if reguler_target:
-                  calculated_metrics.append("**Target & Pencapaian Reguler:**")
-                  calculated_metrics.extend(reguler_target)
+                  calculated_metrics.append(
+                      "#### 📊 Target & Pencapaian Reguler:"
+                  )
+                  calculated_metrics.extend([f"* {item}" for item in reguler_target])
                   calculated_metrics.append("")
 
                 if gold_target:
-                  calculated_metrics.append("**Target & Pencapaian Gold Misi:**")
-                  calculated_metrics.extend(gold_target)
+                  calculated_metrics.append(
+                      "#### ✨ Target & Pencapaian Gold Misi:"
+                  )
+                  calculated_metrics.extend([f"* {item}" for item in gold_target])
                   calculated_metrics.append("")
 
                 if other_mission:
-                  calculated_metrics.append("**Informasi Misi Lainnya:**")
-                  calculated_metrics.extend(other_mission)
+                  calculated_metrics.append("#### 📂 Informasi Misi Lainnya:")
+                  calculated_metrics.extend([f"* {item}" for item in other_mission])
 
                 response_text = "\n".join(calculated_metrics)
               else:
