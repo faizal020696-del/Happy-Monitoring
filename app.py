@@ -335,7 +335,7 @@ try:
     st.session_state.messages = [{
         "role": "assistant",
         "content": (
-            "### Halo, Kawan! 👋\nAda data outlet, sales rep, atau SPV yang mau"
+            "### Halo, Kawan! 👋\nAda data yang mau"
             " dicek hari ini? tapi sebelumnya sapa halo dulu dong ke gw"
         ),
     }]
