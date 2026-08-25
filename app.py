@@ -125,7 +125,6 @@ try:
     for c in raw_df.columns:
       val_str = str(row.get(c, "")).strip().lower()
       if "lead" in val_str or "prospek" in val_str:
-        # Pastikan kata 'lead' berdiri sendiri atau menandakan status tipe outlet
         if val_str in ["lead", "prospek", "status: lead"]:
           return True
     return False
@@ -241,7 +240,7 @@ try:
 
     is_untransacted_query = any(
         k in prompt_lower for k in ["belum", "kosong", "nol", "tidak"]
-    ) and any(k in prompt_lower for k in ["transaksi", "trx"])
+    ) and any(k in prompt_lower for k in ["transaksi", "trx", "ambil"])
 
     is_limit_query = (
         any(
@@ -348,6 +347,7 @@ try:
         "belum",
         "mana",
         "saja",
+        "ambil",
     }
 
     target_row = None
@@ -394,17 +394,22 @@ try:
       untransacted_outlets = []
       if col_target_week:
         for _, r in scope_df.iterrows():
-          # Skip jika outlet berstatus lead
           if is_row_lead(r):
             continue
           val_tx = parse_number_transaction(r.get(col_target_week, 0))
           if val_tx == 0:
             out_name = r.get(name_col, "Outlet Tanpa Nama")
             out_sales = r.get(reps_col, "-") if reps_col else "-"
-            untransacted_outlets.append((out_name, out_sales))
+
+            # Ambil histori transaksi minggu lainnya (W1, W2, W3, W4)
+            history = {}
+            for w_key, w_colname in week_cols_map.items():
+              history[w_key] = parse_number_transaction(r.get(w_colname, 0))
+
+            untransacted_outlets.append((out_name, out_sales, history))
 
       with st.chat_message("assistant", avatar="🤖"):
-        with st.spinner("Mengecek data outlet belum transaksi..."):
+        with st.spinner("Mengecek data outlet belum transaksi & histori..."):
           if col_target_week:
             res_lines = [
                 f"### 📋 Daftar Outlet Aktif Belum Transaksi di"
@@ -416,11 +421,24 @@ try:
                 " disingkirkan)*\n"
             )
             if untransacted_outlets:
-              for idx_out, (o_name, o_sales) in enumerate(
+              for idx_out, (o_name, o_sales, o_hist) in enumerate(
                   untransacted_outlets, 1
               ):
+                hist_str_parts = []
+                for w_label in ["W1", "W2", "W3", "W4"]:
+                  if w_label in o_hist:
+                    val_h = o_hist[w_label]
+                    formatted_val = (
+                        f"Rp {val_h:,.0f}".replace(",", ".")
+                        if val_h > 0
+                        else "Rp 0"
+                    )
+                    hist_str_parts.append(f"{w_label}: {formatted_val}")
+                hist_joined = " | ".join(hist_str_parts)
+
                 res_lines.append(
-                    f"{idx_out}. **{str(o_name).title()}** *(Sales: {o_sales})*"
+                    f"{idx_out}. **{str(o_name).title()}** *(Sales:"
+                    f" {o_sales})*\n   └ 📊 Histori: _{hist_joined}_"
                 )
             else:
               res_lines.append(
