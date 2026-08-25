@@ -206,6 +206,33 @@ try:
     ):
       week_cols_map["W4"] = col
 
+  cm_col = next((c for c in raw_df.columns if c.strip().lower() == "cm"), None)
+  lm_col = next((c for c in raw_df.columns if c.strip().lower() == "lm"), None)
+  l2m_col = next(
+      (c for c in raw_df.columns if c.strip().lower() == "l2m"), None
+  )
+  l3m_col = next(
+      (c for c in raw_df.columns if c.strip().lower() == "l3m"), None
+  )
+  avg_col = next(
+      (
+          c
+          for c in raw_df.columns
+          if ("average" in c.lower() or "avg" in c.lower())
+          and "l3m" in c.lower()
+      ),
+      None,
+  )
+  if not avg_col:
+    avg_col = next(
+        (
+            c
+            for c in raw_df.columns
+            if "average" in c.lower() or "avg" in c.lower()
+        ),
+        None,
+    )
+
   name_cols = [
       c
       for c in raw_df.columns
@@ -287,6 +314,13 @@ try:
     )
     is_untransacted_query = has_negative and has_trx_or_wtu
 
+    # Deteksi query outlet belum transaksi bulan ini (berdasarkan CM / GMV bulan ini)
+    is_cm_untransacted_query = has_negative and (
+        "bulan ini" in prompt_lower
+        or "cm" in prompt_lower
+        or "gmv" in prompt_lower
+    )
+
     is_limit_query = (
         any(
             k in prompt_lower
@@ -302,6 +336,7 @@ try:
         )
         and not weeks_requested
         and not is_untransacted_query
+        and not is_cm_untransacted_query
     )
     is_mission_query = (
         any(
@@ -310,21 +345,25 @@ try:
         )
         and not weeks_requested
         and not is_untransacted_query
+        and not is_cm_untransacted_query
     )
     is_visit_query = (
         any(k in prompt_lower for k in ["visit", "kunjungan"])
         and not weeks_requested
         and not is_untransacted_query
+        and not is_cm_untransacted_query
     )
     is_wtu_query = (
         any(k in prompt_lower for k in ["wtu"])
         and not weeks_requested
         and not is_untransacted_query
+        and not is_cm_untransacted_query
     )
     is_dpd_query = (
         any(k in prompt_lower for k in ["dpd", "jatuh tempo", "overdue"])
         and not weeks_requested
         and not is_untransacted_query
+        and not is_cm_untransacted_query
     )
     is_trx_date_query = any(
         k in prompt_lower
@@ -406,7 +445,126 @@ try:
     matched_spv_df = None
     matched_spv_name = None
 
-    if is_untransacted_query and weeks_requested:
+    if is_cm_untransacted_query:
+      if spv_col:
+        unique_spvs = raw_df[spv_col].dropna().astype(str).unique()
+        for s in unique_spvs:
+          s_clean = s.strip().lower()
+          if s_clean and s_clean in prompt_lower:
+            matched_spv_name = s
+            matched_spv_df = raw_df[
+                raw_df[spv_col].astype(str).str.strip().str.lower() == s_clean
+            ]
+            break
+
+      if reps_col and (matched_spv_df is None or matched_spv_df.empty):
+        unique_reps = raw_df[reps_col].dropna().astype(str).unique()
+        for r in unique_reps:
+          r_clean = r.strip().lower()
+          if r_clean and r_clean in prompt_lower:
+            matched_reps_name = r
+            matched_reps_df = raw_df[
+                raw_df[reps_col].astype(str).str.strip().str.lower() == r_clean
+            ]
+            break
+
+      scope_df = raw_df
+      scope_name = "Semua Area"
+      if matched_spv_df is not None and not matched_spv_df.empty:
+        scope_df = matched_spv_df
+        scope_name = f"SPV {str(matched_spv_name).title()}"
+      elif matched_reps_df is not None and not matched_reps_df.empty:
+        scope_df = matched_reps_df
+        scope_name = f"Sales Rep {str(matched_reps_name).title()}"
+
+      untransacted_cm_outlets = []
+      if cm_col:
+        for _, r in scope_df.iterrows():
+          if is_row_lead(r):
+            continue
+
+          out_name = r.get(name_col, None)
+          if pd.isna(out_name):
+            continue
+
+          out_name_str = str(out_name).strip()
+          if not out_name_str or out_name_str.lower() in [
+              "nan",
+              "none",
+              "-",
+              "",
+              "nat",
+          ]:
+            continue
+
+          val_cm = parse_number_general(r.get(cm_col, 0))
+          if val_cm == 0:
+            out_sales = r.get(reps_col, "-") if reps_col else "-"
+            val_l3m = parse_number_general(r.get(l3m_col, 0)) if l3m_col else 0
+
+            history = {}
+            for w_key, w_colname in week_cols_map.items():
+              history[w_key] = parse_number_transaction(r.get(w_colname, 0))
+
+            untransacted_cm_outlets.append((out_name_str, out_sales, val_l3m, history))
+
+      with st.chat_message("assistant", avatar="🤖"):
+        with st.spinner("Mengecek data outlet belum transaksi bulan ini..."):
+          if cm_col:
+            res_lines = [
+                f"### 📋 Daftar Outlet Belum Transaksi Bulan Ini (CM / GMV = 0)\n*Lingkup: {scope_name}*"
+            ]
+            res_lines.append(
+                f"---\n**Total Outlet Belum Transaksi Bulan Ini:**"
+                f" **{len(untransacted_cm_outlets)} outlet** *(Lead"
+                " disingkirkan)*\n"
+            )
+            if untransacted_cm_outlets:
+              for idx_out, (o_name, o_sales, o_l3m, o_hist) in enumerate(
+                  untransacted_cm_outlets, 1
+              ):
+                formatted_l3m = (
+                    f"Rp {o_l3m:,.0f}".replace(",", ".")
+                    if o_l3m > 0
+                    else "Rp 0"
+                )
+                hist_str_parts = []
+                for w_label in ["W1", "W2", "W3", "W4"]:
+                  if w_label in o_hist:
+                    val_h = o_hist[w_label]
+                    formatted_val = (
+                        f"Rp {val_h:,.0f}".replace(",", ".")
+                        if val_h > 0
+                        else "Rp 0"
+                    )
+                    hist_str_parts.append(
+                        f"**{w_label}**: <span style='color: #000000;"
+                        f" font-weight: bold;'>{formatted_val}</span>"
+                    )
+                hist_joined = " | ".join(hist_str_parts)
+
+                res_lines.append(
+                    f"**{idx_out}. {str(o_name).title()}**\n"
+                    "   * 👤 Sales:"
+                    f" <span style='color: #000000; font-weight:"
+                    f" bold;'>{o_sales}</span>\n"
+                    f"   * 💰 L3M: <span style='color: #000000; font-weight: bold;'>{formatted_l3m}</span>\n"
+                    f"   * 📊 Histori Mingguan: {hist_joined}\n"
+                )
+            else:
+              res_lines.append(
+                  "🔥 **Luar Biasa!** Semua outlet aktif sudah tercatat transaksi di bulan ini."
+              )
+            response_text = "\n".join(res_lines)
+          else:
+            response_text = "Kolom **CM** (Current Month) tidak ditemukan di sheet."
+
+          st.markdown(response_text, unsafe_allow_html=True)
+          st.session_state.messages.append(
+              {"role": "assistant", "content": response_text}
+          )
+
+    elif is_untransacted_query and weeks_requested:
       target_week = weeks_requested[0]
       col_target_week = week_cols_map.get(target_week)
 
@@ -697,37 +855,6 @@ try:
                 f" font-weight: bold;'>{total_outlets} outlet</span>"
             )
 
-            cm_col = next(
-                (c for c in raw_df.columns if c.strip().lower() == "cm"), None
-            )
-            lm_col = next(
-                (c for c in raw_df.columns if c.strip().lower() == "lm"), None
-            )
-            l2m_col = next(
-                (c for c in raw_df.columns if c.strip().lower() == "l2m"), None
-            )
-            l3m_col = next(
-                (c for c in raw_df.columns if c.strip().lower() == "l3m"), None
-            )
-            avg_col = next(
-                (
-                    c
-                    for c in raw_df.columns
-                    if ("average" in c.lower() or "avg" in c.lower())
-                    and "l3m" in c.lower()
-                ),
-                None,
-            )
-            if not avg_col:
-              avg_col = next(
-                  (
-                      c
-                      for c in raw_df.columns
-                      if "average" in c.lower() or "avg" in c.lower()
-                  ),
-                  None,
-              )
-
             if is_limit_query:
               limit_cols = [
                   c
@@ -824,37 +951,6 @@ try:
                 f"- **Jumlah Outlet Aktif**: <span style='color: #000000;"
                 f" font-weight: bold;'>{total_outlets} outlet</span>"
             )
-
-            cm_col = next(
-                (c for c in raw_df.columns if c.strip().lower() == "cm"), None
-            )
-            lm_col = next(
-                (c for c in raw_df.columns if c.strip().lower() == "lm"), None
-            )
-            l2m_col = next(
-                (c for c in raw_df.columns if c.strip().lower() == "l2m"), None
-            )
-            l3m_col = next(
-                (c for c in raw_df.columns if c.strip().lower() == "l3m"), None
-            )
-            avg_col = next(
-                (
-                    c
-                    for c in raw_df.columns
-                    if ("average" in c.lower() or "avg" in c.lower())
-                    and "l3m" in c.lower()
-                ),
-                None,
-            )
-            if not avg_col:
-              avg_col = next(
-                  (
-                      c
-                      for c in raw_df.columns
-                      if "average" in c.lower() or "avg" in c.lower()
-                  ),
-                  None,
-              )
 
             if is_limit_query:
               limit_cols = [
@@ -1162,37 +1258,6 @@ try:
                     " misi tidak ditemukan di sheet."
                 )
             else:
-              cm_col = next(
-                  (c for c in raw_df.columns if c.strip().lower() == "cm"), None
-              )
-              lm_col = next(
-                  (c for c in raw_df.columns if c.strip().lower() == "lm"), None
-              )
-              l2m_col = next(
-                  (c for c in raw_df.columns if c.strip().lower() == "l2m"), None
-              )
-              l3m_col = next(
-                  (c for c in raw_df.columns if c.strip().lower() == "l3m"), None
-              )
-              avg_col = next(
-                  (
-                      c
-                      for c in raw_df.columns
-                      if ("average" in c.lower() or "avg" in c.lower())
-                      and "l3m" in c.lower()
-                  ),
-                  None,
-              )
-              if not avg_col:
-                avg_col = next(
-                    (
-                      c
-                      for c in raw_df.columns
-                      if "average" in c.lower() or "avg" in c.lower()
-                    ),
-                    None,
-                )
-
               calculated_metrics.append(
                   f"### 🏥 Outlet: **{str(display_name).title()}**\n---"
               )
