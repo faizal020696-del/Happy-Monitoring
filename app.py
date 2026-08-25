@@ -278,9 +278,12 @@ try:
     ):
       weeks_requested.append("W4")
 
-    is_untransacted_query = any(
-        k in prompt_lower for k in ["belum", "kosong", "nol", "tidak"]
-    ) and any(k in prompt_lower for k in ["transaksi", "trx", "ambil"])
+    # PERBAIKAN: Deteksi kata negatif & transaksi lebih fleksibel (menangkap "bertransaksi")
+    has_negative = any(
+        k in prompt_lower for k in ["belum", "kosong", "nol", "tidak", "minus"]
+    )
+    has_trx = any(k in prompt_lower for k in ["transaksi", "trx", "ambil"])
+    is_untransacted_query = has_negative and has_trx
 
     is_limit_query = (
         any(
@@ -345,6 +348,7 @@ try:
         "w3",
         "w4",
         "transaksi",
+        "bertransaksi",
         "tolong",
         "visit",
         "kunjungan",
