@@ -311,14 +311,12 @@ try:
         or "belum mtu" in last_assistant_msg
     )
 
-    # Deteksi persetujuan untuk WTU / Belum Transaksi Mingguan
     is_agreeing_to_wtu_untransacted = is_affirmative and (
         "wtu" in last_assistant_msg
         or "minggu" in last_assistant_msg
         or "transaksi mingguan" in last_assistant_msg
     )
 
-    # Cek minggu apa saja yang diminta user di prompt
     weeks_requested = []
     if re.search(
         r"\b(w1|week\s*1|week1|minggu\s*1|minggu1|ke\s*1)\b", prompt_lower
@@ -596,13 +594,14 @@ try:
             if has_negative or "belum" in prompt_lower or is_agreeing_to_untransacted:
               res_lines = [
                   f"### 📋 Daftar Outlet Belum Ada MTU / Belum Transaksi Bulan"
-                  f" Ini (CM = 0)\n*Lingkup: {scope_name}*"
+                  f" Ini (CM = 0)",
+                  f"*Lingkup: {scope_name}*\n---",
+                  (
+                      f"**Total Outlet Belum Transaksi:**"
+                      f" **{len(untransacted_cm_outlets)} outlet** *(Lead"
+                      " disingkirkan)*\n"
+                  ),
               ]
-              res_lines.append(
-                  f"---\n**Total Outlet Belum Transaksi:**"
-                  f" **{len(untransacted_cm_outlets)} outlet** *(Lead"
-                  " disingkirkan)*\n"
-              )
               if untransacted_cm_outlets:
                 for idx_out, (o_name, o_sales, o_cm, o_avg) in enumerate(
                     untransacted_cm_outlets, 1
@@ -616,9 +615,7 @@ try:
 
                   res_lines.append(
                       f"**{idx_out}. {str(o_name).title()}**\n"
-                      "   * 👤 Sales:"
-                      f" <span style='color: #000000; font-weight:"
-                      f" bold;'>{o_sales}</span>\n"
+                      f"   * 👤 Sales: <span style='color: #000000; font-weight: bold;'>{o_sales}</span>\n"
                       f"   * 📊 CM: <span style='color: #000000; font-weight: bold;'>{formatted_cm}</span>\n"
                       f"   * 💡 AVG L3M: <span style='color: #000000; font-weight: bold;'>{formatted_avg}</span>\n"
                   )
@@ -652,7 +649,6 @@ try:
           )
 
     elif is_agreeing_to_wtu_untransacted:
-      # Jika user menjawab "boleh" setelah bot nampilin rekap WTU
       scope_df = raw_df
       scope_name = "Semua Area"
       if st.session_state.active_scope_type == "spv" and st.session_state.active_scope_name:
@@ -668,19 +664,16 @@ try:
             == str(st.session_state.active_scope_name).strip().lower()
         ]
 
-      # Cek apakah user juga menyebutkan minggu tertentu pas jawab "boleh" (misal: "boleh w2" atau "boleh minggu 3")
       target_week_col = None
       target_week_label = None
 
       for w_key, col_val in week_cols_map.items():
         if w_key.lower() in prompt_lower or w_key.lower() in last_assistant_msg:
-          # Cek jika user spesifik ketik minggu di prompt sekarang
           if w_key.lower() in prompt_lower:
             target_week_col = col_val
             target_week_label = w_key
             break
 
-      # Jika user cuma ketik "boleh" doang tanpa nyebut minggu di pesannya saat ini, kita tanyain balik pilihan minggunya!
       if not target_week_col:
         with st.chat_message("assistant", avatar="🤖"):
           response_text = (
@@ -713,8 +706,12 @@ try:
                 untransacted_wtu.append((str(out_name).strip(), out_sales))
 
             res_lines = [
-                f"### 📋 Daftar Outlet Belum Transaksi di **{target_week_label}**\n*Lingkup: {scope_name}*\n---",
-                f"**Total Outlet Belum Transaksi:** **{len(untransacted_wtu)} outlet** *(Lead disingkirkan)*\n",
+                f"### 📋 Daftar Outlet Belum Transaksi di **{target_week_label}**",
+                f"*Lingkup: {scope_name}*\n---",
+                (
+                    f"**Total Outlet Belum Transaksi:** **{len(untransacted_wtu)}"
+                    " outlet** *(Lead disingkirkan)*\n"
+                ),
             ]
             if untransacted_wtu:
               for idx_w, (o_name, o_sales) in enumerate(untransacted_wtu, 1):
@@ -723,7 +720,9 @@ try:
                     f"   * 👤 Sales: <span style='color: #000000; font-weight: bold;'>{o_sales}</span>"
                 )
             else:
-              res_lines.append("🔥 Mantap! Semua outlet sudah ada transaksi di minggu ini.")
+              res_lines.append(
+                  "🔥 Mantap! Semua outlet sudah ada transaksi di minggu ini."
+              )
 
             response_text = "\n".join(res_lines)
             st.markdown(response_text, unsafe_allow_html=True)
@@ -732,7 +731,6 @@ try:
             )
 
     elif weeks_requested:
-      # Jika user langsung ngetik "w2" atau "minggu 3" tanpa kata "boleh" sebelumnya
       scope_df = raw_df
       scope_name = "Semua Area"
       if st.session_state.active_scope_type == "spv" and st.session_state.active_scope_name:
@@ -767,8 +765,12 @@ try:
                 untransacted_wtu.append((str(out_name).strip(), out_sales))
 
           res_lines = [
-              f"### 📋 Daftar Outlet Belum Transaksi di **{w_key}**\n*Lingkup: {scope_name}*\n---",
-              f"**Total Outlet Belum Transaksi:** **{len(untransacted_wtu)} outlet** *(Lead disingkirkan)*\n",
+              f"### 📋 Daftar Outlet Belum Transaksi di **{w_key}**",
+              f"*Lingkup: {scope_name}*\n---",
+              (
+                  f"**Total Outlet Belum Transaksi:** **{len(untransacted_wtu)}"
+                  " outlet** *(Lead disingkirkan)*\n"
+              ),
           ]
           if untransacted_wtu:
             for idx_w, (o_name, o_sales) in enumerate(untransacted_wtu, 1):
@@ -777,7 +779,9 @@ try:
                   f"   * 👤 Sales: <span style='color: #000000; font-weight: bold;'>{o_sales}</span>"
               )
           else:
-            res_lines.append("🔥 Mantap! Semua outlet sudah ada transaksi di minggu ini.")
+            res_lines.append(
+                "🔥 Mantap! Semua outlet sudah ada transaksi di minggu ini."
+            )
 
           response_text = "\n".join(res_lines)
           st.markdown(response_text, unsafe_allow_html=True)
