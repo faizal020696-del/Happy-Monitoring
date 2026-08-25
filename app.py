@@ -396,6 +396,7 @@ try:
     matched_spv_df = None
     matched_spv_name = None
 
+    # --- KONDISI 1: JIKA QUERY "BELUM TRANSAKSI PER MINGGU" ---
     if is_untransacted_query and weeks_requested:
       target_week = weeks_requested[0]
       col_target_week = week_cols_map.get(target_week)
@@ -451,7 +452,7 @@ try:
         with st.spinner("Mengecek data outlet belum transaksi & histori..."):
           if col_target_week:
             res_lines = [
-                f"### 📋 Daftar Outlet Aktif Belum Transaksi di"
+                f"### 📋 Daftar Outlet Belum Transaksi di"
                 f" **{target_week}**\n*Lingkup: {scope_name}*"
             ]
             res_lines.append(
@@ -496,6 +497,8 @@ try:
           st.session_state.messages.append(
               {"role": "assistant", "content": response_text}
           )
+
+    # --- KONDISI 2: QUERY LAINNYA (REKAP SPV, SALES, ATAU OUTLET INDIVIDU) ---
     else:
       is_spv_query = "spv" in prompt_lower or "supervisor" in prompt_lower
       if not is_spv_query and spv_col:
@@ -1043,7 +1046,6 @@ try:
                   else:
                     val_str_fmt = val_str_raw
 
-                  # Ditambahkan elemen ikon pada masing-masing poin kategori
                   if any(
                       k in col_lower
                       for k in ["type", "start date", "end date", "duration"]
