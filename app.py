@@ -958,3 +958,5 @@ try:
         st.session_state.messages.append(
             {"role": "assistant", "content": response_text}
         )
+except Exception as e:
+  st.error(f"Terjadi kesalahan saat memuat data: {e}")
