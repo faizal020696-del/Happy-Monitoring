@@ -6,11 +6,12 @@ import streamlit as st
 
 SHEET_URL = st.secrets.get("SHEET_URL", "")
 
+# --- KONFIGURASI HALAMAN (WIDE MODE BIAR LEBIH LUAS & ELEGAN) ---
 st.set_page_config(
-    page_title="Chatbot Universe SPV Happy", page_icon="🤖", layout="centered"
+    page_title="Chatbot Universe SPV Happy", page_icon="🤖", layout="wide"
 )
 
-# --- CUSTOM CSS: MERAPIKAN TAMPILAN & HILANGKAN FORK/HEADER STREAMLIT ---
+# --- CUSTOM CSS: TAMPILAN EYE-CATCHING & MODERN ---
 st.markdown(
     """
     <style>
@@ -26,18 +27,50 @@ st.markdown(
         display: none !important;
     }
 
-    /* Style Tampilan Chatbot */
+    /* Style Tampilan Utama & Background Soft */
     .stApp {
-        background-color: #f8f9fa;
+        background-color: #f8fafc;
     }
+    
+    /* Header Banner Custom yang Gradient & Cantik */
+    .main-header {
+        background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+        padding: 22px 28px;
+        border-radius: 16px;
+        color: white;
+        margin-bottom: 24px;
+        box-shadow: 0 10px 20px -5px rgba(59, 130, 246, 0.3);
+    }
+    .main-header h1 {
+        font-size: 1.7rem !important;
+        font-weight: 700 !important;
+        margin: 0 !important;
+        color: white !important;
+    }
+    .main-header p {
+        font-size: 0.95rem !important;
+        margin: 6px 0 0 0 !important;
+        opacity: 0.95;
+        color: #eff6ff !important;
+    }
+
+    /* Kotak Chat Input Modern dengan Efek Melengkung */
     .stChatInputContainer {
-        padding-bottom: 1rem;
+        padding-bottom: 0.5rem;
+        border-radius: 16px !important;
+        border: 2px solid #cbd5e1 !important;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
+        background-color: white;
     }
+
+    /* Bubble Chat Styling Lebih Clean & Ber-border Tipis */
     .stChatMessage {
-        padding: 1rem;
-        border-radius: 12px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
-        margin-bottom: 0.8rem;
+        padding: 1.2rem;
+        border-radius: 14px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+        margin-bottom: 1rem;
+        border: 1px solid #f1f5f9;
+        background-color: #ffffff;
     }
     .stChatMessage h3 {
         font-size: 1.15rem !important;
@@ -50,6 +83,12 @@ st.markdown(
         font-size: 1rem !important;
         font-weight: 600 !important;
         color: #334155;
+    }
+
+    /* Styling Sidebar Biar Lebih Rapi */
+    [data-testid="stSidebar"] {
+        background-color: #ffffff;
+        border-right: 1px solid #e2e8f0;
     }
     </style>
 """,
@@ -312,27 +351,28 @@ try:
   if "awaiting_rep_name" not in st.session_state:
     st.session_state.awaiting_rep_name = False
 
-  # --- SIDEBAR PANEL (TAMBAHAN BARU UNTUK KONTROL SESI & RINGKASAN) ---
+  # --- SIDEBAR PANEL (DIBUNGKUS KARTU BIAR RAPI & ELEGAN) ---
   with st.sidebar:
-    st.markdown("### 🛠️ Panel Kontrol SPV")
+    st.markdown("### 🎛️ Panel Kontrol SPV")
     st.markdown("---")
 
-    # Status Sesi Aktif
     current_rep_display = (
         st.session_state.current_rep
         if st.session_state.current_rep
         else "Belum diset (Mode Umum)"
     )
-    st.markdown(f"**👤 Active Rep:** `{current_rep_display}`")
-
     active_scope_display = (
         f"{st.session_state.active_scope_type.upper()}:"
         f" {st.session_state.active_scope_name}"
         if st.session_state.active_scope_type
         else "Semua Area / Global"
     )
-    st.markdown(f"**📍 Active Scope:** `{active_scope_display}`")
-    st.markdown("---")
+
+    with st.container(border=True):
+      st.markdown(f"**👤 Active Rep:**\n`{current_rep_display}`")
+      st.markdown(f"**📍 Active Scope:**\n`{active_scope_display}`")
+
+    st.markdown("")
 
     # Tombol Reset Sesi
     if st.button("🔄 Reset Sesi & Chat", use_container_width=True):
@@ -351,18 +391,32 @@ try:
       st.rerun()
 
     st.markdown("---")
-    st.markdown(
-        "💡 **Tips Cepat:**\n- Ketik nama outlet atau ID untuk cek detail.\n- Ketik"
-        " *'Top 10'* untuk leaderboard GMV.\n- Ketik *'transaksi hari ini'* untuk"
-        " cek daily GMV."
-    )
+    with st.container(border=True):
+      st.markdown(
+          "💡 **Tips Cepat:**\n"
+          "- Ketik nama outlet / ID untuk detail.\n"
+          "- Ketik *'Top 10'* untuk leaderboard.\n"
+          "- Ketik *'transaksi hari ini'*\n"
+          "- Ketik *'belum ada mtu'"
+      )
+
+  # --- BANNER HEADER UTAMA DI HALAMAN CHAT ---
+  st.markdown(
+      """
+      <div class="main-header">
+          <h1>🚀 Chatbot Universe SPV Happy</h1>
+          <p>Asisten intelijen pemantauan performa Sales Rep, Outlet, dan GMV secara real-time.</p>
+      </div>
+  """,
+      unsafe_allow_html=True,
+  )
 
   for message in st.session_state.messages:
     avatar = "👤" if message["role"] == "user" else "🤖"
     with st.chat_message(message["role"], avatar=avatar):
       st.markdown(message["content"], unsafe_allow_html=True)
 
-  if prompt := st.chat_input("Tulis pertanyaan kamu di sini..."):
+  if prompt := st.chat_input("Tulis pertanyaan atau nama outlet di sini..."):
     with st.chat_message("user", avatar="👤"):
       st.markdown(prompt)
     st.session_state.messages.append({"role": "user", "content": prompt})
