@@ -496,10 +496,12 @@ try:
                         if val_h > 0
                         else "Rp 0"
                     )
-                    hist_str_parts.append(f"**{w_label}**: {formatted_val}")
+                    hist_str_parts.append(
+                        f"**{w_label}**: <span style='color: #000000;"
+                        f" font-weight: bold;'>{formatted_val}</span>"
+                    )
                 hist_joined = " | ".join(hist_str_parts)
 
-                # DIUBAH MENJADI HITAM BOLD (HTML)
                 res_lines.append(
                     f"**{idx_out}. {str(o_name).title()}**\n"
                     "   * 👤 Sales:"
@@ -691,7 +693,8 @@ try:
                 f"### 📊 Rekap Total SPV: **{str(matched_spv_name).title()}**\n---"
             ]
             calculated_metrics.append(
-                f"- **Jumlah Outlet Aktif**: `{total_outlets} outlet`"
+                f"- **Jumlah Outlet Aktif**: <span style='color: #000000;"
+                f" font-weight: bold;'>{total_outlets} outlet</span>"
             )
 
             cm_col = next(
@@ -739,8 +742,10 @@ try:
                     parse_number_general(r.get(col, 0))
                     for _, r in active_spv_df.iterrows()
                 )
+                formatted_val = f"Rp {sum_val:,.0f}".replace(",", ".")
                 calculated_metrics.append(
-                    f"- **Total {col}**: `Rp {sum_val:,.0f}`".replace(",", ".")
+                    f"- **Total {col}**: <span style='color: #000000;"
+                    f" font-weight: bold;'>{formatted_val}</span>"
                 )
             elif is_wtu_query:
               calculated_metrics.append(
@@ -758,9 +763,11 @@ try:
                       for _, r in active_spv_df.iterrows()
                       if parse_number_transaction(r.get(col_name, 0)) > 0
                   )
+                  formatted_val = f"Rp {sum_w:,.0f}".replace(",", ".")
                   calculated_metrics.append(
-                      f"- **{w}**: `Rp {sum_w:,.0f}` *({active_outlets} outlet"
-                      f" trx)*".replace(",", ".")
+                      f"- **{w}**: <span style='color: #000000; font-weight:"
+                      f" bold;'>{formatted_val}</span> *({active_outlets}"
+                      " outlet trx)*"
                   )
             else:
               calculated_metrics.append("\n#### 📈 Performa Bulanan")
@@ -777,8 +784,10 @@ try:
                       parse_number_general(r.get(col, 0))
                       for _, r in active_spv_df.iterrows()
                   )
+                  formatted_val = f"Rp {sum_val:,.0f}".replace(",", ".")
                   calculated_metrics.append(
-                      f"- **{label}**: `Rp {sum_val:,.0f}`".replace(",", ".")
+                      f"- **{label}**: <span style='color: #000000;"
+                      f" font-weight: bold;'>{formatted_val}</span>"
                   )
 
               calculated_metrics.append("\n#### 📅 Performa Mingguan (W1 - W4)")
@@ -794,9 +803,11 @@ try:
                       for _, r in active_spv_df.iterrows()
                       if parse_number_transaction(r.get(col_name, 0)) > 0
                   )
+                  formatted_val = f"Rp {sum_w:,.0f}".replace(",", ".")
                   calculated_metrics.append(
-                      f"- **{w}**: `Rp {sum_w:,.0f}` *({active_outlets} outlet"
-                      f" trx)*".replace(",", ".")
+                      f"- **{w}**: <span style='color: #000000; font-weight:"
+                      f" bold;'>{formatted_val}</span> *({active_outlets}"
+                      " outlet trx)*"
                   )
 
             response_text = "\n".join(calculated_metrics)
@@ -810,7 +821,8 @@ try:
                 f"### 📊 Rekap Total Sales Rep: **{str(matched_reps_name).title()}**\n---"
             ]
             calculated_metrics.append(
-                f"- **Jumlah Outlet Aktif**: `{total_outlets} outlet`"
+                f"- **Jumlah Outlet Aktif**: <span style='color: #000000;"
+                f" font-weight: bold;'>{total_outlets} outlet</span>"
             )
 
             cm_col = next(
@@ -858,8 +870,10 @@ try:
                     parse_number_general(r.get(col, 0))
                     for _, r in active_reps_df.iterrows()
                 )
+                formatted_val = f"Rp {sum_val:,.0f}".replace(",", ".")
                 calculated_metrics.append(
-                    f"- **Total {col}**: `Rp {sum_val:,.0f}`".replace(",", ".")
+                    f"- **Total {col}**: <span style='color: #000000;"
+                    f" font-weight: bold;'>{formatted_val}</span>"
                 )
             elif is_wtu_query:
               calculated_metrics.append(
@@ -877,9 +891,11 @@ try:
                       for _, r in active_reps_df.iterrows()
                       if parse_number_transaction(r.get(col_name, 0)) > 0
                   )
+                  formatted_val = f"Rp {sum_w:,.0f}".replace(",", ".")
                   calculated_metrics.append(
-                      f"- **{w}**: `Rp {sum_w:,.0f}` *({active_outlets} outlet"
-                      f" trx)*".replace(",", ".")
+                      f"- **{w}**: <span style='color: #000000; font-weight:"
+                      f" bold;'>{formatted_val}</span> *({active_outlets}"
+                      " outlet trx)*"
                   )
             else:
               calculated_metrics.append("\n#### 📈 Performa Bulanan")
@@ -896,8 +912,10 @@ try:
                       parse_number_general(r.get(col, 0))
                       for _, r in active_reps_df.iterrows()
                   )
+                  formatted_val = f"Rp {sum_val:,.0f}".replace(",", ".")
                   calculated_metrics.append(
-                      f"- **{label}**: `Rp {sum_val:,.0f}`".replace(",", ".")
+                      f"- **{label}**: <span style='color: #000000;"
+                      f" font-weight: bold;'>{formatted_val}</span>"
                   )
 
               calculated_metrics.append("\n#### 📅 Performa Mingguan (W1 - W4)")
@@ -913,9 +931,11 @@ try:
                       for _, r in active_reps_df.iterrows()
                       if parse_number_transaction(r.get(col_name, 0)) > 0
                   )
+                  formatted_val = f"Rp {sum_w:,.0f}".replace(",", ".")
                   calculated_metrics.append(
-                      f"- **{w}**: `Rp {sum_w:,.0f}` *({active_outlets} outlet"
-                      f" trx)*".replace(",", ".")
+                      f"- **{w}**: <span style='color: #000000; font-weight:"
+                      f" bold;'>{formatted_val}</span> *({active_outlets}"
+                      " outlet trx)*"
                   )
 
             response_text = "\n".join(calculated_metrics)
@@ -945,7 +965,10 @@ try:
                       if val_parsed > 0
                       else val_metric
                   )
-                  calculated_metrics.append(f"- **{col}**: `{val_formatted}`")
+                  calculated_metrics.append(
+                      f"- **{col}**: <span style='color: #000000;"
+                      f" font-weight: bold;'>{val_formatted}</span>"
+                  )
                 response_text = "\n".join(calculated_metrics)
               else:
                 response_text = (
@@ -960,7 +983,10 @@ try:
                 )
                 for col in dpd_cols:
                   val_dpd = target_row.get(col, "-")
-                  calculated_metrics.append(f"- **{col}**: `{val_dpd}`")
+                  calculated_metrics.append(
+                      f"- **{col}**: <span style='color: #000000;"
+                      f" font-weight: bold;'>{val_dpd}</span>"
+                  )
                 response_text = "\n".join(calculated_metrics)
               else:
                 response_text = (
@@ -979,7 +1005,10 @@ try:
                 )
                 for col in visit_cols:
                   val_visit = target_row.get(col, "-")
-                  calculated_metrics.append(f"- **{col}**: `{val_visit}`")
+                  calculated_metrics.append(
+                      f"- **{col}**: <span style='color: #000000;"
+                      f" font-weight: bold;'>{val_visit}</span>"
+                  )
                 response_text = "\n".join(calculated_metrics)
               else:
                 response_text = (
@@ -995,8 +1024,10 @@ try:
                   col_name = week_cols_map[w]
                   val_raw = target_row.get(col_name, 0)
                   val_parsed = parse_number_transaction(val_raw)
+                  formatted_val = f"Rp {val_parsed:,.0f}".replace(",", ".")
                   calculated_metrics.append(
-                      f"- **{w}**: `Rp {val_parsed:,.0f}`".replace(",", ".")
+                      f"- **{w}**: <span style='color: #000000; font-weight:"
+                      f" bold;'>{formatted_val}</span>"
                   )
               response_text = "\n".join(calculated_metrics)
             elif is_trx_date_query:
@@ -1019,7 +1050,10 @@ try:
                 )
                 for col in trx_date_cols:
                   val_date = target_row.get(col, "-")
-                  calculated_metrics.append(f"- **{col}**: `{val_date}`")
+                  calculated_metrics.append(
+                      f"- **{col}**: <span style='color: #000000;"
+                      f" font-weight: bold;'>{val_date}</span>"
+                  )
                 response_text = "\n".join(calculated_metrics)
               else:
                 response_text = (
@@ -1072,8 +1106,8 @@ try:
                     val_str_fmt = val_str_raw
 
                   styled_val_str = (
-                      f"<span style='font-size: 1.1rem; font-weight:"
-                      f" 700;'>{val_str_fmt}</span>"
+                      f"<span style='color: #000000; font-weight:"
+                      f" bold;'>{val_str_fmt}</span>"
                   )
 
                   if any(
@@ -1173,8 +1207,10 @@ try:
               for label, col in target_cols_gmv:
                 if col:
                   val_parsed = parse_number_general(target_row.get(col, 0))
+                  formatted_val = f"Rp {val_parsed:,.0f}".replace(",", ".")
                   calculated_metrics.append(
-                      f"- **{label}**: `Rp {val_parsed:,.0f}`".replace(",", ".")
+                      f"- **{label}**: <span style='color: #000000;"
+                      f" font-weight: bold;'>{formatted_val}</span>"
                   )
 
               calculated_metrics.append("\n**📅 Performa Mingguan (W1 - W4):**")
@@ -1183,8 +1219,10 @@ try:
                   col_name = week_cols_map[w]
                   val_raw = target_row.get(col_name, 0)
                   val_parsed = parse_number_transaction(val_raw)
+                  formatted_val = f"Rp {val_parsed:,.0f}".replace(",", ".")
                   calculated_metrics.append(
-                      f"- **{w}**: `Rp {val_parsed:,.0f}`".replace(",", ".")
+                      f"- **{w}**: <span style='color: #000000; font-weight:"
+                      f" bold;'>{formatted_val}</span>"
                   )
 
               response_text = "\n".join(calculated_metrics)
