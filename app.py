@@ -453,15 +453,29 @@ try:
         )
     elif st.session_state.get("awaiting_rep_name", False):
       matched_rep = None
+      matched_spv = None
       if reps_col:
         unique_reps = raw_df[reps_col].dropna().astype(str).unique()
         for r in unique_reps:
           r_clean = r.strip().lower()
           if r_clean and (
               r_clean in prompt_lower
-              or any(p in prompt_lower for p in r_clean.split() if len(p) > 2)
+              or prompt_lower in r_clean
+              or any(p in prompt_lower or prompt_lower in p for p in r_clean.split() if len(p) > 2)
           ):
             matched_rep = r
+            break
+
+      if not matched_rep and spv_col:
+        unique_spvs = raw_df[spv_col].dropna().astype(str).unique()
+        for s in unique_spvs:
+          s_clean = s.strip().lower()
+          if s_clean and (
+              s_clean in prompt_lower
+              or prompt_lower in s_clean
+              or any(p in prompt_lower or prompt_lower in p for p in s_clean.split() if len(p) > 2)
+          ):
+            matched_spv = s
             break
 
       if matched_rep:
@@ -480,11 +494,27 @@ try:
           st.session_state.messages.append(
               {"role": "assistant", "content": response_text}
           )
+      elif matched_spv:
+        st.session_state.current_rep = matched_spv
+        st.session_state.awaiting_rep_name = False
+        st.session_state.active_scope_type = "spv"
+        st.session_state.active_scope_name = matched_spv
+        with st.chat_message("assistant", avatar="🤖"):
+          response_text = (
+              f"Sip, tercatat! 🚀 Sesi ini diset untuk SPV"
+              f" **{matched_spv.title()}**. Sekarang semua pertanyaan lu bakal"
+              " otomatis ngecek data dari SPV tersebut. Mau cek data apa nih,"
+              " Bro?"
+          )
+          st.markdown(response_text, unsafe_allow_html=True)
+          st.session_state.messages.append(
+              {"role": "assistant", "content": response_text}
+          )
       else:
         with st.chat_message("assistant", avatar="🤖"):
           response_text = (
-              f"Hmm, nama Sales Rep **'{prompt}'** tidak ditemukan di data"
-              " sheet gw. Coba sebutkan nama Sales Rep dengan benar ya, Bro!"
+              f"Hmm, nama Sales Rep atau SPV **'{prompt}'** tidak ditemukan di data"
+              " sheet gw. Coba sebutkan nama dengan benar ya, Bro!"
           )
           st.markdown(response_text, unsafe_allow_html=True)
           st.session_state.messages.append(
@@ -759,21 +789,23 @@ try:
 
       if reps_col:
         for r in raw_df[reps_col].dropna().astype(str).unique():
-          if r.strip().lower() in prompt_lower:
+          r_clean = r.strip().lower()
+          if r_clean and (r_clean in prompt_lower or prompt_lower in r_clean):
             matched_reps_name = r
             matched_reps_df = raw_df[
                 raw_df[reps_col].astype(str).str.strip().str.lower()
-                == r.strip().lower()
+                == r_clean
             ]
             break
 
       if spv_col:
         for s in raw_df[spv_col].dropna().astype(str).unique():
-          if s.strip().lower() in prompt_lower:
+          s_clean = s.strip().lower()
+          if s_clean and (s_clean in prompt_lower or prompt_lower in s_clean):
             matched_spv_name = s
             matched_spv_df = raw_df[
                 raw_df[spv_col].astype(str).str.strip().str.lower()
-                == s.strip().lower()
+                == s_clean
             ]
             break
 
@@ -1328,7 +1360,11 @@ try:
             )
 
       else:
-        is_spv_query = "spv" in prompt_lower or "supervisor" in prompt_lower
+        is_spv_query = (
+            "spv" in prompt_lower
+            or "supervisor" in prompt_lower
+            or "happy" in prompt_lower
+        )
         if not is_spv_query and spv_col:
           unique_spvs = raw_df[spv_col].dropna().astype(str).unique()
           for s in unique_spvs:
@@ -1336,7 +1372,7 @@ try:
             if (
                 s_clean
                 and len(s_clean) > 2
-                and s_clean in prompt_lower
+                and (s_clean in prompt_lower or prompt_lower in s_clean)
                 and not any(kw in prompt_lower for kw in ["apotek", "toko"])
             ):
               is_spv_query = True
@@ -1346,7 +1382,7 @@ try:
           unique_spvs = raw_df[spv_col].dropna().astype(str).unique()
           for s in unique_spvs:
             s_clean = s.strip().lower()
-            if s_clean and s_clean in prompt_lower:
+            if s_clean and (s_clean in prompt_lower or prompt_lower in s_clean):
               matched_spv_name = s
               matched_spv_df = raw_df[
                   raw_df[spv_col].astype(str).str.strip().str.lower() == s_clean
@@ -1358,7 +1394,7 @@ try:
               s_clean = s.strip().lower()
               if s_clean and len(s_clean) > 2:
                 parts = s_clean.split()
-                if any(p in prompt_lower for p in parts if len(p) > 2):
+                if any(p in prompt_lower or prompt_lower in p for p in parts if len(p) > 2):
                   matched_spv_name = s
                   matched_spv_df = raw_df[
                       raw_df[spv_col].astype(str).str.strip().str.lower()
@@ -1380,7 +1416,7 @@ try:
               if (
                   r_clean
                   and len(r_clean) > 2
-                  and r_clean in prompt_lower
+                  and (r_clean in prompt_lower or prompt_lower in r_clean)
                   and not any(kw in prompt_lower for kw in ["apotek", "toko"])
               ):
                 is_sales_query = True
@@ -1390,7 +1426,7 @@ try:
             unique_reps = raw_df[reps_col].dropna().astype(str).unique()
             for r in unique_reps:
               r_clean = r.strip().lower()
-              if r_clean and r_clean in prompt_lower:
+              if r_clean and (r_clean in prompt_lower or prompt_lower in r_clean):
                 matched_reps_name = r
                 matched_reps_df = raw_df[
                     raw_df[reps_col].astype(str).str.strip().str.lower()
@@ -1403,7 +1439,7 @@ try:
                 r_clean = r.strip().lower()
                 if r_clean and len(r_clean) > 2:
                   parts = r_clean.split()
-                  if any(p in prompt_lower for p in parts if len(p) > 2):
+                  if any(p in prompt_lower or prompt_lower in p for p in parts if len(p) > 2):
                     matched_reps_name = r
                     matched_reps_df = raw_df[
                         raw_df[reps_col].astype(str).str.strip().str.lower()
