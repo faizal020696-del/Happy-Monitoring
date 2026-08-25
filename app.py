@@ -291,6 +291,8 @@ try:
     st.session_state.active_scope_type = None
   if "active_scope_name" not in st.session_state:
     st.session_state.active_scope_name = None
+  if "awaiting_daily_scope" not in st.session_state:
+    st.session_state.awaiting_daily_scope = False
 
   for message in st.session_state.messages:
     avatar = "👤" if message["role"] == "user" else "🤖"
@@ -375,7 +377,7 @@ try:
         )
         and not weeks_requested
         and not is_untransacted_query
-    )
+    ) or st.session_state.get("awaiting_daily_scope", False)
 
     is_mtu_query = (
         any(k in prompt_lower for k in ["mtu", "monthly transactional"])
@@ -399,7 +401,6 @@ try:
         )
     ) or is_agreeing_to_untransacted
 
-    # --- TAMBAHAN FITUR LANJUTAN BARU (LEADERBOARD & EXPORT) ---
     is_leaderboard_query = any(
         k in prompt_lower
         for k in [
@@ -622,7 +623,6 @@ try:
                   f"   * 💰 CM: <span style='color: #000000; font-weight: bold;'>{fmt_val}</span>\n"
               )
 
-            # Export Button untuk Leaderboard
             df_export = pd.DataFrame(
                 top_10, columns=["Nama Outlet", "Sales", "CM GMV"]
             )
@@ -686,106 +686,122 @@ try:
               == str(matched_reps_name).strip().lower()
           ]
 
-      scope_df = raw_df
-      scope_name = "Semua Area"
-      if matched_spv_df is not None and not matched_spv_df.empty:
-        scope_df = matched_spv_df
-        scope_name = f"SPV {str(matched_spv_name).title()}"
-        st.session_state.active_scope_type = "spv"
-        st.session_state.active_scope_name = matched_spv_name
-      elif matched_reps_df is not None and not matched_reps_df.empty:
-        scope_df = matched_reps_df
-        scope_name = f"Sales Rep {str(matched_reps_name).title()}"
-        st.session_state.active_scope_type = "reps"
-        st.session_state.active_scope_name = matched_reps_name
-
-      daily_outlets = []
-      if daily_gmv_col:
-        for _, r in scope_df.iterrows():
-          if is_row_lead(r):
-            continue
-          out_name = r.get(name_col, None)
-          if pd.isna(out_name) or not str(out_name).strip():
-            continue
-          out_name_str = str(out_name).strip()
-          val_daily = parse_number_general(r.get(daily_gmv_col, 0))
-          out_sales = r.get(reps_col, "-") if reps_col else "-"
-
-          if val_daily > 0:
-            daily_outlets.append((out_name_str, out_sales, val_daily))
-
-        with st.chat_message("assistant", avatar="🤖"):
-          with st.spinner("Mengecek data transaksi hari ini..."):
-            total_count = len(daily_outlets)
-            total_gmv = sum(item[2] for item in daily_outlets)
-            formatted_total_gmv = f"Rp {total_gmv:,.0f}".replace(",", ".")
-
-            res_lines = [
-                (
-                    f"### ☀️ Ringkasan Transaksi Hari Ini\n*Lingkup:"
-                    f" {scope_name}*\n---"
-                ),
-                (
-                    f"- **Total Outlet Transaksi Hari Ini**: <span"
-                    f" style='color: #000000; font-weight:"
-                    f" bold;'>{total_count} outlet</span>"
-                ),
-                (
-                    f"- **Total Akumulasi GMV Hari Ini**: <span"
-                    f" style='color: #000000; font-weight:"
-                    f" bold;'>{formatted_total_gmv}</span>\n"
-                ),
-                (
-                    "#### 📋 Daftar Outlet yang Sudah Transaksi Hari Ini:"
-                ),
-            ]
-
-            if daily_outlets:
-              for idx_out, (o_name, o_sales, o_daily) in enumerate(
-                  daily_outlets, 1
-              ):
-                formatted_daily = f"Rp {o_daily:,.0f}".replace(",", ".")
-                res_lines.append(
-                    f"**{idx_out}. {str(o_name).title()}**\n"
-                    f"   * 👤 Sales: <span style='color: #000000; font-weight: bold;'>{o_sales}</span>\n"
-                    f"   * 💰 Daily GMV: <span style='color: #000000; font-weight: bold;'>{formatted_daily}</span>\n"
-                )
-
-              # Export Button untuk Daily Transactions
-              df_daily_export = pd.DataFrame(
-                  daily_outlets, columns=["Nama Outlet", "Sales", "Daily GMV"]
-              )
-              csv_data_daily = df_daily_export.to_csv(index=False).encode(
-                  "utf-8"
-              )
-              st.download_button(
-                  label="📥 Download Data Transaksi Hari Ini (CSV)",
-                  data=csv_data_daily,
-                  file_name="transaksi_hari_ini.csv",
-                  mime="text/csv",
-              )
-            else:
-              res_lines.append(
-                  "Belum ada outlet yang tercatat transaksi hari ini."
-              )
-
-            response_text = "\n".join(res_lines)
-            st.markdown(response_text, unsafe_allow_html=True)
-            st.session_state.messages.append(
-                {"role": "assistant", "content": response_text}
-            )
-      else:
+      # --- SLOT FILLING: WAJIB TANYA AREA/REP JIKA BELUM DISEBUTKAN ---
+      if (matched_spv_df is None or matched_spv_df.empty) and (
+          matched_reps_df is None or matched_reps_df.empty
+      ):
+        st.session_state.awaiting_daily_scope = True
         with st.chat_message("assistant", avatar="🤖"):
           response_text = (
-              "⚠️ Kolom untuk **Daily GMV** (atau transaksi hari ini) belum"
-              " terdeteksi di Google Sheet. Pastikan di GSheet kamu ada kolom"
-              " dengan nama yang mengandung kata 'daily', 'hari ini', atau"
-              " 'today'."
+              "Boleh, Bro! Mau dicek untuk area (SPV) atau sales representative"
+              " (rep) siapa datanya untuk transaksi hari ini?"
           )
           st.markdown(response_text, unsafe_allow_html=True)
           st.session_state.messages.append(
               {"role": "assistant", "content": response_text}
           )
+      else:
+        st.session_state.awaiting_daily_scope = False
+
+        scope_df = raw_df
+        scope_name = "Semua Area"
+        if matched_spv_df is not None and not matched_spv_df.empty:
+          scope_df = matched_spv_df
+          scope_name = f"SPV {str(matched_spv_name).title()}"
+          st.session_state.active_scope_type = "spv"
+          st.session_state.active_scope_name = matched_spv_name
+        elif matched_reps_df is not None and not matched_reps_df.empty:
+          scope_df = matched_reps_df
+          scope_name = f"Sales Rep {str(matched_reps_name).title()}"
+          st.session_state.active_scope_type = "reps"
+          st.session_state.active_scope_name = matched_reps_name
+
+        daily_outlets = []
+        if daily_gmv_col:
+          for _, r in scope_df.iterrows():
+            if is_row_lead(r):
+              continue
+            out_name = r.get(name_col, None)
+            if pd.isna(out_name) or not str(out_name).strip():
+              continue
+            out_name_str = str(out_name).strip()
+            val_daily = parse_number_general(r.get(daily_gmv_col, 0))
+            out_sales = r.get(reps_col, "-") if reps_col else "-"
+
+            if val_daily > 0:
+              daily_outlets.append((out_name_str, out_sales, val_daily))
+
+          with st.chat_message("assistant", avatar="🤖"):
+            with st.spinner("Mengecek data transaksi hari ini..."):
+              total_count = len(daily_outlets)
+              total_gmv = sum(item[2] for item in daily_outlets)
+              formatted_total_gmv = f"Rp {total_gmv:,.0f}".replace(",", ".")
+
+              res_lines = [
+                  (
+                      f"### ☀️ Ringkasan Transaksi Hari Ini\n*Lingkup:"
+                      f" {scope_name}*\n---"
+                  ),
+                  (
+                      f"- **Total Outlet Transaksi Hari Ini**: <span"
+                      f" style='color: #000000; font-weight:"
+                      f" bold;'>{total_count} outlet</span>"
+                  ),
+                  (
+                      f"- **Total Akumulasi GMV Hari Ini**: <span"
+                      f" style='color: #000000; font-weight:"
+                      f" bold;'>{formatted_total_gmv}</span>\n"
+                  ),
+                  (
+                      "#### 📋 Daftar Outlet yang Sudah Transaksi Hari Ini:"
+                  ),
+              ]
+
+              if daily_outlets:
+                for idx_out, (o_name, o_sales, o_daily) in enumerate(
+                    daily_outlets, 1
+                ):
+                  formatted_daily = f"Rp {o_daily:,.0f}".replace(",", ".")
+                  res_lines.append(
+                      f"**{idx_out}. {str(o_name).title()}**\n"
+                      f"   * 👤 Sales: <span style='color: #000000; font-weight: bold;'>{o_sales}</span>\n"
+                      f"   * 💰 Daily GMV: <span style='color: #000000; font-weight: bold;'>{formatted_daily}</span>\n"
+                  )
+
+                df_daily_export = pd.DataFrame(
+                    daily_outlets, columns=["Nama Outlet", "Sales", "Daily GMV"]
+                )
+                csv_data_daily = df_daily_export.to_csv(index=False).encode(
+                    "utf-8"
+                )
+                st.download_button(
+                    label="📥 Download Data Transaksi Hari Ini (CSV)",
+                    data=csv_data_daily,
+                    file_name="transaksi_hari_ini.csv",
+                    mime="text/csv",
+                )
+              else:
+                res_lines.append(
+                    "Belum ada outlet yang tercatat transaksi hari ini."
+                )
+
+              response_text = "\n".join(res_lines)
+              st.markdown(response_text, unsafe_allow_html=True)
+              st.session_state.messages.append(
+                  {"role": "assistant", "content": response_text}
+              )
+        else:
+          with st.chat_message("assistant", avatar="🤖"):
+            response_text = (
+                "⚠️ Kolom untuk **Daily GMV** (atau transaksi hari ini) belum"
+                " terdeteksi di Google Sheet. Pastikan di GSheet kamu ada kolom"
+                " dengan nama yang mengandung kata 'daily', 'hari ini', atau"
+                " 'today'."
+            )
+            st.markdown(response_text, unsafe_allow_html=True)
+            st.session_state.messages.append(
+                {"role": "assistant", "content": response_text}
+            )
 
     elif is_cm_untransacted_query or is_mtu_query:
       if spv_col:
@@ -905,7 +921,6 @@ try:
                       f"   * 💡 AVG L3M: <span style='color: #000000; font-weight: bold;'>{formatted_avg}</span>\n\n"
                   )
 
-                # Export Button untuk Untransacted CM
                 df_untrans_export = pd.DataFrame(
                     untransacted_cm_outlets,
                     columns=["Nama Outlet", "Sales", "CM", "AVG L3M"],
@@ -1034,7 +1049,6 @@ try:
                     f"   * 📊 Histori: {hist_str}\n\n"
                 )
 
-              # Export Button untuk WTU Untransacted
               df_wtu_export = pd.DataFrame(
                   [
                       (n, s, w["W1"], w["W2"], w["W3"], w["W4"])
@@ -1414,7 +1428,6 @@ try:
             response_text = "\n".join(calculated_metrics)
             st.markdown(response_text, unsafe_allow_html=True)
 
-            # --- Visualisasi Grafik Batang Opsional ---
             if not is_limit_query and not is_wtu_query and week_cols_map:
               chart_df = pd.DataFrame(
                   list(chart_data_dict.items()), columns=["Minggu", "Total GMV"]
