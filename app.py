@@ -14,25 +14,18 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    /* Mengatur background utama dan font */
     .stApp {
         background-color: #f8f9fa;
     }
-    
-    /* Mempercantik kotak chat input di bagian bawah */
     .stChatInputContainer {
         padding-bottom: 1rem;
     }
-    
-    /* Styling untuk bubble chat biar lebih rapi & modern */
     .stChatMessage {
         padding: 1rem;
         border-radius: 12px;
         box-shadow: 0 2px 4px rgba(0,0,0,0.02);
         margin-bottom: 0.8rem;
     }
-    
-    /* Membatasi ukuran font judul di dalam chat agar tidak terlalu jomplang */
     .stChatMessage h3 {
         font-size: 1.15rem !important;
         font-weight: 600 !important;
@@ -40,7 +33,6 @@ st.markdown(
         color: #1e293b;
         margin-bottom: 0.5rem;
     }
-    
     .stChatMessage h4 {
         font-size: 1rem !important;
         font-weight: 600 !important;
@@ -275,9 +267,8 @@ try:
         ),
     }]
 
-  # Inisialisasi session state untuk menyimpan konteks aktif terakhir
   if "active_scope_type" not in st.session_state:
-    st.session_state.active_scope_type = None  # 'spv' atau 'reps' atau 'outlet'
+    st.session_state.active_scope_type = None
   if "active_scope_name" not in st.session_state:
     st.session_state.active_scope_name = None
 
@@ -292,6 +283,35 @@ try:
     st.session_state.messages.append({"role": "user", "content": prompt})
 
     prompt_lower = prompt.lower()
+
+    # DETEKSI PERSETUJUAN (affirmative words)
+    affirmative_words = [
+        "boleh",
+        "mau",
+        "boleh dong",
+        "iya",
+        "boleh banget",
+        "lanjut",
+        "oke",
+        "ok",
+        "siap",
+    ]
+    is_affirmative = (
+        len(prompt_lower.split()) <= 3
+        and any(w in prompt_lower for w in affirmative_words)
+    )
+
+    # Cek pesan asisten terakhir apakah berisi tawaran "outlet yang belum ada MTU"
+    last_assistant_msg = ""
+    for m in reversed(st.session_state.messages[:-1]):
+      if m["role"] == "assistant":
+        last_assistant_msg = m["content"].lower()
+        break
+
+    is_agreeing_to_untransacted = is_affirmative and (
+        "outlet yang belum ada mtu" in last_assistant_msg
+        or "belum mtu" in last_assistant_msg
+    )
 
     weeks_requested = []
     if re.search(
@@ -318,19 +338,30 @@ try:
         k in prompt_lower
         for k in ["transaksi", "trx", "ambil", "wtu", "minggu", "week"]
     )
-    is_untransacted_query = has_negative and has_trx_or_wtu
+    is_untransacted_query = (
+        (has_negative and has_trx_or_wtu)
+        or is_agreeing_to_untransacted
+        or "outlet yang belum ada mtu" in prompt_lower
+    )
 
     is_mtu_query = (
         any(k in prompt_lower for k in ["mtu", "monthly transactional"])
-        or (has_negative and ("mtu" in prompt_lower or "bulan ini" in prompt_lower))
-        or ("bulan ini" in prompt_lower and any(k in prompt_lower for k in ["transaksi", "trx", "aktif"]))
-    )
-    is_cm_untransacted_query = has_negative and (
+        or (
+            has_negative
+            and ("mtu" in prompt_lower or "bulan ini" in prompt_lower)
+        )
+        or (
+            "bulan ini" in prompt_lower
+            and any(k in prompt_lower for k in ["transaksi", "trx", "aktif"])
+        )
+    ) and not is_agreeing_to_untransacted
+
+    is_cm_untransacted_query = (has_negative and (
         "bulan ini" in prompt_lower
         or "cm" in prompt_lower
         or "gmv" in prompt_lower
         or "mtu" in prompt_lower
-    )
+    )) or is_agreeing_to_untransacted
 
     is_limit_query = (
         any(
@@ -454,6 +485,11 @@ try:
         "yang",
         "ke",
         "mtu",
+        "boleh",
+        "mau",
+        "iya",
+        "ok",
+        "oke",
     }
 
     target_row = None
@@ -463,7 +499,6 @@ try:
     matched_spv_name = None
 
     if is_cm_untransacted_query or is_mtu_query:
-      # 1. Cek apakah user menyebutkan SPV baru di prompt
       if spv_col:
         unique_spvs = raw_df[spv_col].dropna().astype(str).unique()
         for s in unique_spvs:
@@ -475,7 +510,6 @@ try:
             ]
             break
 
-      # 2. Cek apakah user menyebutkan Sales Rep baru di prompt
       if reps_col and (matched_spv_df is None or matched_spv_df.empty):
         unique_reps = raw_df[reps_col].dropna().astype(str).unique()
         for r in unique_reps:
@@ -487,7 +521,6 @@ try:
             ]
             break
 
-      # 3. KUNCI UTAMA: Jika tidak disebut nama baru, tarik dari CONTEXT / MEMORY aktif sebelumnya!
       if (
           (matched_spv_df is None or matched_spv_df.empty)
           and (matched_reps_df is None or matched_reps_df.empty)
@@ -506,7 +539,6 @@ try:
               == str(matched_reps_name).strip().lower()
           ]
 
-      # Tentukan scope akhir
       scope_df = raw_df
       scope_name = "Semua Area"
       if matched_spv_df is not None and not matched_spv_df.empty:
@@ -555,7 +587,7 @@ try:
       with st.chat_message("assistant", avatar="🤖"):
         with st.spinner("Mengecek data MTU dan outlet bulan ini..."):
           if cm_col:
-            if has_negative or "belum" in prompt_lower:
+            if has_negative or "belum" in prompt_lower or is_agreeing_to_untransacted:
               res_lines = [
                   f"### 📋 Daftar Outlet Belum Ada MTU / Belum Transaksi Bulan"
                   f" Ini (CM = 0)\n*Lingkup: {scope_name}*"
@@ -601,7 +633,8 @@ try:
                   f"- **Total Akumulasi GMV CM**: <span style='color: #000000; font-weight: bold;'>{formatted_total_gmv}</span>",
                   f"- **Total Outlet Belum MTU (CM = 0)**: <span style='color: #000000; font-weight: bold;'>{len(untransacted_cm_outlets)} outlet</span>\n",
                   "#### 💡 Ingin melihat daftar detail outlet yang belum ada"
-                  " MTU? Ketik saja: *'outlet yang belum ada MTU'*.",
+                  " MTU? Ketik saja: *'outlet yang belum ada MTU'* atau jawab"
+                  " *'boleh'*.haf",
               ]
               response_text = "\n".join(res_lines)
           else:
