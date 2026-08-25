@@ -10,10 +10,23 @@ st.set_page_config(
     page_title="Chatbot Universe SPV Happy", page_icon="🤖", layout="centered"
 )
 
-# --- CUSTOM CSS UNTUK MERAPIKAN TAMPILAN & UKURAN FONT ---
+# --- CUSTOM CSS: MERAPIKAN TAMPILAN & HILANGKAN FORK/HEADER STREAMLIT ---
 st.markdown(
     """
     <style>
+    /* Menyembunyikan Toolbar / Tombol Fork & GitHub bawaan Streamlit */
+    [data-testid="stToolbar"] {
+        display: none !important;
+    }
+    .stAppDeployButton {
+        display: none !important;
+    }
+    header {
+        visibility: hidden !important;
+        display: none !important;
+    }
+
+    /* Style Tampilan Chatbot */
     .stApp {
         background-color: #f8f9fa;
     }
