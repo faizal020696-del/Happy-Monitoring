@@ -435,30 +435,97 @@ try:
 
     with st.chat_message("assistant", avatar="🤖"):
       with st.spinner("Mengecek data..."):
+        response_text = ""
         if matched_spv_df is not None and not matched_spv_df.empty:
-          # (Logika SPV tetap sama, diringkas di sini)
-          pass
+          # Rekap SPV
+          total_outlets = len(matched_spv_df)
+          sales_list = (
+              matched_spv_df[reps_col].dropna().unique() if reps_col else []
+          )
+          response_text = (
+              f"### 📋 Rekap SPV: **{matched_spv_name}**\n\n- Total Outlet:"
+              f" **{total_outlets}**\n- Sales Reps: {', '.join(sales_list)}"
+          )
         elif matched_reps_df is not None and not matched_reps_df.empty:
-          # (Logika Sales Rep tetap sama, diringkas di sini)
-          pass
+          # Rekap Sales Rep
+          total_outlets = len(matched_reps_df)
+          spv_val = (
+              matched_spv_col_val
+              if (
+                  spv_col
+                  and not matched_reps_df[spv_col].dropna().empty
+                  and (
+                      matched_spv_col_val := matched_reps_df[spv_col]
+                      .dropna()
+                      .iloc[0]
+                  )
+              )
+              else "-"
+          )
+          response_text = (
+              f"### 👤 Rekap Sales Rep: **{matched_reps_name}**\n\n- SPV: **{spv_val}**"
+              f"\n- Total Outlet dipegang: **{total_outlets}**"
+          )
         elif target_row is not None:
           display_name = target_row.get(name_col, "Outlet Ditemukan")
           calculated_metrics = []
 
           if is_limit_query:
-            # (Logika limit)
-            pass
+            limit_cols = [
+                c
+                for c in raw_df.columns
+                if any(
+                    k in c.lower() for k in ["limit", "plafond", "sisa", "avail"]
+                )
+            ]
+            calculated_metrics.append(
+                f"### Informasi Limit untuk **{str(display_name).title()}**\n"
+            )
+            for col in limit_cols:
+              val = target_row.get(col, "-")
+              calculated_metrics.append(f"• **{col}**: {val}")
+            response_text = "\n".join(calculated_metrics)
+
           elif is_dpd_query:
-            # (Logika DPD)
-            pass
+            dpd_cols = [
+                c
+                for c in raw_df.columns
+                if any(k in c.lower() for k in ["dpd", "jatuh tempo", "overdue"])
+            ]
+            calculated_metrics.append(
+                f"### Informasi DPD/Jatuh Tempo untuk"
+                f" **{str(display_name).title()}**\n"
+            )
+            for col in dpd_cols:
+              val = target_row.get(col, "-")
+              calculated_metrics.append(f"• **{col}**: {val}")
+            response_text = "\n".join(calculated_metrics)
+
           elif is_visit_query:
-            # (Logika Visit)
-            pass
+            visit_cols = [
+                c
+                for c in raw_df.columns
+                if any(k in c.lower() for k in ["visit", "kunjungan"])
+            ]
+            calculated_metrics.append(
+                f"### Informasi Visit untuk **{str(display_name).title()}**\n"
+            )
+            for col in visit_cols:
+              val = target_row.get(col, "-")
+              calculated_metrics.append(f"• **{col}**: {val}")
+            response_text = "\n".join(calculated_metrics)
+
           elif is_wtu_query:
-            # (Logika WTU)
-            pass
+            wtu_cols = [c for c in raw_df.columns if "wtu" in c.lower()]
+            calculated_metrics.append(
+                f"### Informasi WTU untuk **{str(display_name).title()}**\n"
+            )
+            for col in wtu_cols:
+              val = target_row.get(col, "-")
+              calculated_metrics.append(f"• **{col}**: {val}")
+            response_text = "\n".join(calculated_metrics)
+
           elif is_first_trx_query:
-            # DIPERBAIKI: Mencari kolom transaksi pertama, mengabaikan kolom misi/campaign start date
             first_cols = [
                 c
                 for c in raw_df.columns
@@ -497,6 +564,7 @@ try:
                   "Data Transaksi Pertama untuk"
                   f" **{str(display_name).title()}** tidak ditemukan di sheet."
               )
+
           elif is_last_trx_query:
             last_cols = [
                 c
@@ -536,12 +604,37 @@ try:
                   "Data Transaksi Terakhir untuk"
                   f" **{str(display_name).title()}** tidak ditemukan di sheet."
               )
+
           elif is_mission_query:
-            # (Logika Misi)
-            pass
+            mission_cols = [
+                c
+                for c in raw_df.columns
+                if any(
+                    k in c.lower()
+                    for k in ["misi", "gold", "mission", "campaign"]
+                )
+            ]
+            calculated_metrics.append(
+                f"### Informasi Misi untuk **{str(display_name).title()}**\n"
+            )
+            for col in mission_cols:
+              val = target_row.get(col, "-")
+              calculated_metrics.append(f"• **{col}**: {val}")
+            response_text = "\n".join(calculated_metrics)
+
           else:
-            # (Logika Default / Bulanan & Mingguan)
-            pass
+            # Default / Tampilan umum outlet
+            calculated_metrics.append(
+                f"### Ringkasan Outlet: **{str(display_name).title()}**\n"
+            )
+            for col in raw_df.columns[:10]:  # Menampilkan beberapa kolom pertama
+              val = target_row.get(col, "-")
+              calculated_metrics.append(f"• **{col}**: {val}")
+            response_text = "\n".join(calculated_metrics)
+        else:
+          response_text = (
+              "Maaf, outlet atau data yang kamu cari tidak ditemukan."
+          )
 
         st.markdown(response_text)
 
