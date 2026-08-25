@@ -82,7 +82,7 @@ try:
     lines = csv_text.splitlines()
     
     header_idx = 0
-    for idx, line in enumerate(lines[:15]):
+    for idx, line in enumerate(lines[:25]):
         line_lower = line.lower()
         if ('w1' in line_lower or 'week 1' in line_lower or 'dpd' in line_lower or 'limit' in line_lower or 'gmv' in line_lower or 'cm' in line_lower or 'target' in line_lower or 'visit' in line_lower or 'misi' in line_lower or 'wtu' in line_lower) and ('name' in line_lower or 'nama' in line_lower or 'apotek' in line_lower or 'toko' in line_lower or 'sales' in line_lower or 'spv' in line_lower):
             header_idx = idx
@@ -185,10 +185,12 @@ try:
             if matched_spv_df is None or matched_spv_df.empty:
                 for s in unique_spvs:
                     s_clean = s.strip().lower()
-                    if s_clean and len(s_clean) > 2 and s_clean in prompt_lower:
-                        matched_spv_name = s
-                        matched_spv_df = raw_df[raw_df[spv_col].astype(str).str.strip().str.lower() == s_clean]
-                        break
+                    if s_clean and len(s_clean) > 2:
+                        parts = s_clean.split()
+                        if any(p in prompt_lower for p in parts if len(p) > 2):
+                            matched_spv_name = s
+                            matched_spv_df = raw_df[raw_df[spv_col].astype(str).str.strip().str.lower() == s_clean]
+                            break
 
         if matched_spv_df is None or matched_spv_df.empty:
             is_sales_query = 'reps' in prompt_lower or 'sales' in prompt_lower or 'pic' in prompt_lower
@@ -213,10 +215,12 @@ try:
                 if matched_reps_df is None or matched_reps_df.empty:
                     for r in unique_reps:
                         r_clean = r.strip().lower()
-                        if r_clean and len(r_clean) > 2 and r_clean in prompt_lower:
-                            matched_reps_name = r
-                            matched_reps_df = raw_df[raw_df[reps_col].astype(str).str.strip().str.lower() == r_clean]
-                            break
+                        if r_clean and len(r_clean) > 2:
+                            parts = r_clean.split()
+                            if any(p in prompt_lower for p in parts if len(p) > 2):
+                                matched_reps_name = r
+                                matched_reps_df = raw_df[raw_df[reps_col].astype(str).str.strip().str.lower() == r_clean]
+                                break
 
         if (matched_spv_df is None or matched_spv_df.empty) and (matched_reps_df is None or matched_reps_df.empty):
             id_match_prompt = re.search(r'\b(\d{4,6})\b', prompt)
