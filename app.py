@@ -146,7 +146,8 @@ try:
 
         is_limit_query = any(k in prompt_lower for k in ['limit', 'plafond', 'sisa', 'ssisa', 'avaiability', 'availability', 'avail']) and not weeks_requested
         is_mission_query = any(k in prompt_lower for k in ['misi', 'gold', 'mission', 'campaign', 'pencapaian misi']) and not weeks_requested
-        is_wtu_query = any(k in prompt_lower for k in ['wtu', 'visit', 'kunjungan']) and not weeks_requested
+        is_visit_query = any(k in prompt_lower for k in ['visit', 'kunjungan']) and not weeks_requested
+        is_wtu_query = any(k in prompt_lower for k in ['wtu']) and not weeks_requested
         is_dpd_query = any(k in prompt_lower for k in ['dpd', 'jatuh tempo', 'overdue']) and not weeks_requested
 
         command_words = {
@@ -371,6 +372,26 @@ try:
                             response_text = "\n".join(calculated_metrics)
                         else:
                             response_text = f"Data DPD untuk **{str(display_name).title()}** tidak ditemukan di sheet."
+                    elif is_visit_query:
+                        visit_cols = [c for c in raw_df.columns if 'visit' in c.lower() or 'kunjungan' in c.lower()]
+                        if visit_cols:
+                            calculated_metrics.append(f"### Data Visit untuk **{str(display_name).title()}**\n")
+                            for col in visit_cols:
+                                val_visit = target_row.get(col, "-")
+                                calculated_metrics.append(f"• **{col}**: {val_visit}")
+                            response_text = "\n".join(calculated_metrics)
+                        else:
+                            response_text = f"Data Visit untuk **{str(display_name).title()}** tidak ditemukan di sheet."
+                    elif is_wtu_query:
+                        wtu_cols = [c for c in raw_df.columns if 'wtu' in c.lower()]
+                        if wtu_cols:
+                            calculated_metrics.append(f"### Data WTU untuk **{str(display_name).title()}**\n")
+                            for col in wtu_cols:
+                                val_wtu = target_row.get(col, "-")
+                                calculated_metrics.append(f"• **{col}**: {val_wtu}")
+                            response_text = "\n".join(calculated_metrics)
+                        else:
+                            response_text = f"Data WTU untuk **{str(display_name).title()}** tidak ditemukan di sheet."
                     elif is_mission_query:
                         mission_cols = [c for c in raw_df.columns if any(term in c.lower() for term in ['misi', 'gold', 'mission', 'campaign'])]
                         if not mission_cols:
