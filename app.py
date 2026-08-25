@@ -336,7 +336,7 @@ try:
         "role": "assistant",
         "content": (
             "### Halo, Kawan! 👋\nAda data yang mau"
-            " dicek hari ini? tapi sebelum kita mulai boleh kali sapa2 HALO dulu dong ke gw hehe"
+            " dicek hari ini? Tapi sebelum kita mulai boleh kali sapa-sapa HALO dulu dong ke gw hehe"
         ),
     }]
 
@@ -351,7 +351,7 @@ try:
   if "awaiting_rep_name" not in st.session_state:
     st.session_state.awaiting_rep_name = False
 
-  # --- SIDEBAR PANEL (DIBUNGKUS KARTU BIAR RAPI & ELEGAN + INTERACTIVE FEATURES) ---
+  # --- SIDEBAR PANEL ---
   with st.sidebar:
     st.markdown("### 🎛️ Panel Kontrol SPV")
     st.markdown("---")
@@ -374,7 +374,6 @@ try:
 
     st.markdown("")
 
-    # --- FITUR TAMBAHAN: DROPDOWN FILTER CEPAT DI SIDEBAR ---
     with st.expander("🔍 Filter Cepat Scope", expanded=False):
       list_reps = (
           sorted(raw_df[reps_col].dropna().astype(str).unique().tolist())
@@ -392,7 +391,6 @@ try:
           st.success(f"Scope diatur ke Sales Rep: {selected_rep_sb}")
           st.rerun()
 
-    # --- TOMBOL PINTASAN CEPAT (QUICK ACTIONS) ---
     st.markdown("### ⚡ Pintasan Fitur")
     col_q1, col_q2 = st.columns(2)
     with col_q1:
@@ -420,7 +418,6 @@ try:
 
     st.markdown("---")
 
-    # Tombol Reset Sesi
     if st.button("🔄 Reset Sesi & Chat", use_container_width=True):
       st.session_state.messages = [{
           "role": "assistant",
@@ -446,7 +443,7 @@ try:
           "- Ketik *'belum ada mtu'"
       )
 
-  # --- BANNER HEADER UTAMA DI HALAMAN CHAT ---
+  # --- BANNER HEADER UTAMA ---
   st.markdown(
       """
       <div class="main-header">
@@ -507,7 +504,11 @@ try:
           if r_clean and (
               r_clean in prompt_lower
               or prompt_lower in r_clean
-              or any(p in prompt_lower or prompt_lower in p for p in r_clean.split() if len(p) > 2)
+              or any(
+                  p in prompt_lower or prompt_lower in p
+                  for p in r_clean.split()
+                  if len(p) > 2
+              )
           ):
             matched_rep = r
             break
@@ -519,7 +520,11 @@ try:
           if s_clean and (
               s_clean in prompt_lower
               or prompt_lower in s_clean
-              or any(p in prompt_lower or prompt_lower in p for p in s_clean.split() if len(p) > 2)
+              or any(
+                  p in prompt_lower or prompt_lower in p
+                  for p in s_clean.split()
+                  if len(p) > 2
+              )
           ):
             matched_spv = s
             break
@@ -578,9 +583,8 @@ try:
           "ok",
           "siap",
       ]
-      is_affirmative = (
-          len(prompt_lower.split()) <= 3
-          and any(w in prompt_lower for w in affirmative_words)
+      is_affirmative = len(prompt_lower.split()) <= 3 and any(
+          w in prompt_lower for w in affirmative_words
       )
 
       last_assistant_msg = ""
@@ -984,7 +988,7 @@ try:
                   f" {scope_name}*\n---",
               ]
               if is_detail_limit:
-                res_lines.append(f"#### 📋 Daftar Detail Limit Outlet:\n")
+                res_lines.append("#### 📋 Daftar Detail Limit Outlet:\n")
                 detail_limit_rows = []
                 for idx_o, (_, r) in enumerate(scope_df.iterrows(), 1):
                   if is_row_lead(r):
@@ -1126,9 +1130,7 @@ try:
                         f" style='color: #000000; font-weight:"
                         f" bold;'>{formatted_total_gmv}</span>\n"
                     ),
-                    (
-                        "#### 📋 Daftar Outlet yang Sudah Transaksi Hari Ini:"
-                    ),
+                    ("#### 📋 Daftar Outlet yang Sudah Transaksi Hari Ini:"),
                 ]
 
                 if daily_outlets:
@@ -1370,7 +1372,9 @@ try:
             )
         else:
           with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner(f"Mengecek daftar outlet belum transaksi di {target_week_label}..."):
+            with st.spinner(
+                f"Mengecek daftar outlet belum transaksi di {target_week_label}..."
+            ):
               untransacted_wtu = []
               for _, r in scope_df.iterrows():
                 if is_row_lead(r):
@@ -1474,7 +1478,9 @@ try:
         target_week_col = week_cols_map.get(w_key, None)
 
         with st.chat_message("assistant", avatar="🤖"):
-          with st.spinner(f"Mengecek daftar outlet belum transaksi di {w_key}..."):
+          with st.spinner(
+              f"Mengecek daftar outlet belum transaksi di {w_key}..."
+          ):
             untransacted_wtu = []
             if target_week_col:
               for _, r in scope_df.iterrows():
@@ -1564,7 +1570,11 @@ try:
               s_clean = s.strip().lower()
               if s_clean and len(s_clean) > 2:
                 parts = s_clean.split()
-                if any(p in prompt_lower or prompt_lower in p for p in parts if len(p) > 2):
+                if any(
+                    p in prompt_lower or prompt_lower in p
+                    for p in parts
+                    if len(p) > 2
+                ):
                   matched_spv_name = s
                   matched_spv_df = raw_df[
                       raw_df[spv_col].astype(str).str.strip().str.lower()
@@ -1609,7 +1619,11 @@ try:
                 r_clean = r.strip().lower()
                 if r_clean and len(r_clean) > 2:
                   parts = r_clean.split()
-                  if any(p in prompt_lower or prompt_lower in p for p in parts if len(p) > 2):
+                  if any(
+                      p in prompt_lower or prompt_lower in p
+                      for p in parts
+                      if len(p) > 2
+                  ):
                     matched_reps_name = r
                     matched_reps_df = raw_df[
                         raw_df[reps_col].astype(str).str.strip().str.lower()
@@ -1963,7 +1977,9 @@ try:
                         f" font-weight: bold;'>{formatted_val}</span>"
                     )
 
-                calculated_metrics.append("\n**📅 Performa Mingguan (W1 - W4):**")
+                calculated_metrics.append(
+                    "\n**📅 Performa Mingguan (W1 - W4):**"
+                )
                 for w in ["W1", "W2", "W3", "W4"]:
                   if w in week_cols_map:
                     col_name = week_cols_map[w]
@@ -2023,7 +2039,10 @@ try:
                         for term in ["limit", "plafond", "sisa", "avail"]
                     )
                 ]
-                is_detail_limit = any(k in prompt_lower for k in ["detail", "daftar", "list", "semua apotek"])
+                is_detail_limit = any(
+                    k in prompt_lower
+                    for k in ["detail", "daftar", "list", "semua apotek"]
+                )
                 if is_detail_limit and limit_cols:
                   calculated_metrics.append(
                       f"\n#### 📋 Daftar Detail Limit Outlet ({scope_name}):\n"
@@ -2034,8 +2053,14 @@ try:
                     for col in limit_cols:
                       val_parsed = parse_number_general(r.get(col, 0))
                       if val_parsed > 0:
-                        outlet_limit_strs.append(f"{col}: Rp {val_parsed:,.0f}".replace(",", "."))
-                    limit_desc = " | ".join(outlet_limit_strs) if outlet_limit_strs else "Limit: Rp 0"
+                        outlet_limit_strs.append(
+                            f"{col}: Rp {val_parsed:,.0f}".replace(",", ".")
+                        )
+                    limit_desc = (
+                        " | ".join(outlet_limit_strs)
+                        if outlet_limit_strs
+                        else "Limit: Rp 0"
+                    )
                     calculated_metrics.append(
                         f"**{idx_o}. {str(o_name).title()}**\n   * 💳 {limit_desc}\n"
                     )
@@ -2051,7 +2076,8 @@ try:
                         f" font-weight: bold;'>{formatted_val}</span>"
                     )
                   calculated_metrics.append(
-                      "\n#### 💡 Ingin melihat detail limit semua apotek? Ketik: *'detail limit semua apotek'*."
+                      "\n#### 💡 Ingin melihat detail limit semua apotek? Ketik:"
+                      " *'detail limit semua apotek'*."
                   )
               elif is_wtu_query:
                 calculated_metrics.append(
@@ -2183,7 +2209,10 @@ try:
                         for term in ["limit", "plafond", "sisa", "avail"]
                     )
                 ]
-                is_detail_limit = any(k in prompt_lower for k in ["detail", "daftar", "list", "semua apotek"])
+                is_detail_limit = any(
+                    k in prompt_lower
+                    for k in ["detail", "daftar", "list", "semua apotek"]
+                )
                 if is_detail_limit and limit_cols:
                   calculated_metrics.append(
                       f"\n#### 📋 Daftar Detail Limit Outlet ({scope_name}):\n"
@@ -2194,8 +2223,14 @@ try:
                     for col in limit_cols:
                       val_parsed = parse_number_general(r.get(col, 0))
                       if val_parsed > 0:
-                        outlet_limit_strs.append(f"{col}: Rp {val_parsed:,.0f}".replace(",", "."))
-                    limit_desc = " | ".join(outlet_limit_strs) if outlet_limit_strs else "Limit: Rp 0"
+                        outlet_limit_strs.append(
+                            f"{col}: Rp {val_parsed:,.0f}".replace(",", ".")
+                        )
+                    limit_desc = (
+                        " | ".join(outlet_limit_strs)
+                        if outlet_limit_strs
+                        else "Limit: Rp 0"
+                    )
                     calculated_metrics.append(
                         f"**{idx_o}. {str(o_name).title()}**\n   * 💳 {limit_desc}\n"
                     )
@@ -2211,7 +2246,8 @@ try:
                         f" font-weight: bold;'>{formatted_val}</span>"
                     )
                   calculated_metrics.append(
-                      "\n#### 💡 Ingin melihat detail limit semua apotek? Ketik: *'detail limit semua apotek'*."
+                      "\n#### 💡 Ingin melihat detail limit semua apotek? Ketik:"
+                      " *'detail limit semua apotek'*."
                   )
               elif is_wtu_query:
                 calculated_metrics.append(
