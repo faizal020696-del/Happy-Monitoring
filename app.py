@@ -278,12 +278,16 @@ try:
     ):
       weeks_requested.append("W4")
 
-    # PERBAIKAN: Deteksi kata negatif & transaksi lebih fleksibel (menangkap "bertransaksi")
+    # PERBAIKAN: Menangkap kata negatif, serta kata kunci transaksi/trx/wtu
     has_negative = any(
         k in prompt_lower for k in ["belum", "kosong", "nol", "tidak", "minus"]
     )
-    has_trx = any(k in prompt_lower for k in ["transaksi", "trx", "ambil"])
-    is_untransacted_query = has_negative and has_trx
+    has_trx_or_wtu = any(
+        k in prompt_lower for k in ["transaksi", "trx", "ambil", "wtu"]
+    )
+    is_untransacted_query = has_negative and (
+        has_trx_or_wtu or len(weeks_requested) > 0
+    )
 
     is_limit_query = (
         any(
@@ -400,7 +404,7 @@ try:
     matched_spv_df = None
     matched_spv_name = None
 
-    # --- KONDISI 1: JIKA QUERY "BELUM TRANSAKSI PER MINGGU" ---
+    # --- KONDISI 1: JIKA QUERY "BELUM TRANSAKSI PER MINGGU / WTU" ---
     if is_untransacted_query and weeks_requested:
       target_week = weeks_requested[0]
       col_target_week = week_cols_map.get(target_week)
