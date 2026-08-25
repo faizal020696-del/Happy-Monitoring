@@ -275,6 +275,12 @@ try:
         ),
     }]
 
+  # Inisialisasi session state untuk menyimpan konteks aktif terakhir
+  if "active_scope_type" not in st.session_state:
+    st.session_state.active_scope_type = None  # 'spv' atau 'reps' atau 'outlet'
+  if "active_scope_name" not in st.session_state:
+    st.session_state.active_scope_name = None
+
   for message in st.session_state.messages:
     avatar = "👤" if message["role"] == "user" else "🤖"
     with st.chat_message(message["role"], avatar=avatar):
@@ -314,7 +320,6 @@ try:
     )
     is_untransacted_query = has_negative and has_trx_or_wtu
 
-    # Deteksi query MTU atau outlet belum transaksi bulan ini (berdasarkan CM)
     is_mtu_query = (
         any(k in prompt_lower for k in ["mtu", "monthly transactional"])
         or (has_negative and ("mtu" in prompt_lower or "bulan ini" in prompt_lower))
@@ -458,6 +463,7 @@ try:
     matched_spv_name = None
 
     if is_cm_untransacted_query or is_mtu_query:
+      # 1. Cek apakah user menyebutkan SPV baru di prompt
       if spv_col:
         unique_spvs = raw_df[spv_col].dropna().astype(str).unique()
         for s in unique_spvs:
@@ -469,6 +475,7 @@ try:
             ]
             break
 
+      # 2. Cek apakah user menyebutkan Sales Rep baru di prompt
       if reps_col and (matched_spv_df is None or matched_spv_df.empty):
         unique_reps = raw_df[reps_col].dropna().astype(str).unique()
         for r in unique_reps:
@@ -480,14 +487,38 @@ try:
             ]
             break
 
+      # 3. KUNCI UTAMA: Jika tidak disebut nama baru, tarik dari CONTEXT / MEMORY aktif sebelumnya!
+      if (
+          (matched_spv_df is None or matched_spv_df.empty)
+          and (matched_reps_df is None or matched_reps_df.empty)
+          and st.session_state.active_scope_name
+      ):
+        if st.session_state.active_scope_type == "spv":
+          matched_spv_name = st.session_state.active_scope_name
+          matched_spv_df = raw_df[
+              raw_df[spv_col].astype(str).str.strip().str.lower()
+              == str(matched_spv_name).strip().lower()
+          ]
+        elif st.session_state.active_scope_type == "reps":
+          matched_reps_name = st.session_state.active_scope_name
+          matched_reps_df = raw_df[
+              raw_df[reps_col].astype(str).str.strip().str.lower()
+              == str(matched_reps_name).strip().lower()
+          ]
+
+      # Tentukan scope akhir
       scope_df = raw_df
       scope_name = "Semua Area"
       if matched_spv_df is not None and not matched_spv_df.empty:
         scope_df = matched_spv_df
         scope_name = f"SPV {str(matched_spv_name).title()}"
+        st.session_state.active_scope_type = "spv"
+        st.session_state.active_scope_name = matched_spv_name
       elif matched_reps_df is not None and not matched_reps_df.empty:
         scope_df = matched_reps_df
         scope_name = f"Sales Rep {str(matched_reps_name).title()}"
+        st.session_state.active_scope_type = "reps"
+        st.session_state.active_scope_name = matched_reps_name
 
       mtu_outlets = []
       untransacted_cm_outlets = []
@@ -517,15 +548,17 @@ try:
           if val_cm > 0:
             mtu_outlets.append((out_name_str, out_sales, val_cm))
           else:
-            untransacted_cm_outlets.append((out_name_str, out_sales, val_cm, val_avg))
+            untransacted_cm_outlets.append(
+                (out_name_str, out_sales, val_cm, val_avg)
+            )
 
       with st.chat_message("assistant", avatar="🤖"):
         with st.spinner("Mengecek data MTU dan outlet bulan ini..."):
           if cm_col:
-            # Jika user spesifik nanya yang belum transaksi / belum ada MTU
             if has_negative or "belum" in prompt_lower:
               res_lines = [
-                  f"### 📋 Daftar Outlet Belum Ada MTU / Belum Transaksi Bulan Ini (CM = 0)\n*Lingkup: {scope_name}*"
+                  f"### 📋 Daftar Outlet Belum Ada MTU / Belum Transaksi Bulan"
+                  f" Ini (CM = 0)\n*Lingkup: {scope_name}*"
               ]
               res_lines.append(
                   f"---\n**Total Outlet Belum Transaksi:**"
@@ -553,11 +586,11 @@ try:
                   )
               else:
                 res_lines.append(
-                    "🔥 **Luar Biasa!** Semua outlet aktif sudah tercatat transaksi di bulan ini."
+                    "🔥 **Luar Biasa!** Semua outlet aktif sudah tercatat"
+                    " transaksi di bulan ini."
                 )
               response_text = "\n".join(res_lines)
             else:
-              # Ringkasan MTU secara keseluruhan
               total_mtu_count = len(mtu_outlets)
               total_mtu_gmv = sum(item[2] for item in mtu_outlets)
               formatted_total_gmv = f"Rp {total_mtu_gmv:,.0f}".replace(",", ".")
@@ -567,131 +600,12 @@ try:
                   f"- **Total Outlet MTU (Sudah Transaksi)**: <span style='color: #000000; font-weight: bold;'>{total_mtu_count} outlet</span>",
                   f"- **Total Akumulasi GMV CM**: <span style='color: #000000; font-weight: bold;'>{formatted_total_gmv}</span>",
                   f"- **Total Outlet Belum MTU (CM = 0)**: <span style='color: #000000; font-weight: bold;'>{len(untransacted_cm_outlets)} outlet</span>\n",
-                  "#### 💡 Ingin melihat daftar detail outlet yang belum ada MTU? Ketik saja: *'outlet yang belum ada MTU'*."
+                  "#### 💡 Ingin melihat daftar detail outlet yang belum ada"
+                  " MTU? Ketik saja: *'outlet yang belum ada MTU'*.",
               ]
               response_text = "\n".join(res_lines)
           else:
             response_text = "Kolom **CM** (Current Month) tidak ditemukan di sheet."
-
-          st.markdown(response_text, unsafe_allow_html=True)
-          st.session_state.messages.append(
-              {"role": "assistant", "content": response_text}
-          )
-
-    elif is_untransacted_query and weeks_requested:
-      target_week = weeks_requested[0]
-      col_target_week = week_cols_map.get(target_week)
-
-      if spv_col:
-        unique_spvs = raw_df[spv_col].dropna().astype(str).unique()
-        for s in unique_spvs:
-          s_clean = s.strip().lower()
-          if s_clean and s_clean in prompt_lower:
-            matched_spv_name = s
-            matched_spv_df = raw_df[
-                raw_df[spv_col].astype(str).str.strip().str.lower() == s_clean
-            ]
-            break
-
-      if reps_col and (matched_spv_df is None or matched_spv_df.empty):
-        unique_reps = raw_df[reps_col].dropna().astype(str).unique()
-        for r in unique_reps:
-          r_clean = r.strip().lower()
-          if r_clean and r_clean in prompt_lower:
-            matched_reps_name = r
-            matched_reps_df = raw_df[
-                raw_df[reps_col].astype(str).str.strip().str.lower() == r_clean
-            ]
-            break
-
-      scope_df = raw_df
-      scope_name = "Semua Area"
-      if matched_spv_df is not None and not matched_spv_df.empty:
-        scope_df = matched_spv_df
-        scope_name = f"SPV {str(matched_spv_name).title()}"
-      elif matched_reps_df is not None and not matched_reps_df.empty:
-        scope_df = matched_reps_df
-        scope_name = f"Sales Rep {str(matched_reps_name).title()}"
-
-      untransacted_outlets = []
-      if col_target_week:
-        for _, r in scope_df.iterrows():
-          if is_row_lead(r):
-            continue
-
-          out_name = r.get(name_col, None)
-          if pd.isna(out_name):
-            continue
-
-          out_name_str = str(out_name).strip()
-          if not out_name_str or out_name_str.lower() in [
-              "nan",
-              "none",
-              "-",
-              "",
-              "nat",
-          ]:
-            continue
-
-          val_tx = parse_number_transaction(r.get(col_target_week, 0))
-          if val_tx == 0:
-            out_sales = r.get(reps_col, "-") if reps_col else "-"
-
-            history = {}
-            for w_key, w_colname in week_cols_map.items():
-              history[w_key] = parse_number_transaction(r.get(w_colname, 0))
-
-            untransacted_outlets.append((out_name_str, out_sales, history))
-
-      with st.chat_message("assistant", avatar="🤖"):
-        with st.spinner("Mengecek data outlet belum transaksi & histori..."):
-          if col_target_week:
-            res_lines = [
-                f"### 📋 Daftar Outlet Belum Transaksi di"
-                f" **{target_week}**\n*Lingkup: {scope_name}*"
-            ]
-            res_lines.append(
-                f"---\n**Total Outlet Belum Transaksi:**"
-                f" **{len(untransacted_outlets)} outlet** *(Lead"
-                " disingkirkan)*\n"
-            )
-            if untransacted_outlets:
-              for idx_out, (o_name, o_sales, o_hist) in enumerate(
-                  untransacted_outlets, 1
-              ):
-                hist_str_parts = []
-                for w_label in ["W1", "W2", "W3", "W4"]:
-                  if w_label in o_hist:
-                    val_h = o_hist[w_label]
-                    formatted_val = (
-                        f"Rp {val_h:,.0f}".replace(",", ".")
-                        if val_h > 0
-                        else "Rp 0"
-                    )
-                    hist_str_parts.append(
-                        f"**{w_label}**: <span style='color: #000000;"
-                        f" font-weight: bold;'>{formatted_val}</span>"
-                    )
-                hist_joined = " | ".join(hist_str_parts)
-
-                res_lines.append(
-                    f"**{idx_out}. {str(o_name).title()}**\n"
-                    "   * 👤 Sales:"
-                    f" <span style='color: #000000; font-weight:"
-                    f" bold;'>{o_sales}</span>\n"
-                    f"   * 📊 Histori: {hist_joined}\n"
-                )
-            else:
-              res_lines.append(
-                  "🔥 **Mantap!** Semua outlet aktif sudah ada transaksi di"
-                  " minggu ini."
-              )
-            response_text = "\n".join(res_lines)
-          else:
-            response_text = (
-                f"Kolom untuk minggu **{target_week}** tidak ditemukan di"
-                " sheet."
-            )
 
           st.markdown(response_text, unsafe_allow_html=True)
           st.session_state.messages.append(
@@ -857,6 +771,9 @@ try:
       with st.chat_message("assistant", avatar="🤖"):
         with st.spinner("Mengecek data..."):
           if matched_spv_df is not None and not matched_spv_df.empty:
+            st.session_state.active_scope_type = "spv"
+            st.session_state.active_scope_name = matched_spv_name
+
             active_spv_df = matched_spv_df[
                 ~matched_spv_df.apply(is_row_lead, axis=1)
             ]
@@ -954,6 +871,9 @@ try:
             response_text = "\n".join(calculated_metrics)
 
           elif matched_reps_df is not None and not matched_reps_df.empty:
+            st.session_state.active_scope_type = "reps"
+            st.session_state.active_scope_name = matched_reps_name
+
             active_reps_df = matched_reps_df[
                 ~matched_reps_df.apply(is_row_lead, axis=1)
             ]
