@@ -336,7 +336,7 @@ try:
         "role": "assistant",
         "content": (
             "### Halo, Kawan! 👋\nAda data yang mau"
-            " dicek hari ini? tapi sebelumnya kita mulai boleh kali sapa2 HALO dulu dong ke gw hehe"
+            " dicek hari ini? tapi sebelum kita mulai boleh kali sapa2 HALO dulu dong ke gw hehe"
         ),
     }]
 
