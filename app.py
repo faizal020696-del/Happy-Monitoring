@@ -533,7 +533,7 @@ try:
               )
           elif is_wtu_query:
             calculated_metrics.append(
-                "\n**📅 Total Performa Per Week (Mingguan & Jumlah Outlet"
+                "\n**📅 Total Performa WTU Per Week (Mingguan & Jumlah Outlet"
                 " Transaksi):**"
             )
             for w in ["W1", "W2", "W3", "W4"]:
@@ -653,7 +653,7 @@ try:
               )
           elif is_wtu_query:
             calculated_metrics.append(
-                "\n**📅 Total Performa Per Week (Mingguan & Jumlah Outlet"
+                "\n**📅 Total Performa WTU Per Week (Mingguan & Jumlah Outlet"
                 " Transaksi):**"
             )
             for w in ["W1", "W2", "W3", "W4"]:
@@ -787,57 +787,11 @@ try:
                   " ditemukan di sheet."
               )
           elif is_wtu_query:
+            # Khusus WTU: Tampilkan hanya data mingguan (W1-W4) saja
             calculated_metrics.append(
                 f"### Data Performa WTU / Mingguan untuk"
                 f" **{str(display_name).title()}**"
             )
-
-            cm_col = next(
-                (c for c in raw_df.columns if c.strip().lower() == "cm"), None
-            )
-            lm_col = next(
-                (c for c in raw_df.columns if c.strip().lower() == "lm"), None
-            )
-            l2m_col = next(
-                (c for c in raw_df.columns if c.strip().lower() == "l2m"), None
-            )
-            l3m_col = next(
-                (c for c in raw_df.columns if c.strip().lower() == "l3m"), None
-            )
-            avg_col = next(
-                (
-                    c
-                    for c in raw_df.columns
-                    if ("average" in c.lower() or "avg" in c.lower())
-                    and "l3m" in c.lower()
-                ),
-                None,
-            )
-            if not avg_col:
-              avg_col = next(
-                  (
-                      c
-                      for c in raw_df.columns
-                      if "average" in c.lower() or "avg" in c.lower()
-                  ),
-                  None,
-              )
-
-            calculated_metrics.append("**📊 Performa Bulanan:**")
-            target_cols_gmv = [
-                ("CM (Bulan Ini)", cm_col),
-                ("LM (Bulan Lalu)", lm_col),
-                ("L2M", l2m_col),
-                ("L3M", l3m_col),
-                ("Average / AVG L3M", avg_col),
-            ]
-            for label, col in target_cols_gmv:
-              if col:
-                val_parsed = parse_number_general(target_row.get(col, 0))
-                calculated_metrics.append(
-                    f"• **{label}**: Rp {val_parsed:,.0f}".replace(",", ".")
-                )
-
             calculated_metrics.append("\n**📅 Performa Per Week (Mingguan):**")
             for w in ["W1", "W2", "W3", "W4"]:
               if w in week_cols_map:
