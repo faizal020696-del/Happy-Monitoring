@@ -447,13 +447,15 @@ try:
           if is_row_lead(r):
             continue
 
-          # PENGAMAN AGAR 'NaN' / KOSONG TIDAK MASUK KE LIST
+          # --- FILTER PENGAMAN KETAT MENGHAPUS 'NaN' / KOSONG ---
           out_name = r.get(name_col, None)
-          if (
-              pd.isna(out_name)
-              or str(out_name).strip().lower() in ["nan", "", "none", "-"]
-          ):
+          if pd.isna(out_name):
             continue
+          
+          out_name_str = str(out_name).strip()
+          if not out_name_str or out_name_str.lower() in ["nan", "none", "-", "", "nat"]:
+            continue
+          # ---------------------------------------------------
 
           val_tx = parse_number_transaction(r.get(col_target_week, 0))
           if val_tx == 0:
@@ -463,7 +465,7 @@ try:
             for w_key, w_colname in week_cols_map.items():
               history[w_key] = parse_number_transaction(r.get(w_colname, 0))
 
-            untransacted_outlets.append((out_name, out_sales, history))
+            untransacted_outlets.append((out_name_str, out_sales, history))
 
       with st.chat_message("assistant", avatar="🤖"):
         with st.spinner("Mengecek data outlet belum transaksi & histori..."):
