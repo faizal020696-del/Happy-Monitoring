@@ -284,7 +284,6 @@ try:
 
     prompt_lower = prompt.lower()
 
-    # DETEKSI PERSETUJUAN (affirmative words)
     affirmative_words = [
         "boleh",
         "mau",
@@ -301,7 +300,6 @@ try:
         and any(w in prompt_lower for w in affirmative_words)
     )
 
-    # Cek pesan asisten terakhir
     last_assistant_msg = ""
     for m in reversed(st.session_state.messages[:-1]):
       if m["role"] == "assistant":
@@ -313,13 +311,14 @@ try:
         or "belum mtu" in last_assistant_msg
     )
 
-    # Deteksi persetujuan khusus WTU / Belum Transaksi Mingguan
+    # Deteksi persetujuan untuk WTU / Belum Transaksi Mingguan
     is_agreeing_to_wtu_untransacted = is_affirmative and (
         "wtu" in last_assistant_msg
         or "minggu" in last_assistant_msg
         or "transaksi mingguan" in last_assistant_msg
     )
 
+    # Cek minggu apa saja yang diminta user di prompt
     weeks_requested = []
     if re.search(
         r"\b(w1|week\s*1|week1|minggu\s*1|minggu1|ke\s*1)\b", prompt_lower
@@ -669,17 +668,91 @@ try:
             == str(st.session_state.active_scope_name).strip().lower()
         ]
 
-      # Cek minggu mana yang disebut di pesan asisten sebelumnya, atau default ke W1-W4
+      # Cek apakah user juga menyebutkan minggu tertentu pas jawab "boleh" (misal: "boleh w2" atau "boleh minggu 3")
       target_week_col = None
-      target_week_label = "W1"
+      target_week_label = None
+
       for w_key, col_val in week_cols_map.items():
-        if w_key.lower() in last_assistant_msg:
-          target_week_col = col_val
-          target_week_label = w_key
-          break
+        if w_key.lower() in prompt_lower or w_key.lower() in last_assistant_msg:
+          # Cek jika user spesifik ketik minggu di prompt sekarang
+          if w_key.lower() in prompt_lower:
+            target_week_col = col_val
+            target_week_label = w_key
+            break
+
+      # Jika user cuma ketik "boleh" doang tanpa nyebut minggu di pesannya saat ini, kita tanyain balik pilihan minggunya!
+      if not target_week_col:
+        with st.chat_message("assistant", avatar="🤖"):
+          response_text = (
+              "### 📅 Pilih Minggu WTU\n"
+              f"*Lingkup: {scope_name}*\n---\n"
+              "Mau cek daftar outlet belum transaksi di minggu ke berapa, bro?\n\n"
+              "Silakan ketik pilihan minggunya:\n"
+              "* **'W1'** atau **'Minggu 1'**\n"
+              "* **'W2'** atau **'Minggu 2'**\n"
+              "* **'W3'** atau **'Minggu 3'**\n"
+              "* **'W4'** atau **'Minggu 4'**"
+          )
+          st.markdown(response_text, unsafe_allow_html=True)
+          st.session_state.messages.append(
+              {"role": "assistant", "content": response_text}
+          )
+      else:
+        with st.chat_message("assistant", avatar="🤖"):
+          with st.spinner(f"Mengecek daftar outlet belum transaksi di {target_week_label}..."):
+            untransacted_wtu = []
+            for _, r in scope_df.iterrows():
+              if is_row_lead(r):
+                continue
+              out_name = r.get(name_col, "")
+              if pd.isna(out_name) or not str(out_name).strip():
+                continue
+              val_w = parse_number_transaction(r.get(target_week_col, 0))
+              if val_w == 0:
+                out_sales = r.get(reps_col, "-") if reps_col else "-"
+                untransacted_wtu.append((str(out_name).strip(), out_sales))
+
+            res_lines = [
+                f"### 📋 Daftar Outlet Belum Transaksi di **{target_week_label}**\n*Lingkup: {scope_name}*\n---",
+                f"**Total Outlet Belum Transaksi:** **{len(untransacted_wtu)} outlet** *(Lead disingkirkan)*\n",
+            ]
+            if untransacted_wtu:
+              for idx_w, (o_name, o_sales) in enumerate(untransacted_wtu, 1):
+                res_lines.append(
+                    f"**{idx_w}. {o_name.title()}**\n"
+                    f"   * 👤 Sales: <span style='color: #000000; font-weight: bold;'>{o_sales}</span>"
+                )
+            else:
+              res_lines.append("🔥 Mantap! Semua outlet sudah ada transaksi di minggu ini.")
+
+            response_text = "\n".join(res_lines)
+            st.markdown(response_text, unsafe_allow_html=True)
+            st.session_state.messages.append(
+                {"role": "assistant", "content": response_text}
+            )
+
+    elif weeks_requested:
+      # Jika user langsung ngetik "w2" atau "minggu 3" tanpa kata "boleh" sebelumnya
+      scope_df = raw_df
+      scope_name = "Semua Area"
+      if st.session_state.active_scope_type == "spv" and st.session_state.active_scope_name:
+        scope_name = f"SPV {str(st.session_state.active_scope_name).title()}"
+        scope_df = raw_df[
+            raw_df[spv_col].astype(str).str.strip().str.lower()
+            == str(st.session_state.active_scope_name).strip().lower()
+        ]
+      elif st.session_state.active_scope_type == "reps" and st.session_state.active_scope_name:
+        scope_name = f"Sales Rep {str(st.session_state.active_scope_name).title()}"
+        scope_df = raw_df[
+            raw_df[reps_col].astype(str).str.strip().str.lower()
+            == str(st.session_state.active_scope_name).strip().lower()
+        ]
+
+      w_key = weeks_requested[0]
+      target_week_col = week_cols_map.get(w_key, None)
 
       with st.chat_message("assistant", avatar="🤖"):
-        with st.spinner(f"Mengecek daftar outlet belum transaksi di {target_week_label}..."):
+        with st.spinner(f"Mengecek daftar outlet belum transaksi di {w_key}..."):
           untransacted_wtu = []
           if target_week_col:
             for _, r in scope_df.iterrows():
@@ -694,7 +767,7 @@ try:
                 untransacted_wtu.append((str(out_name).strip(), out_sales))
 
           res_lines = [
-              f"### 📋 Daftar Outlet Belum Transaksi di **{target_week_label}**\n*Lingkup: {scope_name}*\n---",
+              f"### 📋 Daftar Outlet Belum Transaksi di **{w_key}**\n*Lingkup: {scope_name}*\n---",
               f"**Total Outlet Belum Transaksi:** **{len(untransacted_wtu)} outlet** *(Lead disingkirkan)*\n",
           ]
           if untransacted_wtu:
