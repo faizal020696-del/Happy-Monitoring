@@ -1012,26 +1012,66 @@ try:
 
       elif matched_spv_df is not None and not matched_spv_df.empty:
         spv_name_display = str(matched_spv_name).title()
-        total_outlets = len(matched_spv_df[~matched_spv_df.apply(is_row_lead, axis=1)])
-        res_lines = [
-            f"### 👔 Ringkasan SPV: {spv_name_display}",
-            f"*Total Outlet Aktif: **{total_outlets}***\n---",
-            "Silakan tanyakan detail spesifik seperti outlet yang belum transaksi, pencapaian CM, atau laporan mingguan.",
-        ]
+        active_df = matched_spv_df[~matched_spv_df.apply(is_row_lead, axis=1)]
+        total_outlets = len(active_df)
+        
+        total_cm = 0
+        if cm_col:
+          for _, r in active_df.iterrows():
+            total_cm += parse_number_general(r.get(cm_col, 0))
+        formatted_cm = f"Rp {total_cm:,.0f}".replace(",", ".")
+
+        if any(k in prompt_lower for k in ["wtu", "w1", "w2", "w3", "w4", "minggu"]):
+          res_lines = [
+              f"### 📊 Rangkuman WTU SPV: {spv_name_display}",
+              f"*Total Outlet Aktif: **{total_outlets}** | Total CM: **{formatted_cm}***\n---",
+          ]
+          for wk, col_w in week_cols_map.items():
+            tot_w = sum(parse_number_transaction(r.get(col_w, 0)) for _, r in active_df.iterrows())
+            res_lines.append(f"- **{wk}**: Rp {tot_w:,.0f}".replace(",", "."))
+        else:
+          res_lines = [
+              f"### 👔 Ringkasan SPV: {spv_name_display}",
+              f"*Total Outlet Aktif: **{total_outlets}** | Total CM/GMV: **{formatted_cm}***\n---",
+              "Silakan tanyakan detail spesifik seperti outlet yang belum transaksi, pencapaian CM, atau laporan mingguan.",
+          ]
+
         response_text = "\n".join(res_lines)
+        st.session_state.active_scope_type = "spv"
+        st.session_state.active_scope_name = matched_spv_name
         with st.chat_message("assistant", avatar="🤖"):
           st.markdown(response_text, unsafe_allow_html=True)
           st.session_state.messages.append({"role": "assistant", "content": response_text})
 
       elif matched_reps_df is not None and not matched_reps_df.empty:
         reps_name_display = str(matched_reps_name).title()
-        total_outlets = len(matched_reps_df[~matched_reps_df.apply(is_row_lead, axis=1)])
-        res_lines = [
-            f"### 👤 Ringkasan Sales Rep: {reps_name_display}",
-            f"*Total Outlet Aktif: **{total_outlets}***\n---",
-            "Silakan tanyakan daftar outlet atau pencapaian dari sales rep ini.",
-        ]
+        active_df = matched_reps_df[~matched_reps_df.apply(is_row_lead, axis=1)]
+        total_outlets = len(active_df)
+        
+        total_cm = 0
+        if cm_col:
+          for _, r in active_df.iterrows():
+            total_cm += parse_number_general(r.get(cm_col, 0))
+        formatted_cm = f"Rp {total_cm:,.0f}".replace(",", ".")
+
+        if any(k in prompt_lower for k in ["wtu", "w1", "w2", "w3", "w4", "minggu"]):
+          res_lines = [
+              f"### 📊 Rangkuman WTU Sales Rep: {reps_name_display}",
+              f"*Total Outlet Aktif: **{total_outlets}** | Total CM: **{formatted_cm}***\n---",
+          ]
+          for wk, col_w in week_cols_map.items():
+            tot_w = sum(parse_number_transaction(r.get(col_w, 0)) for _, r in active_df.iterrows())
+            res_lines.append(f"- **{wk}**: Rp {tot_w:,.0f}".replace(",", "."))
+        else:
+          res_lines = [
+              f"### 👤 Ringkasan Sales Rep: {reps_name_display}",
+              f"*Total Outlet Aktif: **{total_outlets}** | Total CM/GMV: **{formatted_cm}***\n---",
+              "Silakan tanyakan daftar outlet, pencapaian mingguan (W1-W4), atau data WTU sales ini.",
+          ]
+
         response_text = "\n".join(res_lines)
+        st.session_state.active_scope_type = "reps"
+        st.session_state.active_scope_name = matched_reps_name
         with st.chat_message("assistant", avatar="🤖"):
           st.markdown(response_text, unsafe_allow_html=True)
           st.session_state.messages.append({"role": "assistant", "content": response_text})
