@@ -703,7 +703,15 @@ try:
               val_w = parse_number_transaction(r.get(target_week_col, 0))
               if val_w == 0:
                 out_sales = r.get(reps_col, "-") if reps_col else "-"
-                untransacted_wtu.append((str(out_name).strip(), out_sales))
+                w_vals = {}
+                for wk in ["W1", "W2", "W3", "W4"]:
+                  if wk in week_cols_map:
+                    w_vals[wk] = parse_number_transaction(
+                        r.get(week_cols_map[wk], 0)
+                    )
+                  else:
+                    w_vals[wk] = 0.0
+                untransacted_wtu.append((str(out_name).strip(), out_sales, w_vals))
 
             res_lines = [
                 f"### 📋 Daftar Outlet Belum Transaksi di **{target_week_label}**",
@@ -714,10 +722,16 @@ try:
                 ),
             ]
             if untransacted_wtu:
-              for idx_w, (o_name, o_sales) in enumerate(untransacted_wtu, 1):
+              for idx_w, (o_name, o_sales, w_vals) in enumerate(
+                  untransacted_wtu, 1
+              ):
+                hist_str = f"W1: Rp {w_vals.get('W1', 0):,.0f} | W2: Rp {w_vals.get('W2', 0):,.0f} | W3: Rp {w_vals.get('W3', 0):,.0f} | W4: Rp {w_vals.get('W4', 0):,.0f}".replace(
+                    ",", "."
+                )
                 res_lines.append(
                     f"**{idx_w}. {o_name.title()}**\n"
-                    f"   * 👤 Sales: <span style='color: #000000; font-weight: bold;'>{o_sales}</span>"
+                    f"   * 👤 Sales: <span style='color: #000000; font-weight: bold;'>{o_sales}</span>\n"
+                    f"   * 📊 Histori: {hist_str}"
                 )
             else:
               res_lines.append(
@@ -762,7 +776,15 @@ try:
               val_w = parse_number_transaction(r.get(target_week_col, 0))
               if val_w == 0:
                 out_sales = r.get(reps_col, "-") if reps_col else "-"
-                untransacted_wtu.append((str(out_name).strip(), out_sales))
+                w_vals = {}
+                for wk in ["W1", "W2", "W3", "W4"]:
+                  if wk in week_cols_map:
+                    w_vals[wk] = parse_number_transaction(
+                        r.get(week_cols_map[wk], 0)
+                    )
+                  else:
+                    w_vals[wk] = 0.0
+                untransacted_wtu.append((str(out_name).strip(), out_sales, w_vals))
 
           res_lines = [
               f"### 📋 Daftar Outlet Belum Transaksi di **{w_key}**",
@@ -773,10 +795,16 @@ try:
               ),
           ]
           if untransacted_wtu:
-            for idx_w, (o_name, o_sales) in enumerate(untransacted_wtu, 1):
+            for idx_w, (o_name, o_sales, w_vals) in enumerate(
+                untransacted_wtu, 1
+            ):
+              hist_str = f"W1: Rp {w_vals.get('W1', 0):,.0f} | W2: Rp {w_vals.get('W2', 0):,.0f} | W3: Rp {w_vals.get('W3', 0):,.0f} | W4: Rp {w_vals.get('W4', 0):,.0f}".replace(
+                  ",", "."
+              )
               res_lines.append(
                   f"**{idx_w}. {o_name.title()}**\n"
-                  f"   * 👤 Sales: <span style='color: #000000; font-weight: bold;'>{o_sales}</span>"
+                  f"   * 👤 Sales: <span style='color: #000000; font-weight: bold;'>{o_sales}</span>\n"
+                  f"   * 📊 Histori: {hist_str}"
               )
           else:
             res_lines.append(
