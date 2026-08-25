@@ -149,13 +149,14 @@ try:
         is_visit_query = any(k in prompt_lower for k in ['visit', 'kunjungan']) and not weeks_requested
         is_wtu_query = any(k in prompt_lower for k in ['wtu']) and not weeks_requested
         is_dpd_query = any(k in prompt_lower for k in ['dpd', 'jatuh tempo', 'overdue']) and not weeks_requested
+        is_trx_date_query = any(k in prompt_lower for k in ['trx date', 'tanggal transaksi', '1st trx', 'last trx', 'transaksi terakhir', 'transaksi pertama'])
 
         command_words = {
             'cek', 'data', 'id', 'berapa', 'total', 'jumlah', 'w1', 'w2', 'w3', 'w4', 
             'transaksi', 'tolong', 'visit', 'kunjungan', 'misi', 'gold', 'mission',
             'campaign', 'type', 'start', 'date', 'duration', 'target', 'level', 'gmv', 
             'ppn', 'gap', 'hna', 'pencapaian', 'kekurangan', 'info', 'apotek', 'toko', 'wtu',
-            'sisa', 'limit', 'avg', 'l3m', 'reps', 'sales', 'pic', 'bulan', 'ini', 'dpd', 'plafond', 'spv', 'jatuh', 'tempo'
+            'sisa', 'limit', 'avg', 'l3m', 'reps', 'sales', 'pic', 'bulan', 'ini', 'dpd', 'plafond', 'spv', 'jatuh', 'tempo', '1st', 'last'
         }
 
         target_row = None
@@ -396,6 +397,19 @@ try:
                             response_text = "\n".join(calculated_metrics)
                         else:
                             response_text = f"Data WTU untuk **{str(display_name).title()}** tidak ditemukan di sheet."
+                    elif is_trx_date_query:
+                        trx_date_cols = [c for c in raw_df.columns if 'trx date' in c.lower() or 'transaksi' in c.lower() and ('date' in c.lower() or 'tanggal' in c.lower()) or '1st' in c.lower() or 'last' in c.lower()]
+                        if not trx_date_cols:
+                            trx_date_cols = [c for c in raw_df.columns if 'date' in c.lower()]
+                            
+                        if trx_date_cols:
+                            calculated_metrics.append(f"### Tanggal Transaksi untuk **{str(display_name).title()}**\n")
+                            for col in trx_date_cols:
+                                val_date = target_row.get(col, "-")
+                                calculated_metrics.append(f"• **{col}**: {val_date}")
+                            response_text = "\n".join(calculated_metrics)
+                        else:
+                            response_text = f"Data Tanggal Transaksi untuk **{str(display_name).title()}** tidak ditemukan di sheet."
                     elif is_mission_query:
                         mission_cols = [c for c in raw_df.columns if any(term in c.lower() for term in ['misi', 'gold', 'mission', 'campaign'])]
                         if not mission_cols:
@@ -488,6 +502,13 @@ try:
                                 val_raw = target_row.get(col_name, 0)
                                 val_parsed = parse_number_transaction(val_raw)
                                 calculated_metrics.append(f"• **{w}**: Rp {val_parsed:,.0f}".replace(",", "."))
+
+                        trx_date_cols = [c for c in raw_df.columns if '1st trx date' in c.lower() or 'last trx date' in c.lower()]
+                        if trx_date_cols:
+                            calculated_metrics.append("\n**🕒 Tanggal Transaksi:**")
+                            for col in trx_date_cols:
+                                val_date = target_row.get(col, "-")
+                                calculated_metrics.append(f"• **{col}**: {val_date}")
 
                         response_text = f"Data untuk **{str(display_name).title()}**:\n\n" + "\n".join(calculated_metrics)
                 else:
