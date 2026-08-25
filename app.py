@@ -10,7 +10,7 @@ st.set_page_config(
     page_title="Chatbot Universe SPV Happy", page_icon="🤖", layout="centered"
 )
 
-# --- CUSTOM CSS UNTUK MEMPERCANTIK TAMPILAN ---
+# --- CUSTOM CSS UNTUK MERAPIKAN TAMPILAN & UKURAN FONT ---
 st.markdown(
     """
     <style>
@@ -32,9 +32,19 @@ st.markdown(
         margin-bottom: 0.8rem;
     }
     
-    /* Judul atau header kecil dalam chat */
-    h3, h4 {
+    /* Membatasi ukuran font judul di dalam chat agar tidak terlalu jomplang */
+    .stChatMessage h3 {
+        font-size: 1.15rem !important;
+        font-weight: 600 !important;
+        line-height: 1.4 !important;
         color: #1e293b;
+        margin-bottom: 0.5rem;
+    }
+    
+    .stChatMessage h4 {
+        font-size: 1rem !important;
+        font-weight: 600 !important;
+        color: #334155;
     }
     </style>
 """,
