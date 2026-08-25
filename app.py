@@ -755,7 +755,6 @@ try:
                   " ditemukan di sheet."
               )
           elif is_wtu_query:
-            # PERBAIKAN UTAMA: Penanganan pencarian WTU spesifik per Apotek/Outlet
             wtu_cols = [c for c in raw_df.columns if "wtu" in c.lower()]
             if wtu_cols:
               calculated_metrics.append(
@@ -920,6 +919,9 @@ try:
                   None,
               )
 
+            calculated_metrics.append(
+                f"### Data Performa untuk **{str(display_name).title()}**"
+            )
             calculated_metrics.append("**📊 Performa Bulanan:**")
             target_cols_gmv = [
                 ("CM (Bulan Ini)", cm_col),
@@ -945,31 +947,14 @@ try:
                     f"• **{w}**: Rp {val_parsed:,.0f}".replace(",", ".")
                 )
 
-            trx_date_cols = [
-                c
-                for c in raw_df.columns
-                if "1st trx date" in c.lower() or "last trx date" in c.lower()
-            ]
-            if trx_date_cols:
-              calculated_metrics.append("\n**🕒 Tanggal Transaksi:**")
-              for col in trx_date_cols:
-                val_date = target_row.get(col, "-")
-                calculated_metrics.append(f"• **{col}**: {val_date}")
-
-            response_text = (
-                f"Data untuk **{str(display_name).title()}**:\n\n"
-                + "\n".join(calculated_metrics)
-            )
+            response_text = "\n".join(calculated_metrics)
         else:
           response_text = (
-              "Data untuk pencarian tersebut tidak ditemukan di Google Sheet."
+              "Maaf, data tidak ditemukan. Pastikan nama apotek, ID, sales"
+              " rep, atau SPV yang kamu cari sudah benar."
           )
 
         st.markdown(response_text)
-
-    st.session_state.messages.append(
-        {"role": "assistant", "content": response_text}
-    )
-
-except Exception as e:
-  st.error(f"Gagal memuat data: {e}")
+        st.session_state.messages.append(
+            {"role": "assistant", "content": response_text}
+        )
