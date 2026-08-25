@@ -84,7 +84,7 @@ try:
     header_idx = 0
     for idx, line in enumerate(lines[:15]):
         line_lower = line.lower()
-        if ('w1' in line_lower or 'week 1' in line_lower or 'dpd' in line_lower or 'limit' in line_lower or 'gmv' in line_lower or 'cm' in line_lower or 'target' in line_lower or 'visit' in line_lower or 'misi' in line_lower or 'wtu' in line_lower or 'first' in line_lower or 'last' in line_lower or 'transaksi' in line_lower) and ('name' in line_lower or 'nama' in line_lower or 'apotek' in line_lower or 'toko' in line_lower or 'sales' in line_lower or 'spv' in line_lower):
+        if ('w1' in line_lower or 'week 1' in line_lower or 'dpd' in line_lower or 'limit' in line_lower or 'gmv' in line_lower or 'cm' in line_lower or 'target' in line_lower or 'visit' in line_lower or 'misi' in line_lower or 'wtu' in line_lower) and ('name' in line_lower or 'nama' in line_lower or 'apotek' in line_lower or 'toko' in line_lower or 'sales' in line_lower or 'spv' in line_lower):
             header_idx = idx
             break
             
@@ -149,16 +149,13 @@ try:
         is_visit_query = any(k in prompt_lower for k in ['visit', 'kunjungan']) and not weeks_requested
         is_wtu_query = any(k in prompt_lower for k in ['wtu']) and not weeks_requested
         is_dpd_query = any(k in prompt_lower for k in ['dpd', 'jatuh tempo', 'overdue']) and not weeks_requested
-        is_first_trx_query = any(k in prompt_lower for k in ['first', 'pertama', 'awal']) and not weeks_requested
-        is_last_trx_query = any(k in prompt_lower for k in ['last', 'terakhir']) and not weeks_requested
 
         command_words = {
             'cek', 'data', 'id', 'berapa', 'total', 'jumlah', 'w1', 'w2', 'w3', 'w4', 
             'transaksi', 'tolong', 'visit', 'kunjungan', 'misi', 'gold', 'mission',
             'campaign', 'type', 'start', 'date', 'duration', 'target', 'level', 'gmv', 
             'ppn', 'gap', 'hna', 'pencapaian', 'kekurangan', 'info', 'apotek', 'toko', 'wtu',
-            'sisa', 'limit', 'avg', 'l3m', 'reps', 'sales', 'pic', 'bulan', 'ini', 'dpd', 'plafond', 'spv', 'jatuh', 'tempo',
-            'first', 'last', 'pertama', 'terakhir'
+            'sisa', 'limit', 'avg', 'l3m', 'reps', 'sales', 'pic', 'bulan', 'ini', 'dpd', 'plafond', 'spv', 'jatuh', 'tempo'
         }
 
         target_row = None
@@ -395,26 +392,6 @@ try:
                             response_text = "\n".join(calculated_metrics)
                         else:
                             response_text = f"Data WTU untuk **{str(display_name).title()}** tidak ditemukan di sheet."
-                    elif is_first_trx_query:
-                        first_cols = [c for c in raw_df.columns if any(term in c.lower() for term in ['first', 'pertama', 'awal'])]
-                        if first_cols:
-                            calculated_metrics.append(f"### Data Transaksi Pertama untuk **{str(display_name).title()}**\n")
-                            for col in first_cols:
-                                val_first = target_row.get(col, "-")
-                                calculated_metrics.append(f"• **{col}**: {val_first}")
-                            response_text = "\n".join(calculated_metrics)
-                        else:
-                            response_text = f"Data Transaksi Pertama untuk **{str(display_name).title()}** tidak ditemukan di sheet."
-                    elif is_last_trx_query:
-                        last_cols = [c for c in raw_df.columns if any(term in c.lower() for term in ['last', 'terakhir'])]
-                        if last_cols:
-                            calculated_metrics.append(f"### Data Transaksi Terakhir untuk **{str(display_name).title()}**\n")
-                            for col in last_cols:
-                                val_last = target_row.get(col, "-")
-                                calculated_metrics.append(f"• **{col}**: {val_last}")
-                            response_text = "\n".join(calculated_metrics)
-                        else:
-                            response_text = f"Data Transaksi Terakhir untuk **{str(display_name).title()}** tidak ditemukan di sheet."
                     elif is_mission_query:
                         mission_cols = [c for c in raw_df.columns if any(term in c.lower() for term in ['misi', 'gold', 'mission', 'campaign'])]
                         if not mission_cols:
