@@ -500,13 +500,13 @@ try:
           val_cm = parse_number_general(r.get(cm_col, 0))
           if val_cm == 0:
             out_sales = r.get(reps_col, "-") if reps_col else "-"
-            val_l3m = parse_number_general(r.get(l3m_col, 0)) if l3m_col else 0
+            val_avg = parse_number_general(r.get(avg_col, 0)) if avg_col else 0
 
             history = {}
             for w_key, w_colname in week_cols_map.items():
               history[w_key] = parse_number_transaction(r.get(w_colname, 0))
 
-            untransacted_cm_outlets.append((out_name_str, out_sales, val_l3m, history))
+            untransacted_cm_outlets.append((out_name_str, out_sales, val_cm, val_avg, history))
 
       with st.chat_message("assistant", avatar="🤖"):
         with st.spinner("Mengecek data outlet belum transaksi bulan ini..."):
@@ -520,14 +520,16 @@ try:
                 " disingkirkan)*\n"
             )
             if untransacted_cm_outlets:
-              for idx_out, (o_name, o_sales, o_l3m, o_hist) in enumerate(
+              for idx_out, (o_name, o_sales, o_cm, o_avg, o_hist) in enumerate(
                   untransacted_cm_outlets, 1
               ):
-                formatted_l3m = (
-                    f"Rp {o_l3m:,.0f}".replace(",", ".")
-                    if o_l3m > 0
+                formatted_cm = f"Rp {o_cm:,.0f}".replace(",", ".")
+                formatted_avg = (
+                    f"Rp {o_avg:,.0f}".replace(",", ".")
+                    if o_avg > 0
                     else "Rp 0"
                 )
+                
                 hist_str_parts = []
                 for w_label in ["W1", "W2", "W3", "W4"]:
                   if w_label in o_hist:
@@ -548,8 +550,9 @@ try:
                     "   * 👤 Sales:"
                     f" <span style='color: #000000; font-weight:"
                     f" bold;'>{o_sales}</span>\n"
-                    f"   * 💰 L3M: <span style='color: #000000; font-weight: bold;'>{formatted_l3m}</span>\n"
-                    f"   * 📊 Histori Mingguan: {hist_joined}\n"
+                    f"   * 📊 CM: <span style='color: #000000; font-weight: bold;'>{formatted_cm}</span>\n"
+                    f"   * 💡 AVG L3M: <span style='color: #000000; font-weight: bold;'>{formatted_avg}</span>\n"
+                    f"   * 📅 Histori Mingguan: {hist_joined}\n"
                 )
             else:
               res_lines.append(
