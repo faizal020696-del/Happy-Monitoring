@@ -1853,15 +1853,35 @@ try:
                         for term in ["limit", "plafond", "sisa", "avail"]
                     )
                 ]
-                for col in limit_cols:
-                  sum_val = sum(
-                      parse_number_general(r.get(col, 0))
-                      for _, r in active_spv_df.iterrows()
-                  )
-                  formatted_val = f"Rp {sum_val:,.0f}".replace(",", ".")
+                is_detail_limit = any(k in prompt_lower for k in ["detail", "daftar", "list", "semua apotek"])
+                if is_detail_limit and limit_cols:
                   calculated_metrics.append(
-                      f"- **Total {col}**: <span style='color: #000000;"
-                      f" font-weight: bold;'>{formatted_val}</span>"
+                      f"\n#### 📋 Daftar Detail Limit Outlet ({scope_name}):\n"
+                  )
+                  for idx_o, (_, r) in enumerate(active_spv_df.iterrows(), 1):
+                    o_name = r.get(name_col, "Unknown")
+                    outlet_limit_strs = []
+                    for col in limit_cols:
+                      val_parsed = parse_number_general(r.get(col, 0))
+                      if val_parsed > 0:
+                        outlet_limit_strs.append(f"{col}: Rp {val_parsed:,.0f}".replace(",", "."))
+                    limit_desc = " | ".join(outlet_limit_strs) if outlet_limit_strs else "Limit: Rp 0"
+                    calculated_metrics.append(
+                        f"**{idx_o}. {str(o_name).title()}**\n   * 💳 {limit_desc}\n"
+                    )
+                else:
+                  for col in limit_cols:
+                    sum_val = sum(
+                        parse_number_general(r.get(col, 0))
+                        for _, r in active_spv_df.iterrows()
+                    )
+                    formatted_val = f"Rp {sum_val:,.0f}".replace(",", ".")
+                    calculated_metrics.append(
+                        f"- **Total {col}**: <span style='color: #000000;"
+                        f" font-weight: bold;'>{formatted_val}</span>"
+                    )
+                  calculated_metrics.append(
+                      "\n#### 💡 Ingin melihat detail limit semua apotek? Ketik: *'detail limit semua apotek'*."
                   )
               elif is_wtu_query:
                 calculated_metrics.append(
@@ -1993,15 +2013,35 @@ try:
                         for term in ["limit", "plafond", "sisa", "avail"]
                     )
                 ]
-                for col in limit_cols:
-                  sum_val = sum(
-                      parse_number_general(r.get(col, 0))
-                      for _, r in active_reps_df.iterrows()
-                  )
-                  formatted_val = f"Rp {sum_val:,.0f}".replace(",", ".")
+                is_detail_limit = any(k in prompt_lower for k in ["detail", "daftar", "list", "semua apotek"])
+                if is_detail_limit and limit_cols:
                   calculated_metrics.append(
-                      f"- **Total {col}**: <span style='color: #000000;"
-                      f" font-weight: bold;'>{formatted_val}</span>"
+                      f"\n#### 📋 Daftar Detail Limit Outlet ({scope_name}):\n"
+                  )
+                  for idx_o, (_, r) in enumerate(active_reps_df.iterrows(), 1):
+                    o_name = r.get(name_col, "Unknown")
+                    outlet_limit_strs = []
+                    for col in limit_cols:
+                      val_parsed = parse_number_general(r.get(col, 0))
+                      if val_parsed > 0:
+                        outlet_limit_strs.append(f"{col}: Rp {val_parsed:,.0f}".replace(",", "."))
+                    limit_desc = " | ".join(outlet_limit_strs) if outlet_limit_strs else "Limit: Rp 0"
+                    calculated_metrics.append(
+                        f"**{idx_o}. {str(o_name).title()}**\n   * 💳 {limit_desc}\n"
+                    )
+                else:
+                  for col in limit_cols:
+                    sum_val = sum(
+                        parse_number_general(r.get(col, 0))
+                        for _, r in active_reps_df.iterrows()
+                    )
+                    formatted_val = f"Rp {sum_val:,.0f}".replace(",", ".")
+                    calculated_metrics.append(
+                        f"- **Total {col}**: <span style='color: #000000;"
+                        f" font-weight: bold;'>{formatted_val}</span>"
+                    )
+                  calculated_metrics.append(
+                      "\n#### 💡 Ingin melihat detail limit semua apotek? Ketik: *'detail limit semua apotek'*."
                   )
               elif is_wtu_query:
                 calculated_metrics.append(
