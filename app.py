@@ -446,9 +446,17 @@ try:
         for _, r in scope_df.iterrows():
           if is_row_lead(r):
             continue
+
+          # PENGAMAN AGAR 'NaN' / KOSONG TIDAK MASUK KE LIST
+          out_name = r.get(name_col, None)
+          if (
+              pd.isna(out_name)
+              or str(out_name).strip().lower() in ["nan", "", "none", "-"]
+          ):
+            continue
+
           val_tx = parse_number_transaction(r.get(col_target_week, 0))
           if val_tx == 0:
-            out_name = r.get(name_col, "Outlet Tanpa Nama")
             out_sales = r.get(reps_col, "-") if reps_col else "-"
 
             history = {}
@@ -1054,7 +1062,7 @@ try:
                   else:
                     val_str_fmt = val_str_raw
 
-                  # HTML SPAN UNTUK MEMBUAT UKURAN LEBIH BESAR & BOLD
+                  # HTML SPAN UNTUK UKURAN LEBIH BESAR & BOLD
                   styled_val_str = (
                       f"<span style='font-size: 1.1rem; font-weight:"
                       f" 700;'>{val_str_fmt}</span>"
