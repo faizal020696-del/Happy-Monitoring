@@ -965,122 +965,497 @@ try:
                   continue
                 score = sum(1 for qw in outlet_query_words if qw in name_val)
                 if all(qw in name_val for qw in outlet_query_words):
-                  score += 20
+                  score += 10
                 scores.append((score, idx))
               scores.sort(key=lambda x: x[0], reverse=True)
-              if scores and scores[0][0] > 0:
-                target_row = raw_df.loc[scores[0][1]]
+              if scores:
+                best_score, best_idx = scores[0]
+                if best_score > 0:
+                  target_row = raw_df.loc[best_idx]
 
-      # --- HANDLING HASIL PENCARIAN (TARGET ROW / SPV / REPS) ---
-      if target_row is not None:
-        out_name = target_row.get(name_col, "-")
-        out_sales = target_row.get(reps_col, "-") if reps_col else "-"
-        out_spv = target_row.get(spv_col, "-") if spv_col else "-"
+      with st.chat_message("assistant", avatar="🤖"):
+        with st.spinner("Mengecek data..."):
+          if matched_spv_df is not None and not matched_spv_df.empty:
+            st.session_state.active_scope_type = "spv"
+            st.session_state.active_scope_name = matched_spv_name
 
-        res_lines = [
-            f"### 📍 Detail Outlet: {str(out_name).title()}",
-            f"*Sales: **{out_sales}** | SPV: **{out_spv}***\n---",
-        ]
+            active_spv_df = matched_spv_df[
+                ~matched_spv_df.apply(is_row_lead, axis=1)
+            ]
+            total_outlets = len(active_spv_df)
+            calculated_metrics = [
+                f"### 📊 Rekap Total SPV: **{str(matched_spv_name).title()}**\n---"
+            ]
+            calculated_metrics.append(
+                f"- **Jumlah Outlet Aktif**: <span style='color: #000000;"
+                f" font-weight: bold;'>{total_outlets} outlet</span>"
+            )
 
-        if is_limit_query:
-          limit_col = next((c for c in raw_df.columns if any(k in c.lower() for k in ["limit", "plafond"])), None)
-          limit_val = parse_number_general(target_row.get(limit_col, 0)) if limit_col else 0
-          res_lines.append(f"- **Limit / Plafond**: Rp {limit_val:,.0f}".replace(",", "."))
-        elif is_visit_query:
-          visit_col = next((c for c in raw_df.columns if any(k in c.lower() for k in ["visit", "kunjungan"])), None)
-          visit_val = target_row.get(visit_col, "-") if visit_col else "-"
-          res_lines.append(f"- **Visit / Kunjungan**: {visit_val}")
-        elif is_dpd_query:
-          dpd_col = next((c for c in raw_df.columns if any(k in c.lower() for k in ["dpd", "jatuh tempo", "overdue"])), None)
-          dpd_val = target_row.get(dpd_col, "-") if dpd_col else "-"
-          res_lines.append(f"- **DPD / Jatuh Tempo**: {dpd_val}")
-        elif is_mission_query:
-          mission_col = next((c for c in raw_df.columns if any(k in c.lower() for k in ["misi", "gold", "mission"])), None)
-          mission_val = target_row.get(mission_col, "-") if mission_col else "-"
-          res_lines.append(f"- **Pencapaian Misi**: {mission_val}")
-        else:
-          cm_val = parse_number_general(target_row.get(cm_col, 0)) if cm_col else 0
-          res_lines.append(f"- **CM (Current Month)**: Rp {cm_val:,.0f}".replace(",", "."))
-          if week_cols_map:
-            w_str = " | ".join([f"{wk}: Rp {parse_number_transaction(target_row.get(col, 0)):,.0f}".replace(",", ".") for wk, col in week_cols_map.items()])
-            res_lines.append(f"- **Histori Mingguan**: {w_str}")
+            if is_limit_query:
+              limit_cols = [
+                  c
+                  for c in raw_df.columns
+                  if any(
+                      term in c.lower()
+                      for term in ["limit", "plafond", "sisa", "avail"]
+                  )
+              ]
+              for col in limit_cols:
+                sum_val = sum(
+                    parse_number_general(r.get(col, 0))
+                    for _, r in active_spv_df.iterrows()
+                )
+                formatted_val = f"Rp {sum_val:,.0f}".replace(",", ".")
+                calculated_metrics.append(
+                    f"- **Total {col}**: <span style='color: #000000;"
+                    f" font-weight: bold;'>{formatted_val}</span>"
+                )
+            elif is_wtu_query:
+              calculated_metrics.append(
+                  "\n#### 📅 Performa WTU Per Week & Transaksi"
+              )
+              for w in ["W1", "W2", "W3", "W4"]:
+                if w in week_cols_map:
+                  col_name = week_cols_map[w]
+                  sum_w = sum(
+                      parse_number_transaction(r.get(col_name, 0))
+                      for _, r in active_spv_df.iterrows()
+                  )
+                  active_outlets = sum(
+                      1
+                      for _, r in active_spv_df.iterrows()
+                      if parse_number_transaction(r.get(col_name, 0)) > 0
+                  )
+                  formatted_val = f"Rp {sum_w:,.0f}".replace(",", ".")
+                  calculated_metrics.append(
+                      f"- **{w}**: <span style='color: #000000; font-weight:"
+                      f" bold;'>{formatted_val}</span> *({active_outlets}"
+                      " outlet trx)*"
+                  )
+              calculated_metrics.append(
+                  "\n#### 💡 Ingin melihat daftar outlet yang belum"
+                  " transaksi/WTU? Jawab saja: *'boleh'*."
+              )
+            else:
+              calculated_metrics.append("\n#### 📈 Performa Bulanan")
+              target_cols_gmv = [
+                  ("CM (Bulan Ini)", cm_col),
+                  ("LM (Bulan Lalu)", lm_col),
+                  ("L2M", l2m_col),
+                  ("L3M", l3m_col),
+                  ("Average / AVG L3M", avg_col),
+              ]
+              for label, col in target_cols_gmv:
+                if col:
+                  sum_val = sum(
+                      parse_number_general(r.get(col, 0))
+                      for _, r in active_spv_df.iterrows()
+                  )
+                  formatted_val = f"Rp {sum_val:,.0f}".replace(",", ".")
+                  calculated_metrics.append(
+                      f"- **{label}**: <span style='color: #000000;"
+                      f" font-weight: bold;'>{formatted_val}</span>"
+                  )
 
-        response_text = "\n".join(res_lines)
-        with st.chat_message("assistant", avatar="🤖"):
+              calculated_metrics.append("\n#### 📅 Performa Mingguan (W1 - W4)")
+              for w in ["W1", "W2", "W3", "W4"]:
+                if w in week_cols_map:
+                  col_name = week_cols_map[w]
+                  sum_w = sum(
+                      parse_number_transaction(r.get(col_name, 0))
+                      for _, r in active_spv_df.iterrows()
+                  )
+                  active_outlets = sum(
+                      1
+                      for _, r in active_spv_df.iterrows()
+                      if parse_number_transaction(r.get(col_name, 0)) > 0
+                  )
+                  formatted_val = f"Rp {sum_w:,.0f}".replace(",", ".")
+                  calculated_metrics.append(
+                      f"- **{w}**: <span style='color: #000000; font-weight:"
+                      f" bold;'>{formatted_val}</span> *({active_outlets}"
+                      " outlet trx)*"
+                  )
+              calculated_metrics.append(
+                  "\n#### 💡 Ingin melihat daftar outlet yang belum"
+                  " transaksi/WTU? Jawab saja: *'boleh'*."
+              )
+
+            response_text = "\n".join(calculated_metrics)
+
+          elif matched_reps_df is not None and not matched_reps_df.empty:
+            st.session_state.active_scope_type = "reps"
+            st.session_state.active_scope_name = matched_reps_name
+
+            active_reps_df = matched_reps_df[
+                ~matched_reps_df.apply(is_row_lead, axis=1)
+            ]
+            total_outlets = len(active_reps_df)
+            calculated_metrics = [
+                f"### 📊 Rekap Total Sales Rep: **{str(matched_reps_name).title()}**\n---"
+            ]
+            calculated_metrics.append(
+                f"- **Jumlah Outlet Aktif**: <span style='color: #000000;"
+                f" font-weight: bold;'>{total_outlets} outlet</span>"
+            )
+
+            if is_limit_query:
+              limit_cols = [
+                  c
+                  for c in raw_df.columns
+                  if any(
+                      term in c.lower()
+                      for term in ["limit", "plafond", "sisa", "avail"]
+                  )
+              ]
+              for col in limit_cols:
+                sum_val = sum(
+                    parse_number_general(r.get(col, 0))
+                    for _, r in active_reps_df.iterrows()
+                )
+                formatted_val = f"Rp {sum_val:,.0f}".replace(",", ".")
+                calculated_metrics.append(
+                    f"- **Total {col}**: <span style='color: #000000;"
+                    f" font-weight: bold;'>{formatted_val}</span>"
+                )
+            elif is_wtu_query:
+              calculated_metrics.append(
+                  "\n#### 📅 Performa WTU Per Week & Transaksi"
+              )
+              for w in ["W1", "W2", "W3", "W4"]:
+                if w in week_cols_map:
+                  col_name = week_cols_map[w]
+                  sum_w = sum(
+                      parse_number_transaction(r.get(col_name, 0))
+                      for _, r in active_reps_df.iterrows()
+                  )
+                  active_outlets = sum(
+                      1
+                      for _, r in active_reps_df.iterrows()
+                      if parse_number_transaction(r.get(col_name, 0)) > 0
+                  )
+                  formatted_val = f"Rp {sum_w:,.0f}".replace(",", ".")
+                  calculated_metrics.append(
+                      f"- **{w}**: <span style='color: #000000; font-weight:"
+                      f" bold;'>{formatted_val}</span> *({active_outlets}"
+                      " outlet trx)*"
+                  )
+              calculated_metrics.append(
+                  "\n#### 💡 Ingin melihat daftar outlet yang belum"
+                  " transaksi/WTU? Jawab saja: *'boleh'*."
+              )
+            else:
+              calculated_metrics.append("\n#### 📈 Performa Bulanan")
+              target_cols_gmv = [
+                  ("CM (Bulan Ini)", cm_col),
+                  ("LM (Bulan Lalu)", lm_col),
+                  ("L2M", l2m_col),
+                  ("L3M", l3m_col),
+                  ("Average / AVG L3M", avg_col),
+              ]
+              for label, col in target_cols_gmv:
+                if col:
+                  sum_val = sum(
+                      parse_number_general(r.get(col, 0))
+                      for _, r in active_reps_df.iterrows()
+                  )
+                  formatted_val = f"Rp {sum_val:,.0f}".replace(",", ".")
+                  calculated_metrics.append(
+                      f"- **{label}**: <span style='color: #000000;"
+                      f" font-weight: bold;'>{formatted_val}</span>"
+                  )
+
+              calculated_metrics.append("\n#### 📅 Performa Mingguan (W1 - W4)")
+              for w in ["W1", "W2", "W3", "W4"]:
+                if w in week_cols_map:
+                  col_name = week_cols_map[w]
+                  sum_w = sum(
+                      parse_number_transaction(r.get(col_name, 0))
+                      for _, r in active_reps_df.iterrows()
+                  )
+                  active_outlets = sum(
+                      1
+                      for _, r in active_reps_df.iterrows()
+                      if parse_number_transaction(r.get(col_name, 0)) > 0
+                  )
+                  formatted_val = f"Rp {sum_w:,.0f}".replace(",", ".")
+                  calculated_metrics.append(
+                      f"- **{w}**: <span style='color: #000000; font-weight:"
+                      f" bold;'>{formatted_val}</span> *({active_outlets}"
+                      " outlet trx)*"
+                  )
+              calculated_metrics.append(
+                  "\n#### 💡 Ingin melihat daftar outlet yang belum"
+                  " transaksi/WTU? Jawab saja: *'boleh'*."
+              )
+
+            response_text = "\n".join(calculated_metrics)
+
+          elif target_row is not None and not is_row_lead(target_row):
+            display_name = target_row.get(name_col, "Outlet Ditemukan")
+            calculated_metrics = []
+
+            if is_limit_query:
+              limit_cols = [
+                  c
+                  for c in raw_df.columns
+                  if any(
+                      term in c.lower()
+                      for term in ["limit", "plafond", "sisa", "avail"]
+                  )
+              ]
+              if limit_cols:
+                calculated_metrics.append(
+                    f"### 💳 Data Limit: **{str(display_name).title()}**\n---"
+                )
+                for col in limit_cols:
+                  val_metric = target_row.get(col, "-")
+                  val_parsed = parse_number_general(val_metric)
+                  val_formatted = (
+                      f"Rp {val_parsed:,.0f}".replace(",", ".")
+                      if val_parsed > 0
+                      else val_metric
+                  )
+                  calculated_metrics.append(
+                      f"- **{col}**: <span style='color: #000000;"
+                      f" font-weight: bold;'>{val_formatted}</span>"
+                  )
+                response_text = "\n".join(calculated_metrics)
+              else:
+                response_text = (
+                    f"Data Limit untuk **{str(display_name).title()}** tidak"
+                    " ditemukan di sheet."
+                )
+            elif is_dpd_query:
+              dpd_cols = [c for c in raw_df.columns if "dpd" in c.lower()]
+              if dpd_cols:
+                calculated_metrics.append(
+                    f"### ⏳ Data DPD: **{str(display_name).title()}**\n---"
+                )
+                for col in dpd_cols:
+                  val_dpd = target_row.get(col, "-")
+                  calculated_metrics.append(
+                      f"- **{col}**: <span style='color: #000000;"
+                      f" font-weight: bold;'>{val_dpd}</span>"
+                  )
+                response_text = "\n".join(calculated_metrics)
+              else:
+                response_text = (
+                    f"Data DPD untuk **{str(display_name).title()}** tidak"
+                    " ditemukan di sheet."
+                )
+            elif is_visit_query:
+              visit_cols = [
+                  c
+                  for c in raw_df.columns
+                  if "visit" in c.lower() or "kunjungan" in c.lower()
+              ]
+              if visit_cols:
+                calculated_metrics.append(
+                    f"### 📍 Data Kunjungan: **{str(display_name).title()}**\n---"
+                )
+                for col in visit_cols:
+                  val_visit = target_row.get(col, "-")
+                  calculated_metrics.append(
+                      f"- **{col}**: <span style='color: #000000;"
+                      f" font-weight: bold;'>{val_visit}</span>"
+                  )
+                response_text = "\n".join(calculated_metrics)
+              else:
+                response_text = (
+                    f"Data Visit untuk **{str(display_name).title()}** tidak"
+                    " ditemukan di sheet."
+                )
+            elif is_wtu_query:
+              calculated_metrics.append(
+                  f"### 📅 Performa WTU: **{str(display_name).title()}**\n---"
+              )
+              for w in ["W1", "W2", "W3", "W4"]:
+                if w in week_cols_map:
+                  col_name = week_cols_map[w]
+                  val_raw = target_row.get(col_name, 0)
+                  val_parsed = parse_number_transaction(val_raw)
+                  formatted_val = f"Rp {val_parsed:,.0f}".replace(",", ".")
+                  calculated_metrics.append(
+                      f"- **{w}**: <span style='color: #000000; font-weight:"
+                      f" bold;'>{formatted_val}</span>"
+                  )
+              response_text = "\n".join(calculated_metrics)
+            elif is_trx_date_query:
+              trx_date_cols = [
+                  c
+                  for c in raw_df.columns
+                  if "trx date" in c.lower()
+                  or "transaksi" in c.lower()
+                  and ("date" in c.lower() or "tanggal" in c.lower())
+                  or "1st" in c.lower()
+                  or "last" in c.lower()
+              ]
+              if not trx_date_cols:
+                trx_date_cols = [c for c in raw_df.columns if "date" in c.lower()]
+
+              if trx_date_cols:
+                calculated_metrics.append(
+                    f"### 🗓️ Tanggal Transaksi:"
+                    f" **{str(display_name).title()}**\n---"
+                )
+                for col in trx_date_cols:
+                  val_date = target_row.get(col, "-")
+                  calculated_metrics.append(
+                      f"- **{col}**: <span style='color: #000000;"
+                      f" font-weight: bold;'>{val_date}</span>"
+                  )
+                response_text = "\n".join(calculated_metrics)
+              else:
+                response_text = (
+                    f"Data Tanggal Transaksi untuk **{str(display_name).title()}**"
+                    " tidak ditemukan di sheet."
+                )
+            elif is_mission_query:
+              mission_cols = [
+                  c
+                  for c in raw_df.columns
+                  if any(
+                      term in c.lower()
+                      for term in ["misi", "gold", "mission", "campaign"]
+                  )
+              ]
+              if not mission_cols:
+                mission_cols = [
+                    c
+                    for c in raw_df.columns
+                    if "misi" in c.lower() or "mission" in c.lower()
+                ]
+
+              if mission_cols:
+                campaign_info = []
+                reguler_target = []
+                gold_target = []
+                other_mission = []
+
+                for col in mission_cols:
+                  val_misi = target_row.get(col, "-")
+                  val_str_raw = str(val_misi).strip()
+                  col_lower = col.lower()
+
+                  val_parsed = parse_number_general(val_misi)
+                  if val_parsed != 0 and any(
+                      kw in col_lower for kw in ["target", "gmv", "gap", "hna"]
+                  ):
+                    val_str_fmt = f"Rp {abs(val_parsed):,.0f}".replace(",", ".")
+                    if "-" in val_str_raw:
+                      val_str_fmt = f"-Rp {abs(val_parsed):,.0f}".replace(
+                          ",", "."
+                      )
+
+                    if "gap" in col_lower:
+                      if "-" in val_str_raw:
+                        val_str_fmt += " *(Belum Tercapai / Minus)*"
+                      else:
+                        val_str_fmt += " *(Tercapai / Surplus!)*"
+                  else:
+                    val_str_fmt = val_str_raw
+
+                  styled_val_str = (
+                      f"<span style='color: #000000; font-weight:"
+                      f" bold;'>{val_str_fmt}</span>"
+                  )
+
+                  if any(
+                      k in col_lower
+                      for k in ["type", "start date", "end date", "duration"]
+                  ):
+                    campaign_info.append(
+                        f"👉 **{col}**: {styled_val_str}"
+                    )
+                  elif "gold" in col_lower:
+                    gold_target.append(f"⭐ **{col}**: {styled_val_str}")
+                  elif any(k in col_lower for k in ["target", "gmv", "gap"]):
+                    reguler_target.append(
+                        f"🎯 **{col}**: {styled_val_str}"
+                    )
+                  else:
+                    other_mission.append(f"📌 **{col}**: {styled_val_str}")
+
+                calculated_metrics.append(
+                    f"### 🎯 Data Misi: **{str(display_name).title()}**\n---"
+                )
+
+                if campaign_info:
+                  calculated_metrics.append(
+                      "#### 📌 Status Misi / Campaign:"
+                  )
+                  calculated_metrics.extend([f"* {item}" for item in campaign_info])
+                  calculated_metrics.append("")
+
+                if reguler_target:
+                  calculated_metrics.append(
+                      "#### 📊 Target & Pencapaian Reguler:"
+                  )
+                  calculated_metrics.extend([f"* {item}" for item in reguler_target])
+                  calculated_metrics.append("")
+
+                if gold_target:
+                  calculated_metrics.append(
+                      "#### ✨ Target & Pencapaian Gold Misi:"
+                  )
+                  calculated_metrics.extend([f"* {item}" for item in gold_target])
+                  calculated_metrics.append("")
+
+                if other_mission:
+                  calculated_metrics.append("#### 📂 Informasi Misi Lainnya:")
+                  calculated_metrics.extend([f"* {item}" for item in other_mission])
+
+                response_text = "\n".join(calculated_metrics)
+              else:
+                response_text = (
+                    f"Data untuk **{str(display_name).title()}**:\nData kolom"
+                    " misi tidak ditemukan di sheet."
+                )
+            else:
+              calculated_metrics.append(
+                  f"### 🏥 Outlet: **{str(display_name).title()}**\n---"
+              )
+              calculated_metrics.append("**📈 Performa Bulanan:**")
+              target_cols_gmv = [
+                  ("CM (Bulan Ini)", cm_col),
+                  ("LM (Bulan Lalu)", lm_col),
+                  ("L2M", l2m_col),
+                  ("L3M", l3m_col),
+                  ("Average / AVG L3M", avg_col),
+              ]
+              for label, col in target_cols_gmv:
+                if col:
+                  val_parsed = parse_number_general(target_row.get(col, 0))
+                  formatted_val = f"Rp {val_parsed:,.0f}".replace(",", ".")
+                  calculated_metrics.append(
+                      f"- **{label}**: <span style='color: #000000;"
+                      f" font-weight: bold;'>{formatted_val}</span>"
+                  )
+
+              calculated_metrics.append("\n**📅 Performa Mingguan (W1 - W4):**")
+              for w in ["W1", "W2", "W3", "W4"]:
+                if w in week_cols_map:
+                  col_name = week_cols_map[w]
+                  val_raw = target_row.get(col_name, 0)
+                  val_parsed = parse_number_transaction(val_raw)
+                  formatted_val = f"Rp {val_parsed:,.0f}".replace(",", ".")
+                  calculated_metrics.append(
+                      f"- **{w}**: <span style='color: #000000; font-weight:"
+                      f" bold;'>{formatted_val}</span>"
+                  )
+
+              response_text = "\n".join(calculated_metrics)
+          else:
+            response_text = (
+                "⚠️ Maaf, data tidak ditemukan atau outlet tersebut berstatus"
+                " lead/prospek. Pastikan nama apotek, ID, sales rep, atau SPV"
+                " aktif yang kamu cari sudah benar."
+            )
+
           st.markdown(response_text, unsafe_allow_html=True)
-          st.session_state.messages.append({"role": "assistant", "content": response_text})
-
-      elif matched_spv_df is not None and not matched_spv_df.empty:
-        spv_name_display = str(matched_spv_name).title()
-        active_df = matched_spv_df[~matched_spv_df.apply(is_row_lead, axis=1)]
-        total_outlets = len(active_df)
-        
-        total_cm = 0
-        if cm_col:
-          for _, r in active_df.iterrows():
-            total_cm += parse_number_general(r.get(cm_col, 0))
-        formatted_cm = f"Rp {total_cm:,.0f}".replace(",", ".")
-
-        if any(k in prompt_lower for k in ["wtu", "w1", "w2", "w3", "w4", "minggu"]):
-          res_lines = [
-              f"### 📊 Rangkuman WTU SPV: {spv_name_display}",
-              f"*Total Outlet Aktif: **{total_outlets}** | Total CM: **{formatted_cm}***\n---",
-          ]
-          for wk, col_w in week_cols_map.items():
-            tot_w = sum(parse_number_transaction(r.get(col_w, 0)) for _, r in active_df.iterrows())
-            res_lines.append(f"- **{wk}**: Rp {tot_w:,.0f}".replace(",", "."))
-        else:
-          res_lines = [
-              f"### 👔 Ringkasan SPV: {spv_name_display}",
-              f"*Total Outlet Aktif: **{total_outlets}** | Total CM/GMV: **{formatted_cm}***\n---",
-              "Silakan tanyakan detail spesifik seperti outlet yang belum transaksi, pencapaian CM, atau laporan mingguan.",
-          ]
-
-        response_text = "\n".join(res_lines)
-        st.session_state.active_scope_type = "spv"
-        st.session_state.active_scope_name = matched_spv_name
-        with st.chat_message("assistant", avatar="🤖"):
-          st.markdown(response_text, unsafe_allow_html=True)
-          st.session_state.messages.append({"role": "assistant", "content": response_text})
-
-      elif matched_reps_df is not None and not matched_reps_df.empty:
-        reps_name_display = str(matched_reps_name).title()
-        active_df = matched_reps_df[~matched_reps_df.apply(is_row_lead, axis=1)]
-        total_outlets = len(active_df)
-        
-        total_cm = 0
-        if cm_col:
-          for _, r in active_df.iterrows():
-            total_cm += parse_number_general(r.get(cm_col, 0))
-        formatted_cm = f"Rp {total_cm:,.0f}".replace(",", ".")
-
-        if any(k in prompt_lower for k in ["wtu", "w1", "w2", "w3", "w4", "minggu"]):
-          res_lines = [
-              f"### 📊 Rangkuman WTU Sales Rep: {reps_name_display}",
-              f"*Total Outlet Aktif: **{total_outlets}** | Total CM: **{formatted_cm}***\n---",
-          ]
-          for wk, col_w in week_cols_map.items():
-            tot_w = sum(parse_number_transaction(r.get(col_w, 0)) for _, r in active_df.iterrows())
-            res_lines.append(f"- **{wk}**: Rp {tot_w:,.0f}".replace(",", "."))
-        else:
-          res_lines = [
-              f"### 👤 Ringkasan Sales Rep: {reps_name_display}",
-              f"*Total Outlet Aktif: **{total_outlets}** | Total CM/GMV: **{formatted_cm}***\n---",
-              "Silakan tanyakan daftar outlet, pencapaian mingguan (W1-W4), atau data WTU sales ini.",
-          ]
-
-        response_text = "\n".join(res_lines)
-        st.session_state.active_scope_type = "reps"
-        st.session_state.active_scope_name = matched_reps_name
-        with st.chat_message("assistant", avatar="🤖"):
-          st.markdown(response_text, unsafe_allow_html=True)
-          st.session_state.messages.append({"role": "assistant", "content": response_text})
-
-      else:
-        with st.chat_message("assistant", avatar="🤖"):
-          response_text = "Maaf bro, outlet, sales rep, atau SPV yang kamu maksud tidak ditemukan di data sheet. Coba cek kembali penamaannya ya! 🙏"
-          st.markdown(response_text, unsafe_allow_html=True)
-          st.session_state.messages.append({"role": "assistant", "content": response_text})
-
+          st.session_state.messages.append(
+              {"role": "assistant", "content": response_text}
+          )
 except Exception as e:
-  st.error(f"Terjadi kesalahan saat memuat atau memproses data: {e}")
+  st.error(f"Terjadi kesalahan saat memuat data: {e}")
