@@ -405,7 +405,7 @@ try:
       """
       <div class="main-header">
           <h1>🚀 Chatbot Universe SPV Happy</h1>
-          <p>Asisten intelijen pemantauan performa Sales Rep, Outlet, dan GMV secara real-time.</p>
+          <p>Halo Perkenalkan saya Asisten Pribadi dari Kapten Happy.</p>
       </div>
   """,
       unsafe_allow_html=True,
