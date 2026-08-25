@@ -119,6 +119,18 @@ try:
   raw_df = pd.read_csv(io.StringIO(csv_text), skiprows=header_idx, dtype=str)
   raw_df.columns = [str(c).strip() for c in raw_df.columns]
 
+
+  # Fungsi helper untuk mendeteksi apakah baris adalah Lead (bukan aktif)
+  def is_row_lead(row):
+    for c in raw_df.columns:
+      val_str = str(row.get(c, "")).strip().lower()
+      if "lead" in val_str or "prospek" in val_str:
+        # Pastikan kata 'lead' berdiri sendiri atau menandakan status tipe outlet
+        if val_str in ["lead", "prospek", "status: lead"]:
+          return True
+    return False
+
+
   week_cols_map = {}
   for col in raw_df.columns:
     col_lower = col.lower()
@@ -228,8 +240,7 @@ try:
       weeks_requested.append("W4")
 
     is_untransacted_query = any(
-        k in prompt_lower
-        for k in ["belum", "kosong", "nol", "tidak"]
+        k in prompt_lower for k in ["belum", "kosong", "nol", "tidak"]
     ) and any(k in prompt_lower for k in ["transaksi", "trx"])
 
     is_limit_query = (
@@ -345,12 +356,10 @@ try:
     matched_spv_df = None
     matched_spv_name = None
 
-    # Handle query apotek belum transaksi di minggu tertentu (misal: W4)
     if is_untransacted_query and weeks_requested:
       target_week = weeks_requested[0]
       col_target_week = week_cols_map.get(target_week)
 
-      # Cek apakah user juga memfilter berdasarkan SPV atau Sales tertentu dalam prompt
       if spv_col:
         unique_spvs = raw_df[spv_col].dropna().astype(str).unique()
         for s in unique_spvs:
@@ -385,37 +394,51 @@ try:
       untransacted_outlets = []
       if col_target_week:
         for _, r in scope_df.iterrows():
+          # Skip jika outlet berstatus lead
+          if is_row_lead(r):
+            continue
           val_tx = parse_number_transaction(r.get(col_target_week, 0))
           if val_tx == 0:
             out_name = r.get(name_col, "Outlet Tanpa Nama")
-            out_sales = (
-                r.get(reps_col, "-") if reps_col else "-"
-            )
+            out_sales = r.get(reps_col, "-") if reps_col else "-"
             untransacted_outlets.append((out_name, out_sales))
 
       with st.chat_message("assistant", avatar="🤖"):
         with st.spinner("Mengecek data outlet belum transaksi..."):
           if col_target_week:
             res_lines = [
-                f"### 📋 Daftar Outlet Belum Transaksi di **{target_week}**"
-                f" ({scope_name})"
+                f"### 📋 Daftar Outlet Aktif Belum Transaksi di"
+                f" **{target_week}** ({scope_name})"
             ]
-            res_lines.append(f"Total Outlet Belum Transaksi: **{len(untransacted_outlets)} outlet**\n")
+            res_lines.append(
+                f"Total Outlet Aktif Belum Transaksi:"
+                f" **{len(untransacted_outlets)} outlet** *(Data lead"
+                " disingkirkan)*\n"
+            )
             if untransacted_outlets:
-              for idx_out, (o_name, o_sales) in enumerate(untransacted_outlets, 1):
-                res_lines.append(f"{idx_out}. **{str(o_name).title()}** *(Sales: {o_sales})*")
+              for idx_out, (o_name, o_sales) in enumerate(
+                  untransacted_outlets, 1
+              ):
+                res_lines.append(
+                    f"{idx_out}. **{str(o_name).title()}** *(Sales: {o_sales})*"
+                )
             else:
-              res_lines.append("Mantap! Semua outlet sudah ada transaksi di minggu ini. 🔥")
+              res_lines.append(
+                  "Mantap! Semua outlet aktif sudah ada transaksi di minggu"
+                  " ini. 🔥"
+              )
             response_text = "\n".join(res_lines)
           else:
-            response_text = f"Kolom untuk minggu **{target_week}** tidak ditemukan di sheet."
+            response_text = (
+                f"Kolom untuk minggu **{target_week}** tidak ditemukan di"
+                " sheet."
+            )
 
           st.markdown(response_text)
           st.session_state.messages.append(
               {"role": "assistant", "content": response_text}
           )
     else:
-      # Logic standar sebelumnya untuk pencarian SPV, Sales, atau Outlet tunggal
       is_spv_query = "spv" in prompt_lower or "supervisor" in prompt_lower
       if not is_spv_query and spv_col:
         unique_spvs = raw_df[spv_col].dropna().astype(str).unique()
@@ -505,6 +528,8 @@ try:
         if id_match_prompt and id_cols:
           search_id = id_match_prompt.group(1)
           for idx, row in raw_df.iterrows():
+            if is_row_lead(row):
+              continue
             for col in id_cols:
               val_id = str(row.get(col, "")).strip()
               if val_id == search_id:
@@ -535,6 +560,9 @@ try:
             scores = []
             query_words = clean_prompt.split()
             for idx, name_val in name_series.items():
+              row_item = raw_df.loc[idx]
+              if is_row_lead(row_item):
+                continue
               score = sum(1 for qw in query_words if qw in name_val)
               if all(qw in name_val for qw in query_words):
                 score += 20
@@ -553,19 +581,26 @@ try:
               name_series = raw_df[name_col].fillna("").astype(str).str.lower()
               scores = []
               for idx, name_val in name_series.items():
+                row_item = raw_df.loc[idx]
+                if is_row_lead(row_item):
+                  continue
                 score = sum(1 for qw in outlet_query_words if qw in name_val)
                 if all(qw in name_val for qw in outlet_query_words):
                   score += 10
                 scores.append((score, idx))
               scores.sort(key=lambda x: x[0], reverse=True)
-              best_score, best_idx = scores[0]
-              if best_score > 0:
-                target_row = raw_df.loc[best_idx]
+              if scores:
+                best_score, best_idx = scores[0]
+                if best_score > 0:
+                  target_row = raw_df.loc[best_idx]
 
       with st.chat_message("assistant", avatar="🤖"):
         with st.spinner("Mengecek data..."):
           if matched_spv_df is not None and not matched_spv_df.empty:
-            total_outlets = len(matched_spv_df)
+            active_spv_df = matched_spv_df[
+                ~matched_spv_df.apply(is_row_lead, axis=1)
+            ]
+            total_outlets = len(active_spv_df)
             calculated_metrics = [f"• **Jumlah Outlet**: {total_outlets} outlet"]
 
             cm_col = next(
@@ -611,7 +646,7 @@ try:
               for col in limit_cols:
                 sum_val = sum(
                     parse_number_general(r.get(col, 0))
-                    for _, r in matched_spv_df.iterrows()
+                    for _, r in active_spv_df.iterrows()
                 )
                 calculated_metrics.append(
                     f"• **Total {col}**: Rp {sum_val:,.0f}".replace(",", ".")
@@ -626,11 +661,11 @@ try:
                   col_name = week_cols_map[w]
                   sum_w = sum(
                       parse_number_transaction(r.get(col_name, 0))
-                      for _, r in matched_spv_df.iterrows()
+                      for _, r in active_spv_df.iterrows()
                   )
                   active_outlets = sum(
                       1
-                      for _, r in matched_spv_df.iterrows()
+                      for _, r in active_spv_df.iterrows()
                       if parse_number_transaction(r.get(col_name, 0)) > 0
                   )
                   calculated_metrics.append(
@@ -651,7 +686,7 @@ try:
                 if col:
                   sum_val = sum(
                       parse_number_general(r.get(col, 0))
-                      for _, r in matched_spv_df.iterrows()
+                      for _, r in active_spv_df.iterrows()
                   )
                   calculated_metrics.append(
                       f"• **Total {label}**: Rp {sum_val:,.0f}".replace(",", ".")
@@ -666,11 +701,11 @@ try:
                   col_name = week_cols_map[w]
                   sum_w = sum(
                       parse_number_transaction(r.get(col_name, 0))
-                      for _, r in matched_spv_df.iterrows()
+                      for _, r in active_spv_df.iterrows()
                   )
                   active_outlets = sum(
                       1
-                      for _, r in matched_spv_df.iterrows()
+                      for _, r in active_spv_df.iterrows()
                       if parse_number_transaction(r.get(col_name, 0)) > 0
                   )
                   calculated_metrics.append(
@@ -680,12 +715,16 @@ try:
                   )
 
             response_text = (
-                f"Rekap Total untuk SPV **{str(matched_spv_name).title()}**:\n"
+                f"Rekap Total untuk SPV **{str(matched_spv_name).title()}**"
+                f" *(Tanpa Lead)*:\n"
                 + "\n".join(calculated_metrics)
             )
 
           elif matched_reps_df is not None and not matched_reps_df.empty:
-            total_outlets = len(matched_reps_df)
+            active_reps_df = matched_reps_df[
+                ~matched_reps_df.apply(is_row_lead, axis=1)
+            ]
+            total_outlets = len(active_reps_df)
             calculated_metrics = [f"• **Jumlah Outlet**: {total_outlets} outlet"]
 
             cm_col = next(
@@ -731,7 +770,7 @@ try:
               for col in limit_cols:
                 sum_val = sum(
                     parse_number_general(r.get(col, 0))
-                    for _, r in matched_reps_df.iterrows()
+                    for _, r in active_reps_df.iterrows()
                 )
                 calculated_metrics.append(
                     f"• **Total {col}**: Rp {sum_val:,.0f}".replace(",", ".")
@@ -746,11 +785,11 @@ try:
                   col_name = week_cols_map[w]
                   sum_w = sum(
                       parse_number_transaction(r.get(col_name, 0))
-                      for _, r in matched_reps_df.iterrows()
+                      for _, r in active_reps_df.iterrows()
                   )
                   active_outlets = sum(
                       1
-                      for _, r in matched_reps_df.iterrows()
+                      for _, r in active_reps_df.iterrows()
                       if parse_number_transaction(r.get(col_name, 0)) > 0
                   )
                   calculated_metrics.append(
@@ -771,7 +810,7 @@ try:
                 if col:
                   sum_val = sum(
                       parse_number_general(r.get(col, 0))
-                      for _, r in matched_reps_df.iterrows()
+                      for _, r in active_reps_df.iterrows()
                   )
                   calculated_metrics.append(
                       f"• **Total {label}**: Rp {sum_val:,.0f}".replace(",", ".")
@@ -786,11 +825,11 @@ try:
                   col_name = week_cols_map[w]
                   sum_w = sum(
                       parse_number_transaction(r.get(col_name, 0))
-                      for _, r in matched_reps_df.iterrows()
+                      for _, r in active_reps_df.iterrows()
                   )
                   active_outlets = sum(
                       1
-                      for _, r in matched_reps_df.iterrows()
+                      for _, r in active_reps_df.iterrows()
                       if parse_number_transaction(r.get(col_name, 0)) > 0
                   )
                   calculated_metrics.append(
@@ -801,11 +840,11 @@ try:
 
             response_text = (
                 f"Rekap Total untuk Sales Rep"
-                f" **{str(matched_reps_name).title()}**:\n"
+                f" **{str(matched_reps_name).title()}** *(Tanpa Lead)*:\n"
                 + "\n".join(calculated_metrics)
             )
 
-          elif target_row is not None:
+          elif target_row is not None and not is_row_lead(target_row):
             display_name = target_row.get(name_col, "Outlet Ditemukan")
             calculated_metrics = []
 
@@ -1030,9 +1069,9 @@ try:
               if not avg_col:
                 avg_col = next(
                     (
-                        c
-                        for c in raw_df.columns
-                        if "average" in c.lower() or "avg" in c.lower()
+                      c
+                      for c in raw_df.columns
+                      if "average" in c.lower() or "avg" in c.lower()
                     ),
                     None,
                 )
@@ -1068,8 +1107,9 @@ try:
               response_text = "\n".join(calculated_metrics)
           else:
             response_text = (
-                "Maaf, data tidak ditemukan. Pastikan nama apotek, ID, sales"
-                " rep, atau SPV yang kamu cari sudah benar."
+                "Maaf, data tidak ditemukan atau outlet tersebut berstatus"
+                " lead/prospek. Pastikan nama apotek, ID, sales rep, atau SPV"
+                " aktif yang kamu cari sudah benar."
             )
 
           st.markdown(response_text)
