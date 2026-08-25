@@ -554,6 +554,13 @@ try:
           or "transaksi mingguan" in last_assistant_msg
       )
 
+      # --- DETEKSI PERINTAH DETAIL LIMIT SEMUA APOTEK ---
+      is_limit_detail_query = (
+          "detail limit semua apotek" in prompt_lower
+          or "semua apotek mu" in prompt_lower
+          or (is_affirmative and ("detail limit semua apotek" in last_assistant_msg or "mau cek detail limit" in last_assistant_msg))
+      )
+
       weeks_requested = []
       if re.search(
           r"\b(w1|week\s*1|week1|minggu\s*1|minggu1|ke\s*1)\b", prompt_lower
@@ -654,6 +661,7 @@ try:
           and not is_mtu_query
           and not is_daily_query
           and not is_leaderboard_query
+          and not is_limit_detail_query
       )
       is_mission_query = (
           any(
@@ -820,7 +828,101 @@ try:
             == str(matched_reps_name).strip().lower()
         ]
 
-      if is_leaderboard_query:
+      # --- HANDLER: DETAIL LIMIT SEMUA APOTEK (DIURUTKAN DARI TERTINGGI KE TERENDAH) ---
+      if is_limit_detail_query:
+        scope_df = raw_df
+        scope_name = "Semua Area"
+        if matched_spv_df is not None and not matched_spv_df.empty:
+          scope_df = matched_spv_df
+          scope_name = f"SPV {str(matched_spv_name).title()}"
+        elif matched_reps_df is not None and not matched_reps_df.empty:
+          scope_df = matched_reps_df
+          scope_name = f"Sales Rep {str(matched_reps_name).title()}"
+        elif st.session_state.active_scope_type == "spv" and st.session_state.active_scope_name:
+          scope_name = f"SPV {str(st.session_state.active_scope_name).title()}"
+          scope_df = raw_df[
+              raw_df[spv_col].astype(str).str.strip().str.lower()
+              == str(st.session_state.active_scope_name).strip().lower()
+          ]
+        elif st.session_state.active_scope_type == "reps" and st.session_state.active_scope_name:
+          scope_name = f"Sales Rep {str(st.session_state.active_scope_name).title()}"
+          scope_df = raw_df[
+              raw_df[reps_col].astype(str).str.strip().str.lower()
+              == str(st.session_state.active_scope_name).strip().lower()
+          ]
+
+        limit_cols = [
+            c
+            for c in raw_df.columns
+            if any(
+                term in c.lower()
+                for term in ["limit", "plafond", "sisa", "avail"]
+            )
+        ]
+        
+        # Pilih kolom limit utama untuk pengurutan (prioritaskan 'limit' / 'plafond' murni)
+        primary_limit_col = next(
+            (c for c in limit_cols if "sisa" not in c.lower() and "avail" not in c.lower()),
+            limit_cols[0] if limit_cols else None
+        )
+
+        outlet_limits = []
+        for _, r in scope_df.iterrows():
+          if is_row_lead(r):
+            continue
+          o_name = r.get(name_col, "Unknown")
+          o_sales = r.get(reps_col, "-") if reps_col else "-"
+          val_lim = parse_number_general(r.get(primary_limit_col, 0)) if primary_limit_col else 0.0
+          
+          lim_vals = {col: parse_number_general(r.get(col, 0)) for col in limit_cols}
+          outlet_limits.append((str(o_name).strip(), o_sales, val_lim, lim_vals))
+
+        # Urutkan dari limit tertinggi sampai terendah (Descending)
+        outlet_limits.sort(key=lambda x: x[2], reverse=True)
+
+        with st.chat_message("assistant", avatar="🤖"):
+          with st.spinner("Menyusun detail limit semua apotek..."):
+            res_lines = [
+                f"### 💳 Detail Limit Semua Apotek (Urutan Tertinggi ke Terendah)\n*Lingkup: {scope_name}*\n---",
+                f"**Total Outlet Ditampilkan:** **{len(outlet_limits)} outlet** *(Lead disingkirkan)*\n"
+            ]
+            export_data = []
+            if outlet_limits:
+              for rank, (o_name, o_sales, val_main, lim_vals) in enumerate(outlet_limits, 1):
+                sales_str = f"   * 👤 Sales: <span style='color: #000000; font-weight: bold;'>{o_sales}</span>\n"
+                lim_details_str = ""
+                export_row = {"Nama Outlet": o_name, "Sales": o_sales}
+                for col_name, col_val in lim_vals.items():
+                  fmt_v = f"Rp {col_val:,.0f}".replace(",", ".")
+                  lim_details_str += f"   * 💳 {col_name}: <span style='color: #000000; font-weight: bold;'>{fmt_v}</span>\n"
+                  export_row[col_name] = col_val
+                export_data.append(export_row)
+
+                medal = "🥇" if rank == 1 else "🥈" if rank == 2 else "🥉" if rank == 3 else f"{rank}."
+                res_lines.append(
+                    f"{medal} **{o_name.title()}**\n"
+                    f"{sales_str}"
+                    f"{lim_details_str}"
+                )
+
+              df_lim_export = pd.DataFrame(export_data)
+              csv_lim_data = df_lim_export.to_csv(index=False).encode("utf-8")
+              st.download_button(
+                  label="📥 Download Detail Limit Semua Apotek (CSV)",
+                  data=csv_lim_data,
+                  file_name="detail_limit_semua_apotek.csv",
+                  mime="text/csv",
+              )
+            else:
+              res_lines.append("Tidak ada data limit outlet yang ditemukan pada lingkup ini.")
+
+            response_text = "\n".join(res_lines)
+            st.markdown(response_text, unsafe_allow_html=True)
+            st.session_state.messages.append(
+                {"role": "assistant", "content": response_text}
+            )
+
+      elif is_leaderboard_query:
         scope_df = raw_df
         scope_name = "Semua Area"
         if matched_spv_name:
@@ -1560,6 +1662,10 @@ try:
                         f"- **{col}**: <span style='color: #000000;"
                         f" font-weight: bold;'>{val_formatted}</span>"
                     )
+                  # TAMBAHAN: Kalimat Ajakan / Pertanyaan Lanjutan
+                  calculated_metrics.append(
+                      "\n💡 Mau cek detail limit semua apotek mu? Silahkan ketik **'boleh'** atau **'detail limit semua apotek'**."
+                  )
                   response_text = "\n".join(calculated_metrics)
                 else:
                   response_text = (
@@ -1863,6 +1969,10 @@ try:
                       f"- **Total {col}**: <span style='color: #000000;"
                       f" font-weight: bold;'>{formatted_val}</span>"
                   )
+                # TAMBAHAN: Kalimat Ajakan / Pertanyaan Lanjutan
+                calculated_metrics.append(
+                    "\n💡 Mau cek detail limit semua apotek mu? Silahkan ketik **'boleh'** atau **'detail limit semua apotek'**."
+                )
               elif is_wtu_query:
                 calculated_metrics.append(
                     "\n#### 📅 Performa WTU Per Week & Transaksi"
@@ -2003,6 +2113,10 @@ try:
                       f"- **Total {col}**: <span style='color: #000000;"
                       f" font-weight: bold;'>{formatted_val}</span>"
                   )
+                # TAMBAHAN: Kalimat Ajakan / Pertanyaan Lanjutan
+                calculated_metrics.append(
+                    "\n💡 Mau cek detail limit semua apotek mu? Silahkan ketik **'boleh'** atau **'detail limit semua apotek'**."
+                )
               elif is_wtu_query:
                 calculated_metrics.append(
                     "\n#### 📅 Performa WTU Per Week & Transaksi"
