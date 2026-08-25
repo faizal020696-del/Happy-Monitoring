@@ -291,6 +291,7 @@ try:
     ]
   spv_col = spv_cols[0] if spv_cols else None
 
+  # --- SESSION STATE INITIALIZATION ---
   if "messages" not in st.session_state:
     st.session_state.messages = [{
         "role": "assistant",
@@ -310,6 +311,51 @@ try:
     st.session_state.current_rep = None
   if "awaiting_rep_name" not in st.session_state:
     st.session_state.awaiting_rep_name = False
+
+  # --- SIDEBAR PANEL (TAMBAHAN BARU UNTUK KONTROL SESI & RINGKASAN) ---
+  with st.sidebar:
+    st.markdown("### 🛠️ Panel Kontrol SPV")
+    st.markdown("---")
+
+    # Status Sesi Aktif
+    current_rep_display = (
+        st.session_state.current_rep
+        if st.session_state.current_rep
+        else "Belum diset (Mode Umum)"
+    )
+    st.markdown(f"**👤 Active Rep:** `{current_rep_display}`")
+
+    active_scope_display = (
+        f"{st.session_state.active_scope_type.upper()}:"
+        f" {st.session_state.active_scope_name}"
+        if st.session_state.active_scope_type
+        else "Semua Area / Global"
+    )
+    st.markdown(f"**📍 Active Scope:** `{active_scope_display}`")
+    st.markdown("---")
+
+    # Tombol Reset Sesi
+    if st.button("🔄 Reset Sesi & Chat", use_container_width=True):
+      st.session_state.messages = [{
+          "role": "assistant",
+          "content": (
+              "### Halo, SPV! 👋\nSesi telah direset. Ada data outlet, sales"
+              " rep, atau SPV yang mau dicek hari ini?"
+          ),
+      }]
+      st.session_state.active_scope_type = None
+      st.session_state.active_scope_name = None
+      st.session_state.awaiting_daily_scope = False
+      st.session_state.current_rep = None
+      st.session_state.awaiting_rep_name = False
+      st.rerun()
+
+    st.markdown("---")
+    st.markdown(
+        "💡 **Tips Cepat:**\n- Ketik nama outlet atau ID untuk cek detail.\n- Ketik"
+        " *'Top 10'* untuk leaderboard GMV.\n- Ketik *'transaksi hari ini'* untuk"
+        " cek daily GMV."
+    )
 
   for message in st.session_state.messages:
     avatar = "👤" if message["role"] == "user" else "🤖"
@@ -657,7 +703,6 @@ try:
       matched_spv_df = None
       matched_spv_name = None
 
-      # Check if user explicitly mentioned a different rep or spv in prompt
       if reps_col:
         for r in raw_df[reps_col].dropna().astype(str).unique():
           if r.strip().lower() in prompt_lower:
@@ -678,7 +723,6 @@ try:
             ]
             break
 
-      # If no explicit scope is in the prompt, but st.session_state.current_rep is set, default to it!
       if (
           st.session_state.current_rep
           and not matched_reps_name
@@ -1313,7 +1357,6 @@ try:
                     ]
                     break
 
-        # --- PRIORITASKAN PENCARIAN APOTEK/OUTLET (TARGET_ROW) TERLEBIH DAHULU ---
         search_df = (
             matched_reps_df
             if (matched_reps_df is not None and not matched_reps_df.empty)
@@ -1398,7 +1441,6 @@ try:
 
         with st.chat_message("assistant", avatar="🤖"):
           with st.spinner("Mengecek data..."):
-            # PRIORITAS 1: Jika user menanyakan detail apotek/outlet spesifik
             if target_row is not None and not is_row_lead(target_row):
               display_name = target_row.get(name_col, "Outlet Ditemukan")
               calculated_metrics = []
@@ -1680,7 +1722,6 @@ try:
                   {"role": "assistant", "content": response_text}
               )
 
-            # PRIORITAS 2: Rekap SPV
             elif matched_spv_df is not None and not matched_spv_df.empty:
               st.session_state.active_scope_type = "spv"
               st.session_state.active_scope_name = matched_spv_name
@@ -1821,7 +1862,6 @@ try:
                   {"role": "assistant", "content": response_text}
               )
 
-            # PRIORITAS 3: Rekap Sales Rep
             elif matched_reps_df is not None and not matched_reps_df.empty:
               st.session_state.active_scope_type = "reps"
               st.session_state.active_scope_name = matched_reps_name
