@@ -447,15 +447,19 @@ try:
           if is_row_lead(r):
             continue
 
-          # --- FILTER PENGAMAN KETAT MENGHAPUS 'NaN' / KOSONG ---
           out_name = r.get(name_col, None)
           if pd.isna(out_name):
             continue
-          
+
           out_name_str = str(out_name).strip()
-          if not out_name_str or out_name_str.lower() in ["nan", "none", "-", "", "nat"]:
+          if not out_name_str or out_name_str.lower() in [
+              "nan",
+              "none",
+              "-",
+              "",
+              "nat",
+          ]:
             continue
-          # ---------------------------------------------------
 
           val_tx = parse_number_transaction(r.get(col_target_week, 0))
           if val_tx == 0:
@@ -495,9 +499,12 @@ try:
                     hist_str_parts.append(f"**{w_label}**: {formatted_val}")
                 hist_joined = " | ".join(hist_str_parts)
 
+                # DIUBAH MENJADI HITAM BOLD (HTML)
                 res_lines.append(
                     f"**{idx_out}. {str(o_name).title()}**\n"
-                    f"   * 👤 Sales: `{o_sales}`\n"
+                    "   * 👤 Sales:"
+                    f" <span style='color: #000000; font-weight:"
+                    f" bold;'>{o_sales}</span>\n"
                     f"   * 📊 Histori: {hist_joined}\n"
                 )
             else:
@@ -1064,7 +1071,6 @@ try:
                   else:
                     val_str_fmt = val_str_raw
 
-                  # HTML SPAN UNTUK UKURAN LEBIH BESAR & BOLD
                   styled_val_str = (
                       f"<span style='font-size: 1.1rem; font-weight:"
                       f" 700;'>{val_str_fmt}</span>"
