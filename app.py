@@ -138,6 +138,7 @@ try:
         or "visit" in line_lower
         or "misi" in line_lower
         or "wtu" in line_lower
+        or "daily" in line_lower
     ) and (
         "name" in line_lower
         or "nama" in line_lower
@@ -224,6 +225,26 @@ try:
         ),
         None,
     )
+
+  # Deteksi kolom Daily GMV (bisa dinamai: Daily GMV, Hari Ini, Today, Harian, dll)
+  daily_gmv_col = next(
+      (
+          c
+          for c in raw_df.columns
+          if any(
+              term in c.lower()
+              for term in [
+                  "daily gmv",
+                  "daily",
+                  "hari ini",
+                  "today",
+                  "harian",
+                  "gmv hari",
+              ]
+          )
+      ),
+      None,
+  )
 
   name_cols = [
       c
@@ -348,6 +369,16 @@ try:
         or "outlet yang belum ada mtu" in prompt_lower
     )
 
+    # Deteksi query Daily / Hari Ini
+    is_daily_query = (
+        any(
+            k in prompt_lower
+            for k in ["hari ini", "today", "daily", "harian", "transaksi hari ini"]
+        )
+        and not weeks_requested
+        and not is_untransacted_query
+    )
+
     is_mtu_query = (
         any(k in prompt_lower for k in ["mtu", "monthly transactional"])
         or (
@@ -358,14 +389,17 @@ try:
             "bulan ini" in prompt_lower
             and any(k in prompt_lower for k in ["transaksi", "trx", "aktif"])
         )
-    ) and not is_agreeing_to_untransacted
+    ) and not is_agreeing_to_untransacted and not is_daily_query
 
-    is_cm_untransacted_query = (has_negative and (
-        "bulan ini" in prompt_lower
-        or "cm" in prompt_lower
-        or "gmv" in prompt_lower
-        or "mtu" in prompt_lower
-    )) or is_agreeing_to_untransacted
+    is_cm_untransacted_query = (
+        has_negative
+        and (
+            "bulan ini" in prompt_lower
+            or "cm" in prompt_lower
+            or "gmv" in prompt_lower
+            or "mtu" in prompt_lower
+        )
+    ) or is_agreeing_to_untransacted
 
     is_limit_query = (
         any(
@@ -384,6 +418,7 @@ try:
         and not is_untransacted_query
         and not is_cm_untransacted_query
         and not is_mtu_query
+        and not is_daily_query
     )
     is_mission_query = (
         any(
@@ -394,6 +429,7 @@ try:
         and not is_untransacted_query
         and not is_cm_untransacted_query
         and not is_mtu_query
+        and not is_daily_query
     )
     is_visit_query = (
         any(k in prompt_lower for k in ["visit", "kunjungan"])
@@ -401,6 +437,7 @@ try:
         and not is_untransacted_query
         and not is_cm_untransacted_query
         and not is_mtu_query
+        and not is_daily_query
     )
     is_wtu_query = (
         any(k in prompt_lower for k in ["wtu"])
@@ -408,6 +445,7 @@ try:
         and not is_untransacted_query
         and not is_cm_untransacted_query
         and not is_mtu_query
+        and not is_daily_query
     )
     is_dpd_query = (
         any(k in prompt_lower for k in ["dpd", "jatuh tempo", "overdue"])
@@ -415,6 +453,7 @@ try:
         and not is_untransacted_query
         and not is_cm_untransacted_query
         and not is_mtu_query
+        and not is_daily_query
     )
     is_trx_date_query = any(
         k in prompt_lower
@@ -494,6 +533,10 @@ try:
         "iya",
         "ok",
         "oke",
+        "hari",
+        "ini",
+        "today",
+        "daily",
     }
 
     target_row = None
@@ -502,7 +545,135 @@ try:
     matched_spv_df = None
     matched_spv_name = None
 
-    if is_cm_untransacted_query or is_mtu_query:
+    if is_daily_query:
+      if spv_col:
+        unique_spvs = raw_df[spv_col].dropna().astype(str).unique()
+        for s in unique_spvs:
+          s_clean = s.strip().lower()
+          if s_clean and s_clean in prompt_lower:
+            matched_spv_name = s
+            matched_spv_df = raw_df[
+                raw_df[spv_col].astype(str).str.strip().str.lower() == s_clean
+            ]
+            break
+
+      if reps_col and (matched_spv_df is None or matched_spv_df.empty):
+        unique_reps = raw_df[reps_col].dropna().astype(str).unique()
+        for r in unique_reps:
+          r_clean = r.strip().lower()
+          if r_clean and r_clean in prompt_lower:
+            matched_reps_name = r
+            matched_reps_df = raw_df[
+                raw_df[reps_col].astype(str).str.strip().str.lower() == r_clean
+            ]
+            break
+
+      if (
+          (matched_spv_df is None or matched_spv_df.empty)
+          and (matched_reps_df is None or matched_reps_df.empty)
+          and st.session_state.active_scope_name
+      ):
+        if st.session_state.active_scope_type == "spv":
+          matched_spv_name = st.session_state.active_scope_name
+          matched_spv_df = raw_df[
+              raw_df[spv_col].astype(str).str.strip().str.lower()
+              == str(matched_spv_name).strip().lower()
+          ]
+        elif st.session_state.active_scope_type == "reps":
+          matched_reps_name = st.session_state.active_scope_name
+          matched_reps_df = raw_df[
+              raw_df[reps_col].astype(str).str.strip().str.lower()
+              == str(matched_reps_name).strip().lower()
+          ]
+
+      scope_df = raw_df
+      scope_name = "Semua Area"
+      if matched_spv_df is not None and not matched_spv_df.empty:
+        scope_df = matched_spv_df
+        scope_name = f"SPV {str(matched_spv_name).title()}"
+        st.session_state.active_scope_type = "spv"
+        st.session_state.active_scope_name = matched_spv_name
+      elif matched_reps_df is not None and not matched_reps_df.empty:
+        scope_df = matched_reps_df
+        scope_name = f"Sales Rep {str(matched_reps_name).title()}"
+        st.session_state.active_scope_type = "reps"
+        st.session_state.active_scope_name = matched_reps_name
+
+      daily_outlets = []
+      if daily_gmv_col:
+        for _, r in scope_df.iterrows():
+          if is_row_lead(r):
+            continue
+          out_name = r.get(name_col, None)
+          if pd.isna(out_name) or not str(out_name).strip():
+            continue
+          out_name_str = str(out_name).strip()
+          val_daily = parse_number_general(r.get(daily_gmv_col, 0))
+          out_sales = r.get(reps_col, "-") if reps_col else "-"
+
+          if val_daily > 0:
+            daily_outlets.append((out_name_str, out_sales, val_daily))
+
+        with st.chat_message("assistant", avatar="🤖"):
+          with st.spinner("Mengecek data transaksi hari ini..."):
+            total_count = len(daily_outlets)
+            total_gmv = sum(item[2] for item in daily_outlets)
+            formatted_total_gmv = f"Rp {total_gmv:,.0f}".replace(",", ".")
+
+            res_lines = [
+                (
+                    f"### ☀️ Ringkasan Transaksi Hari Ini\n*Lingkup:"
+                    f" {scope_name}*\n---"
+                ),
+                (
+                    f"- **Total Outlet Transaksi Hari Ini**: <span"
+                    f" style='color: #000000; font-weight:"
+                    f" bold;'>{total_count} outlet</span>"
+                ),
+                (
+                    f"- **Total Akumulasi GMV Hari Ini**: <span"
+                    f" style='color: #000000; font-weight:"
+                    f" bold;'>{formatted_total_gmv}</span>\n"
+                ),
+                (
+                    "#### 📋 Daftar Outlet yang Sudah Transaksi Hari Ini:"
+                ),
+            ]
+
+            if daily_outlets:
+              for idx_out, (o_name, o_sales, o_daily) in enumerate(
+                  daily_outlets, 1
+              ):
+                formatted_daily = f"Rp {o_daily:,.0f}".replace(",", ".")
+                res_lines.append(
+                    f"**{idx_out}. {str(o_name).title()}**\n"
+                    f"   * 👤 Sales: <span style='color: #000000; font-weight: bold;'>{o_sales}</span>\n"
+                    f"   * 💰 Daily GMV: <span style='color: #000000; font-weight: bold;'>{formatted_daily}</span>\n"
+                )
+            else:
+              res_lines.append(
+                  "Belum ada outlet yang tercatat transaksi hari ini."
+              )
+
+            response_text = "\n".join(res_lines)
+            st.markdown(response_text, unsafe_allow_html=True)
+            st.session_state.messages.append(
+                {"role": "assistant", "content": response_text}
+            )
+      else:
+        with st.chat_message("assistant", avatar="🤖"):
+          response_text = (
+              "⚠️ Kolom untuk **Daily GMV** (atau transaksi hari ini) belum"
+              " terdeteksi di Google Sheet. Pastikan di GSheet kamu ada kolom"
+              " dengan nama yang mengandung kata 'daily', 'hari ini', atau"
+              " 'today'."
+          )
+          st.markdown(response_text, unsafe_allow_html=True)
+          st.session_state.messages.append(
+              {"role": "assistant", "content": response_text}
+          )
+
+    elif is_cm_untransacted_query or is_mtu_query:
       if spv_col:
         unique_spvs = raw_df[spv_col].dropna().astype(str).unique()
         for s in unique_spvs:
@@ -983,7 +1154,7 @@ try:
                 ~matched_spv_df.apply(is_row_lead, axis=1)
             ]
             total_outlets = len(active_spv_df)
-            
+
             mtu_count = 0
             if cm_col:
               for _, r in active_spv_df.iterrows():
