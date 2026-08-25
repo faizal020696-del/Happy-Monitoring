@@ -226,7 +226,6 @@ try:
         None,
     )
 
-  # Deteksi kolom Daily GMV (bisa dinamai: Daily GMV, Hari Ini, Today, Harian, dll)
   daily_gmv_col = next(
       (
           c
@@ -369,7 +368,6 @@ try:
         or "outlet yang belum ada mtu" in prompt_lower
     )
 
-    # Deteksi query Daily / Hari Ini
     is_daily_query = (
         any(
             k in prompt_lower
@@ -401,6 +399,20 @@ try:
         )
     ) or is_agreeing_to_untransacted
 
+    # --- TAMBAHAN FITUR LANJUTAN BARU (LEADERBOARD & EXPORT) ---
+    is_leaderboard_query = any(
+        k in prompt_lower
+        for k in [
+            "top",
+            "tertinggi",
+            "terbesar",
+            "ranking",
+            "peringkat",
+            "juara",
+            "best",
+        ]
+    )
+
     is_limit_query = (
         any(
             k in prompt_lower
@@ -419,6 +431,7 @@ try:
         and not is_cm_untransacted_query
         and not is_mtu_query
         and not is_daily_query
+        and not is_leaderboard_query
     )
     is_mission_query = (
         any(
@@ -430,6 +443,7 @@ try:
         and not is_cm_untransacted_query
         and not is_mtu_query
         and not is_daily_query
+        and not is_leaderboard_query
     )
     is_visit_query = (
         any(k in prompt_lower for k in ["visit", "kunjungan"])
@@ -438,6 +452,7 @@ try:
         and not is_cm_untransacted_query
         and not is_mtu_query
         and not is_daily_query
+        and not is_leaderboard_query
     )
     is_wtu_query = (
         any(k in prompt_lower for k in ["wtu"])
@@ -446,6 +461,7 @@ try:
         and not is_cm_untransacted_query
         and not is_mtu_query
         and not is_daily_query
+        and not is_leaderboard_query
     )
     is_dpd_query = (
         any(k in prompt_lower for k in ["dpd", "jatuh tempo", "overdue"])
@@ -454,6 +470,7 @@ try:
         and not is_cm_untransacted_query
         and not is_mtu_query
         and not is_daily_query
+        and not is_leaderboard_query
     )
     is_trx_date_query = any(
         k in prompt_lower
@@ -537,6 +554,9 @@ try:
         "ini",
         "today",
         "daily",
+        "top",
+        "tertinggi",
+        "ranking",
     }
 
     target_row = None
@@ -545,7 +565,87 @@ try:
     matched_spv_df = None
     matched_spv_name = None
 
-    if is_daily_query:
+    if is_leaderboard_query:
+      scope_df = raw_df
+      scope_name = "Semua Area"
+      if spv_col:
+        for s in raw_df[spv_col].dropna().astype(str).unique():
+          if s.strip().lower() in prompt_lower:
+            matched_spv_name = s
+            scope_df = raw_df[
+                raw_df[spv_col].astype(str).str.strip().str.lower()
+                == s.strip().lower()
+            ]
+            scope_name = f"SPV {s.title()}"
+            break
+
+      if reps_col and scope_df.equals(raw_df):
+        for r in raw_df[reps_col].dropna().astype(str).unique():
+          if r.strip().lower() in prompt_lower:
+            matched_reps_name = r
+            scope_df = raw_df[
+                raw_df[reps_col].astype(str).str.strip().str.lower()
+                == r.strip().lower()
+            ]
+            scope_name = f"Sales Rep {r.title()}"
+            break
+
+      with st.chat_message("assistant", avatar="🤖"):
+        with st.spinner("Menyusun peringkat (Leaderboard) outlet..."):
+          scored_outlets = []
+          for _, r in scope_df.iterrows():
+            if is_row_lead(r):
+              continue
+            o_name = r.get(name_col, "Unknown")
+            o_sales = r.get(reps_col, "-") if reps_col else "-"
+            val_cm = parse_number_general(r.get(cm_col, 0)) if cm_col else 0
+            if val_cm > 0:
+              scored_outlets.append((str(o_name).strip(), o_sales, val_cm))
+
+          scored_outlets.sort(key=lambda x: x[2], reverse=True)
+          top_10 = scored_outlets[:10]
+
+          res_lines = [
+              f"### 🏆 Top 10 Outlet GMV Tertinggi (CM)\n*Lingkup: {scope_name}*\n---",
+          ]
+          if top_10:
+            for rank, (o_name, o_sales, o_val) in enumerate(top_10, 1):
+              fmt_val = f"Rp {o_val:,.0f}".replace(",", ".")
+              medal = (
+                  "🥇"
+                  if rank == 1
+                  else "🥈" if rank == 2 else "🥉" if rank == 3 else f"{rank}."
+              )
+              res_lines.append(
+                  f"{medal} **{o_name.title()}**\n"
+                  f"   * 👤 Sales: <span style='color: #000000; font-weight: bold;'>{o_sales}</span>\n"
+                  f"   * 💰 CM: <span style='color: #000000; font-weight: bold;'>{fmt_val}</span>\n"
+              )
+
+            # Export Button untuk Leaderboard
+            df_export = pd.DataFrame(
+                top_10, columns=["Nama Outlet", "Sales", "CM GMV"]
+            )
+            csv_data = df_export.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="📥 Download Top 10 Leaderboard (CSV)",
+                data=csv_data,
+                file_name="top_10_outlet_gmv.csv",
+                mime="text/csv",
+            )
+          else:
+            res_lines.append(
+                "Belum ada data outlet dengan transaksi CM > 0 pada lingkup"
+                " ini."
+            )
+
+          response_text = "\n".join(res_lines)
+          st.markdown(response_text, unsafe_allow_html=True)
+          st.session_state.messages.append(
+              {"role": "assistant", "content": response_text}
+          )
+
+    elif is_daily_query:
       if spv_col:
         unique_spvs = raw_df[spv_col].dropna().astype(str).unique()
         for s in unique_spvs:
@@ -650,6 +750,20 @@ try:
                     f"   * 👤 Sales: <span style='color: #000000; font-weight: bold;'>{o_sales}</span>\n"
                     f"   * 💰 Daily GMV: <span style='color: #000000; font-weight: bold;'>{formatted_daily}</span>\n"
                 )
+
+              # Export Button untuk Daily Transactions
+              df_daily_export = pd.DataFrame(
+                  daily_outlets, columns=["Nama Outlet", "Sales", "Daily GMV"]
+              )
+              csv_data_daily = df_daily_export.to_csv(index=False).encode(
+                  "utf-8"
+              )
+              st.download_button(
+                  label="📥 Download Data Transaksi Hari Ini (CSV)",
+                  data=csv_data_daily,
+                  file_name="transaksi_hari_ini.csv",
+                  mime="text/csv",
+              )
             else:
               res_lines.append(
                   "Belum ada outlet yang tercatat transaksi hari ini."
@@ -790,6 +904,21 @@ try:
                       f"   * 📊 CM: <span style='color: #000000; font-weight: bold;'>{formatted_cm}</span>\n"
                       f"   * 💡 AVG L3M: <span style='color: #000000; font-weight: bold;'>{formatted_avg}</span>\n\n"
                   )
+
+                # Export Button untuk Untransacted CM
+                df_untrans_export = pd.DataFrame(
+                    untransacted_cm_outlets,
+                    columns=["Nama Outlet", "Sales", "CM", "AVG L3M"],
+                )
+                csv_untrans_data = df_untrans_export.to_csv(index=False).encode(
+                    "utf-8"
+                )
+                st.download_button(
+                    label="📥 Download Daftar Outlet Belum MTU (CSV)",
+                    data=csv_untrans_data,
+                    file_name="outlet_belum_mtu.csv",
+                    mime="text/csv",
+                )
               else:
                 res_lines.append(
                     "🔥 **Luar Biasa!** Semua outlet aktif sudah tercatat"
@@ -904,6 +1033,22 @@ try:
                     f"   * 👤 Sales: <span style='color: #000000; font-weight: bold;'>{o_sales}</span>\n"
                     f"   * 📊 Histori: {hist_str}\n\n"
                 )
+
+              # Export Button untuk WTU Untransacted
+              df_wtu_export = pd.DataFrame(
+                  [
+                      (n, s, w["W1"], w["W2"], w["W3"], w["W4"])
+                      for n, s, w in untransacted_wtu
+                  ],
+                  columns=["Nama Outlet", "Sales", "W1", "W2", "W3", "W4"],
+              )
+              csv_wtu_data = df_wtu_export.to_csv(index=False).encode("utf-8")
+              st.download_button(
+                  label=f"📥 Download Outlet Belum Transaksi {target_week_label} (CSV)",
+                  data=csv_wtu_data,
+                  file_name=f"outlet_belum_trx_{target_week_label.lower()}.csv",
+                  mime="text/csv",
+              )
             else:
               res_lines.append(
                   "🔥 Mantap! Semua outlet sudah ada transaksi di minggu ini."
@@ -1241,6 +1386,7 @@ try:
                   )
 
               calculated_metrics.append("\n#### 📅 Performa Mingguan (W1 - W4)")
+              chart_data_dict = {}
               for w in ["W1", "W2", "W3", "W4"]:
                 if w in week_cols_map:
                   col_name = week_cols_map[w]
@@ -1259,12 +1405,25 @@ try:
                       f" bold;'>{formatted_val}</span> *({active_outlets}"
                       " outlet trx)*"
                   )
+                  chart_data_dict[w] = sum_w
               calculated_metrics.append(
                   "\n#### 💡 Ingin melihat daftar outlet yang belum"
                   " transaksi/WTU? Jawab saja: *'boleh'*."
               )
 
             response_text = "\n".join(calculated_metrics)
+            st.markdown(response_text, unsafe_allow_html=True)
+
+            # --- Visualisasi Grafik Batang Opsional ---
+            if not is_limit_query and not is_wtu_query and week_cols_map:
+              chart_df = pd.DataFrame(
+                  list(chart_data_dict.items()), columns=["Minggu", "Total GMV"]
+              ).set_index("Minggu")
+              st.bar_chart(chart_df)
+
+            st.session_state.messages.append(
+                {"role": "assistant", "content": response_text}
+            )
 
           elif matched_reps_df is not None and not matched_reps_df.empty:
             st.session_state.active_scope_type = "reps"
@@ -1361,6 +1520,7 @@ try:
                   )
 
               calculated_metrics.append("\n#### 📅 Performa Mingguan (W1 - W4)")
+              chart_data_dict = {}
               for w in ["W1", "W2", "W3", "W4"]:
                 if w in week_cols_map:
                   col_name = week_cols_map[w]
@@ -1379,12 +1539,24 @@ try:
                       f" bold;'>{formatted_val}</span> *({active_outlets}"
                       " outlet trx)*"
                   )
+                  chart_data_dict[w] = sum_w
               calculated_metrics.append(
                   "\n#### 💡 Ingin melihat daftar outlet yang belum"
                   " transaksi/WTU? Jawab saja: *'boleh'*."
               )
 
             response_text = "\n".join(calculated_metrics)
+            st.markdown(response_text, unsafe_allow_html=True)
+
+            if not is_limit_query and not is_wtu_query and week_cols_map:
+              chart_df = pd.DataFrame(
+                  list(chart_data_dict.items()), columns=["Minggu", "Total GMV"]
+              ).set_index("Minggu")
+              st.bar_chart(chart_df)
+
+            st.session_state.messages.append(
+                {"role": "assistant", "content": response_text}
+            )
 
           elif target_row is not None and not is_row_lead(target_row):
             display_name = target_row.get(name_col, "Outlet Ditemukan")
@@ -1641,16 +1813,20 @@ try:
                   )
 
               response_text = "\n".join(calculated_metrics)
+
+            st.markdown(response_text, unsafe_allow_html=True)
+            st.session_state.messages.append(
+                {"role": "assistant", "content": response_text}
+            )
           else:
             response_text = (
                 "⚠️ Maaf, data tidak ditemukan atau outlet tersebut berstatus"
                 " lead/prospek. Pastikan nama apotek, ID, sales rep, atau SPV"
                 " aktif yang kamu cari sudah benar."
             )
-
-          st.markdown(response_text, unsafe_allow_html=True)
-          st.session_state.messages.append(
-              {"role": "assistant", "content": response_text}
-          )
+            st.markdown(response_text, unsafe_allow_html=True)
+            st.session_state.messages.append(
+                {"role": "assistant", "content": response_text}
+            )
 except Exception as e:
   st.error(f"Terjadi kesalahan saat memuat data: {e}")
