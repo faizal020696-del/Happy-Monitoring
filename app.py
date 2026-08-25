@@ -1300,7 +1300,7 @@ try:
                     ]
                     break
 
-        # --- PERBAIKAN LOGIC: PRIORITASKAN PENCARIAN APOTEK/OUTLET (TARGET_ROW) TERLEBIH DAHULU ---
+        # --- PRIORITASKAN PENCARIAN APOTEK/OUTLET (TARGET_ROW) TERLEBIH DAHULU ---
         search_df = (
             matched_reps_df
             if (matched_reps_df is not None and not matched_reps_df.empty)
@@ -1667,7 +1667,7 @@ try:
                   {"role": "assistant", "content": response_text}
               )
 
-            # PRIORITAS 2: Jika tidak nanya apotek spesifik, cek apakah nanya Rekap SPV
+            # PRIORITAS 2: Rekap SPV
             elif matched_spv_df is not None and not matched_spv_df.empty:
               st.session_state.active_scope_type = "spv"
               st.session_state.active_scope_name = matched_spv_name
@@ -1808,7 +1808,7 @@ try:
                   {"role": "assistant", "content": response_text}
               )
 
-            # PRIORITAS 3: Jika tidak nanya apotek spesifik & SPV, cek apakah nanya Rekap Sales Rep
+            # PRIORITAS 3: Rekap Sales Rep
             elif matched_reps_df is not None and not matched_reps_df.empty:
               st.session_state.active_scope_type = "reps"
               st.session_state.active_scope_name = matched_reps_name
