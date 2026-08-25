@@ -1043,17 +1043,18 @@ try:
                   else:
                     val_str_fmt = val_str_raw
 
+                  # Diubah jadi menggunakan bold hitam biasa tanpa kode inline hijau
                   if any(
                       k in col_lower
                       for k in ["type", "start date", "end date", "duration"]
                   ):
-                    campaign_info.append(f"* **{col}**: `{val_str_fmt}`")
+                    campaign_info.append(f"* **{col}**: **{val_str_fmt}**")
                   elif "gold" in col_lower:
-                    gold_target.append(f"* **{col}**: `{val_str_fmt}`")
+                    gold_target.append(f"* **{col}**: **{val_str_fmt}**")
                   elif any(k in col_lower for k in ["target", "gmv", "gap"]):
-                    reguler_target.append(f"* **{col}**: `{val_str_fmt}`")
+                    reguler_target.append(f"* **{col}**: **{val_str_fmt}**")
                   else:
-                    other_mission.append(f"* **{col}**: `{val_str_fmt}`")
+                    other_mission.append(f"* **{col}**: **{val_str_fmt}**")
 
                 calculated_metrics.append(
                     f"### 🎯 Data Misi: **{str(display_name).title()}**\n---"
