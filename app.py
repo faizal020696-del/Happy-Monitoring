@@ -429,7 +429,6 @@ try:
             break
 
       if target_row is None:
-        # Penanganan khusus jika menanyakan WTU / Data Apotek tertentu
         clean_prompt = prompt_lower
         for kw in [
             "cek",
@@ -788,20 +787,68 @@ try:
                   " ditemukan di sheet."
               )
           elif is_wtu_query:
-            wtu_cols = [c for c in raw_df.columns if "wtu" in c.lower()]
-            if wtu_cols:
-              calculated_metrics.append(
-                  f"### Data WTU untuk **{str(display_name).title()}**\n"
+            calculated_metrics.append(
+                f"### Data Performa WTU / Mingguan untuk"
+                f" **{str(display_name).title()}**"
+            )
+
+            cm_col = next(
+                (c for c in raw_df.columns if c.strip().lower() == "cm"), None
+            )
+            lm_col = next(
+                (c for c in raw_df.columns if c.strip().lower() == "lm"), None
+            )
+            l2m_col = next(
+                (c for c in raw_df.columns if c.strip().lower() == "l2m"), None
+            )
+            l3m_col = next(
+                (c for c in raw_df.columns if c.strip().lower() == "l3m"), None
+            )
+            avg_col = next(
+                (
+                    c
+                    for c in raw_df.columns
+                    if ("average" in c.lower() or "avg" in c.lower())
+                    and "l3m" in c.lower()
+                ),
+                None,
+            )
+            if not avg_col:
+              avg_col = next(
+                  (
+                      c
+                      for c in raw_df.columns
+                      if "average" in c.lower() or "avg" in c.lower()
+                  ),
+                  None,
               )
-              for col in wtu_cols:
-                val_wtu = target_row.get(col, "-")
-                calculated_metrics.append(f"• **{col}**: {val_wtu}")
-              response_text = "\n".join(calculated_metrics)
-            else:
-              response_text = (
-                  f"Data WTU untuk **{str(display_name).title()}** tidak"
-                  " ditemukan di sheet."
-              )
+
+            calculated_metrics.append("**📊 Performa Bulanan:**")
+            target_cols_gmv = [
+                ("CM (Bulan Ini)", cm_col),
+                ("LM (Bulan Lalu)", lm_col),
+                ("L2M", l2m_col),
+                ("L3M", l3m_col),
+                ("Average / AVG L3M", avg_col),
+            ]
+            for label, col in target_cols_gmv:
+              if col:
+                val_parsed = parse_number_general(target_row.get(col, 0))
+                calculated_metrics.append(
+                    f"• **{label}**: Rp {val_parsed:,.0f}".replace(",", ".")
+                )
+
+            calculated_metrics.append("\n**📅 Performa Per Week (Mingguan):**")
+            for w in ["W1", "W2", "W3", "W4"]:
+              if w in week_cols_map:
+                col_name = week_cols_map[w]
+                val_raw = target_row.get(col_name, 0)
+                val_parsed = parse_number_transaction(val_raw)
+                calculated_metrics.append(
+                    f"• **{w}**: Rp {val_parsed:,.0f}".replace(",", ".")
+                )
+
+            response_text = "\n".join(calculated_metrics)
           elif is_trx_date_query:
             trx_date_cols = [
                 c
