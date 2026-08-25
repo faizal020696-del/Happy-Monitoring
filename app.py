@@ -149,7 +149,7 @@ try:
         is_visit_query = any(k in prompt_lower for k in ['visit', 'kunjungan']) and not weeks_requested
         is_wtu_query = any(k in prompt_lower for k in ['wtu']) and not weeks_requested
         is_dpd_query = any(k in prompt_lower for k in ['dpd', 'jatuh tempo', 'overdue']) and not weeks_requested
-        is_first_trx_query = any(k in prompt_lower for k in ['first', 'pertama', 'awal']) and not weeks_requested
+        is_first_trx_query = any(k in prompt_lower for k in ['first', 'pertama', 'awal', 'start']) and not weeks_requested
         is_last_trx_query = any(k in prompt_lower for k in ['last', 'terakhir']) and not weeks_requested
 
         command_words = {
@@ -158,7 +158,7 @@ try:
             'campaign', 'type', 'start', 'date', 'duration', 'target', 'level', 'gmv', 
             'ppn', 'gap', 'hna', 'pencapaian', 'kekurangan', 'info', 'apotek', 'toko', 'wtu',
             'sisa', 'limit', 'avg', 'l3m', 'reps', 'sales', 'pic', 'bulan', 'ini', 'dpd', 'plafond', 'spv', 'jatuh', 'tempo',
-            'first', 'last', 'pertama', 'terakhir'
+            'first', 'last', 'pertama', 'terakhir', 'awal'
         }
 
         target_row = None
@@ -396,7 +396,9 @@ try:
                         else:
                             response_text = f"Data WTU untuk **{str(display_name).title()}** tidak ditemukan di sheet."
                     elif is_first_trx_query:
-                        first_cols = [c for c in raw_df.columns if any(term in c.lower() for term in ['first', 'pertama', 'awal'])]
+                        first_cols = [c for c in raw_df.columns if any(term in c.lower() for term in ['first', 'pertama', 'awal', 'start', 'tgl transaksi pertama', 'tanggal transaksi pertama'])]
+                        if not first_cols:
+                            first_cols = [c for c in raw_df.columns if 'transaksi' in c.lower() and ('pertama' in c.lower() or '1' in c.lower())]
                         if first_cols:
                             calculated_metrics.append(f"### Data Transaksi Pertama untuk **{str(display_name).title()}**\n")
                             for col in first_cols:
