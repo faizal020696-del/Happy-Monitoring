@@ -335,8 +335,8 @@ try:
     st.session_state.messages = [{
         "role": "assistant",
         "content": (
-            "### Halo, Kawan! 👋\nAda data yang perlu "
-            " dicek hari ini?" Silahkan katakan Halo terlebih dahulu"
+            "### Halo, SPV! 👋\nAda data outlet, sales rep, atau SPV yang mau"
+            " dicek hari ini?"
         ),
     }]
 
@@ -405,7 +405,7 @@ try:
       """
       <div class="main-header">
           <h1>🚀 Chatbot Universe SPV Happy</h1>
-          <p>Halo Perkenalkan saya Asisten Pribadi dari Kapten Happy.</p>
+          <p>Asisten intelijen pemantauan performa Sales Rep, Outlet, dan GMV secara real-time.</p>
       </div>
   """,
       unsafe_allow_html=True,
