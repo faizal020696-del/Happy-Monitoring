@@ -613,7 +613,6 @@ try:
                       else "Rp 0"
                   )
 
-                  # FIX: Ditambahkan \n\n di akhir agar antar outlet berjarak dan tidak nempel
                   res_lines.append(
                       f"**{idx_out}. {str(o_name).title()}**\n"
                       f"   * 👤 Sales: <span style='color: #000000; font-weight: bold;'>{o_sales}</span>\n"
@@ -729,7 +728,6 @@ try:
                 hist_str = f"W1: Rp {w_vals.get('W1', 0):,.0f} | W2: Rp {w_vals.get('W2', 0):,.0f} | W3: Rp {w_vals.get('W3', 0):,.0f} | W4: Rp {w_vals.get('W4', 0):,.0f}".replace(
                     ",", "."
                 )
-                # FIX: Ditambahkan \n\n di akhir agar antar outlet berjarak dan tidak nempel ke nomor berikutnya
                 res_lines.append(
                     f"**{idx_w}. {o_name.title()}**\n"
                     f"   * 👤 Sales: <span style='color: #000000; font-weight: bold;'>{o_sales}</span>\n"
@@ -803,7 +801,6 @@ try:
               hist_str = f"W1: Rp {w_vals.get('W1', 0):,.0f} | W2: Rp {w_vals.get('W2', 0):,.0f} | W3: Rp {w_vals.get('W3', 0):,.0f} | W4: Rp {w_vals.get('W4', 0):,.0f}".replace(
                   ",", "."
               )
-              # FIX: Ditambahkan \n\n di akhir agar antar outlet berjarak dan tidak nempel ke nomor berikutnya
               res_lines.append(
                   f"**{idx_w}. {o_name.title()}**\n"
                   f"   * 👤 Sales: <span style='color: #000000; font-weight: bold;'>{o_sales}</span>\n"
@@ -986,6 +983,13 @@ try:
                 ~matched_spv_df.apply(is_row_lead, axis=1)
             ]
             total_outlets = len(active_spv_df)
+            
+            mtu_count = 0
+            if cm_col:
+              for _, r in active_spv_df.iterrows():
+                if parse_number_general(r.get(cm_col, 0)) > 0:
+                  mtu_count += 1
+
             calculated_metrics = [
                 f"### 📊 Rekap Total SPV: **{str(matched_spv_name).title()}**\n---"
             ]
@@ -993,6 +997,11 @@ try:
                 f"- **Jumlah Outlet Aktif**: <span style='color: #000000;"
                 f" font-weight: bold;'>{total_outlets} outlet</span>"
             )
+            if cm_col:
+              calculated_metrics.append(
+                  f"- **Outlet MTU (Sudah Transaksi)**: <span style='color: #000000;"
+                  f" font-weight: bold;'>{mtu_count} outlet</span>"
+              )
 
             if is_limit_query:
               limit_cols = [
@@ -1094,6 +1103,13 @@ try:
                 ~matched_reps_df.apply(is_row_lead, axis=1)
             ]
             total_outlets = len(active_reps_df)
+
+            mtu_count = 0
+            if cm_col:
+              for _, r in active_reps_df.iterrows():
+                if parse_number_general(r.get(cm_col, 0)) > 0:
+                  mtu_count += 1
+
             calculated_metrics = [
                 f"### 📊 Rekap Total Sales Rep: **{str(matched_reps_name).title()}**\n---"
             ]
@@ -1101,6 +1117,11 @@ try:
                 f"- **Jumlah Outlet Aktif**: <span style='color: #000000;"
                 f" font-weight: bold;'>{total_outlets} outlet</span>"
             )
+            if cm_col:
+              calculated_metrics.append(
+                  f"- **Outlet MTU (Sudah Transaksi)**: <span style='color: #000000;"
+                  f" font-weight: bold;'>{mtu_count} outlet</span>"
+              )
 
             if is_limit_query:
               limit_cols = [
