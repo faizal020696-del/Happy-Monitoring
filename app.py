@@ -314,11 +314,17 @@ try:
     )
     is_untransacted_query = has_negative and has_trx_or_wtu
 
-    # Deteksi query outlet belum transaksi bulan ini (berdasarkan CM / GMV bulan ini)
+    # Deteksi query MTU atau outlet belum transaksi bulan ini (berdasarkan CM)
+    is_mtu_query = (
+        any(k in prompt_lower for k in ["mtu", "monthly transactional"])
+        or (has_negative and ("mtu" in prompt_lower or "bulan ini" in prompt_lower))
+        or ("bulan ini" in prompt_lower and any(k in prompt_lower for k in ["transaksi", "trx", "aktif"]))
+    )
     is_cm_untransacted_query = has_negative and (
         "bulan ini" in prompt_lower
         or "cm" in prompt_lower
         or "gmv" in prompt_lower
+        or "mtu" in prompt_lower
     )
 
     is_limit_query = (
@@ -337,6 +343,7 @@ try:
         and not weeks_requested
         and not is_untransacted_query
         and not is_cm_untransacted_query
+        and not is_mtu_query
     )
     is_mission_query = (
         any(
@@ -346,24 +353,28 @@ try:
         and not weeks_requested
         and not is_untransacted_query
         and not is_cm_untransacted_query
+        and not is_mtu_query
     )
     is_visit_query = (
         any(k in prompt_lower for k in ["visit", "kunjungan"])
         and not weeks_requested
         and not is_untransacted_query
         and not is_cm_untransacted_query
+        and not is_mtu_query
     )
     is_wtu_query = (
         any(k in prompt_lower for k in ["wtu"])
         and not weeks_requested
         and not is_untransacted_query
         and not is_cm_untransacted_query
+        and not is_mtu_query
     )
     is_dpd_query = (
         any(k in prompt_lower for k in ["dpd", "jatuh tempo", "overdue"])
         and not weeks_requested
         and not is_untransacted_query
         and not is_cm_untransacted_query
+        and not is_mtu_query
     )
     is_trx_date_query = any(
         k in prompt_lower
@@ -437,6 +448,7 @@ try:
         "yg",
         "yang",
         "ke",
+        "mtu",
     }
 
     target_row = None
@@ -445,7 +457,7 @@ try:
     matched_spv_df = None
     matched_spv_name = None
 
-    if is_cm_untransacted_query:
+    if is_cm_untransacted_query or is_mtu_query:
       if spv_col:
         unique_spvs = raw_df[spv_col].dropna().astype(str).unique()
         for s in unique_spvs:
@@ -477,6 +489,7 @@ try:
         scope_df = matched_reps_df
         scope_name = f"Sales Rep {str(matched_reps_name).title()}"
 
+      mtu_outlets = []
       untransacted_cm_outlets = []
       if cm_col:
         for _, r in scope_df.iterrows():
@@ -498,67 +511,65 @@ try:
             continue
 
           val_cm = parse_number_general(r.get(cm_col, 0))
-          if val_cm == 0:
-            out_sales = r.get(reps_col, "-") if reps_col else "-"
-            val_avg = parse_number_general(r.get(avg_col, 0)) if avg_col else 0
+          out_sales = r.get(reps_col, "-") if reps_col else "-"
+          val_avg = parse_number_general(r.get(avg_col, 0)) if avg_col else 0
 
-            history = {}
-            for w_key, w_colname in week_cols_map.items():
-              history[w_key] = parse_number_transaction(r.get(w_colname, 0))
-
-            untransacted_cm_outlets.append((out_name_str, out_sales, val_cm, val_avg, history))
+          if val_cm > 0:
+            mtu_outlets.append((out_name_str, out_sales, val_cm))
+          else:
+            untransacted_cm_outlets.append((out_name_str, out_sales, val_cm, val_avg))
 
       with st.chat_message("assistant", avatar="🤖"):
-        with st.spinner("Mengecek data outlet belum transaksi bulan ini..."):
+        with st.spinner("Mengecek data MTU dan outlet bulan ini..."):
           if cm_col:
-            res_lines = [
-                f"### 📋 Daftar Outlet Belum Transaksi Bulan Ini (CM / GMV = 0)\n*Lingkup: {scope_name}*"
-            ]
-            res_lines.append(
-                f"---\n**Total Outlet Belum Transaksi Bulan Ini:**"
-                f" **{len(untransacted_cm_outlets)} outlet** *(Lead"
-                " disingkirkan)*\n"
-            )
-            if untransacted_cm_outlets:
-              for idx_out, (o_name, o_sales, o_cm, o_avg, o_hist) in enumerate(
-                  untransacted_cm_outlets, 1
-              ):
-                formatted_cm = f"Rp {o_cm:,.0f}".replace(",", ".")
-                formatted_avg = (
-                    f"Rp {o_avg:,.0f}".replace(",", ".")
-                    if o_avg > 0
-                    else "Rp 0"
-                )
-                
-                hist_str_parts = []
-                for w_label in ["W1", "W2", "W3", "W4"]:
-                  if w_label in o_hist:
-                    val_h = o_hist[w_label]
-                    formatted_val = (
-                        f"Rp {val_h:,.0f}".replace(",", ".")
-                        if val_h > 0
-                        else "Rp 0"
-                    )
-                    hist_str_parts.append(
-                        f"**{w_label}**: <span style='color: #000000;"
-                        f" font-weight: bold;'>{formatted_val}</span>"
-                    )
-                hist_joined = " | ".join(hist_str_parts)
-
-                res_lines.append(
-                    f"**{idx_out}. {str(o_name).title()}**\n"
-                    "   * 👤 Sales:"
-                    f" <span style='color: #000000; font-weight:"
-                    f" bold;'>{o_sales}</span>\n"
-                    f"   * 📊 CM: <span style='color: #000000; font-weight: bold;'>{formatted_cm}</span>\n"
-                    f"   * 💡 AVG L3M: <span style='color: #000000; font-weight: bold;'>{formatted_avg}</span>\n"
-                    f"   * 📅 Histori Mingguan: {hist_joined}\n"
-                )
-            else:
+            # Jika user spesifik nanya yang belum transaksi / belum ada MTU
+            if has_negative or "belum" in prompt_lower:
+              res_lines = [
+                  f"### 📋 Daftar Outlet Belum Ada MTU / Belum Transaksi Bulan Ini (CM = 0)\n*Lingkup: {scope_name}*"
+              ]
               res_lines.append(
-                  "🔥 **Luar Biasa!** Semua outlet aktif sudah tercatat transaksi di bulan ini."
+                  f"---\n**Total Outlet Belum Transaksi:**"
+                  f" **{len(untransacted_cm_outlets)} outlet** *(Lead"
+                  " disingkirkan)*\n"
               )
-            response_text = "\n".join(res_lines)
+              if untransacted_cm_outlets:
+                for idx_out, (o_name, o_sales, o_cm, o_avg) in enumerate(
+                    untransacted_cm_outlets, 1
+                ):
+                  formatted_cm = f"Rp {o_cm:,.0f}".replace(",", ".")
+                  formatted_avg = (
+                      f"Rp {o_avg:,.0f}".replace(",", ".")
+                      if o_avg > 0
+                      else "Rp 0"
+                  )
+
+                  res_lines.append(
+                      f"**{idx_out}. {str(o_name).title()}**\n"
+                      "   * 👤 Sales:"
+                      f" <span style='color: #000000; font-weight:"
+                      f" bold;'>{o_sales}</span>\n"
+                      f"   * 📊 CM: <span style='color: #000000; font-weight: bold;'>{formatted_cm}</span>\n"
+                      f"   * 💡 AVG L3M: <span style='color: #000000; font-weight: bold;'>{formatted_avg}</span>\n"
+                  )
+              else:
+                res_lines.append(
+                    "🔥 **Luar Biasa!** Semua outlet aktif sudah tercatat transaksi di bulan ini."
+                )
+              response_text = "\n".join(res_lines)
+            else:
+              # Ringkasan MTU secara keseluruhan
+              total_mtu_count = len(mtu_outlets)
+              total_mtu_gmv = sum(item[2] for item in mtu_outlets)
+              formatted_total_gmv = f"Rp {total_mtu_gmv:,.0f}".replace(",", ".")
+
+              res_lines = [
+                  f"### 📊 Ringkasan MTU Bulan Ini\n*Lingkup: {scope_name}*\n---",
+                  f"- **Total Outlet MTU (Sudah Transaksi)**: <span style='color: #000000; font-weight: bold;'>{total_mtu_count} outlet</span>",
+                  f"- **Total Akumulasi GMV CM**: <span style='color: #000000; font-weight: bold;'>{formatted_total_gmv}</span>",
+                  f"- **Total Outlet Belum MTU (CM = 0)**: <span style='color: #000000; font-weight: bold;'>{len(untransacted_cm_outlets)} outlet</span>\n",
+                  "#### 💡 Ingin melihat daftar detail outlet yang belum ada MTU? Ketik saja: *'outlet yang belum ada MTU'*."
+              ]
+              response_text = "\n".join(res_lines)
           else:
             response_text = "Kolom **CM** (Current Month) tidak ditemukan di sheet."
 
