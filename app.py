@@ -613,11 +613,12 @@ try:
                       else "Rp 0"
                   )
 
+                  # FIX: Ditambahkan \n\n di akhir agar antar outlet berjarak dan tidak nempel
                   res_lines.append(
                       f"**{idx_out}. {str(o_name).title()}**\n"
                       f"   * 👤 Sales: <span style='color: #000000; font-weight: bold;'>{o_sales}</span>\n"
                       f"   * 📊 CM: <span style='color: #000000; font-weight: bold;'>{formatted_cm}</span>\n"
-                      f"   * 💡 AVG L3M: <span style='color: #000000; font-weight: bold;'>{formatted_avg}</span>\n"
+                      f"   * 💡 AVG L3M: <span style='color: #000000; font-weight: bold;'>{formatted_avg}</span>\n\n"
                   )
               else:
                 res_lines.append(
@@ -728,10 +729,11 @@ try:
                 hist_str = f"W1: Rp {w_vals.get('W1', 0):,.0f} | W2: Rp {w_vals.get('W2', 0):,.0f} | W3: Rp {w_vals.get('W3', 0):,.0f} | W4: Rp {w_vals.get('W4', 0):,.0f}".replace(
                     ",", "."
                 )
+                # FIX: Ditambahkan \n\n di akhir agar antar outlet berjarak dan tidak nempel ke nomor berikutnya
                 res_lines.append(
                     f"**{idx_w}. {o_name.title()}**\n"
                     f"   * 👤 Sales: <span style='color: #000000; font-weight: bold;'>{o_sales}</span>\n"
-                    f"   * 📊 Histori: {hist_str}"
+                    f"   * 📊 Histori: {hist_str}\n\n"
                 )
             else:
               res_lines.append(
@@ -801,10 +803,11 @@ try:
               hist_str = f"W1: Rp {w_vals.get('W1', 0):,.0f} | W2: Rp {w_vals.get('W2', 0):,.0f} | W3: Rp {w_vals.get('W3', 0):,.0f} | W4: Rp {w_vals.get('W4', 0):,.0f}".replace(
                   ",", "."
               )
+              # FIX: Ditambahkan \n\n di akhir agar antar outlet berjarak dan tidak nempel ke nomor berikutnya
               res_lines.append(
                   f"**{idx_w}. {o_name.title()}**\n"
                   f"   * 👤 Sales: <span style='color: #000000; font-weight: bold;'>{o_sales}</span>\n"
-                  f"   * 📊 Histori: {hist_str}"
+                  f"   * 📊 Histori: {hist_str}\n\n"
               )
           else:
             res_lines.append(
